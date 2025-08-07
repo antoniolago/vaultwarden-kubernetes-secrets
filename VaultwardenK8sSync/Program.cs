@@ -1,9 +1,7 @@
-﻿using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using VaultwardenK8sSync.Models;
 using VaultwardenK8sSync.Services;
-using VaultwardenK8sSync.Configuration;
 using dotenv.net;
 
 namespace VaultwardenK8sSync;
@@ -15,16 +13,10 @@ class Program
         try
         {
             // Load .env file
-            DotEnv.Load(options: new DotEnvOptions(probeForEnv: true, probeLevelsToRoot: 2));
+            DotEnv.Load(options: new DotEnvOptions(probeForEnv: true));
             
-            // Build configuration
-            var configuration = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetCurrentDirectory())
-                .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
-                .AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: true)
-                .AddEnvironmentVariables()
-                .AddCommandLine(args)
-                .Build();
+            // Load configuration from environment variables
+            var appSettings = AppSettings.FromEnvironment();
 
             // Build service collection
             var services = new ServiceCollection();
@@ -37,37 +29,40 @@ class Program
                 builder.SetMinimumLevel(LogLevel.Information);
             });
 
-            // Configure services
-            var appConfig = new AppConfiguration();
-            configuration.Bind(appConfig);
-
-            // Validate required configuration
-            var requiredKeys = new[] { "Vaultwarden:ServerUrl", "Vaultwarden:Email", "Vaultwarden:MasterPassword" };
-            var missingKeys = configuration.GetMissingConfigurationKeys(requiredKeys);
-            
-            if (missingKeys.Any())
-            {
-                logger.LogWarning("Missing required configuration keys: {MissingKeys}", string.Join(", ", missingKeys));
-                logger.LogInformation("Please check your .env file or appsettings.json");
-            }
-
             // Register configuration
-            services.AddSingleton(appConfig.Vaultwarden);
-            services.AddSingleton(appConfig.Kubernetes);
-            services.AddSingleton(appConfig.Sync);
+            services.AddSingleton(appSettings.Vaultwarden);
+            services.AddSingleton(appSettings.Kubernetes);
+            services.AddSingleton(appSettings.Sync);
 
             // Register services
             services.AddScoped<IVaultwardenService, VaultwardenService>();
             services.AddScoped<IKubernetesService, KubernetesService>();
             services.AddScoped<ISyncService, SyncService>();
             
-            // Register V2 services (VwConnector-based)
-            services.AddScoped<IVaultwardenServiceV2, VaultwardenServiceV2>();
-            services.AddScoped<ISyncServiceV2, SyncServiceV2>();
-
             // Build service provider
             using var serviceProvider = services.BuildServiceProvider();
             var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+
+            // Validate configuration
+            if (!appSettings.Validate(out var validationResults))
+            {
+                logger.LogWarning("Configuration validation failed:");
+                foreach (var result in validationResults)
+                {
+                    logger.LogWarning("  - {Error}", result.ErrorMessage);
+                }
+                logger.LogInformation("Please check your .env file or environment variables");
+            }
+
+            // Validate API key mode if enabled
+            if (appSettings.Vaultwarden.UseApiKey && !appSettings.Vaultwarden.ValidateApiKeyMode(out var apiKeyValidationResults))
+            {
+                logger.LogWarning("API Key configuration validation failed:");
+                foreach (var result in apiKeyValidationResults)
+                {
+                    logger.LogWarning("  - {Error}", result.ErrorMessage);
+                }
+            }
 
             logger.LogInformation("Vaultwarden Kubernetes Secrets Sync Tool");
             logger.LogInformation("========================================");
@@ -81,9 +76,6 @@ class Program
             var kubernetesService = serviceProvider.GetRequiredService<IKubernetesService>();
             var syncService = serviceProvider.GetRequiredService<ISyncService>();
             
-            // Initialize V2 services
-            var vaultwardenServiceV2 = serviceProvider.GetRequiredService<IVaultwardenServiceV2>();
-            var syncServiceV2 = serviceProvider.GetRequiredService<ISyncServiceV2>();
 
             // Initialize Kubernetes client
             logger.LogInformation("Initializing Kubernetes client...");
@@ -93,12 +85,9 @@ class Program
                 return 1;
             }
 
-            // Authenticate with Vaultwarden (determine which version to use based on command)
-            bool useV2 = command?.StartsWith("v2") == true;
-            IVaultwardenService currentVaultwardenService = useV2 ? vaultwardenServiceV2 : vaultwardenService;
-            
-            logger.LogInformation("Authenticating with Vaultwarden using {Version}...", useV2 ? "VwConnector (V2)" : "bw CLI (V1)");
-            if (!await currentVaultwardenService.AuthenticateAsync())
+            // Authenticate with Vaultwarden
+            logger.LogInformation("Authenticating with Vaultwarden...");
+            if (!await vaultwardenService.AuthenticateAsync())
             {
                 logger.LogError("Failed to authenticate with Vaultwarden");
                 return 1;
@@ -110,13 +99,16 @@ class Program
             {
                 case "sync":
                 case null:
-                    logger.LogInformation("Starting full sync (V1 - bw CLI)...");
-                    success = await syncService.SyncAsync();
-                    break;
-
-                case "v2-sync":
-                    logger.LogInformation("Starting full sync (V2 - VwConnector)...");
-                    success = await syncServiceV2.SyncAsync();
+                    if (appSettings.Sync.ContinuousSync)
+                    {
+                        logger.LogInformation("Starting continuous sync with interval {Interval} seconds...", appSettings.Sync.SyncIntervalSeconds);
+                        success = await RunContinuousSyncAsync(syncService, vaultwardenService, logger, appSettings.Sync);
+                    }
+                    else
+                    {
+                        logger.LogInformation("Starting full sync...");
+                        success = await syncService.SyncAsync();
+                    }
                     break;
 
                 case "sync-namespace":
@@ -129,69 +121,72 @@ class Program
                     success = await syncService.SyncNamespaceAsync(namespaceArg);
                     break;
 
-                case "v2-sync-namespace":
-                    if (string.IsNullOrEmpty(namespaceArg))
-                    {
-                        logger.LogError("Namespace name is required for v2-sync-namespace command");
-                        return 1;
-                    }
-                    logger.LogInformation("Starting sync for namespace: {Namespace} (V2 - VwConnector)", namespaceArg);
-                    success = await syncServiceV2.SyncNamespaceAsync(namespaceArg);
-                    break;
-
                 case "cleanup":
                     logger.LogInformation("Starting cleanup of orphaned secrets (V1 - bw CLI)...");
                     success = await syncService.CleanupOrphanedSecretsAsync();
                     break;
 
-                case "v2-cleanup":
-                    logger.LogInformation("Starting cleanup of orphaned secrets (V2 - VwConnector)...");
-                    success = await syncServiceV2.CleanupOrphanedSecretsAsync();
-                    break;
-
                 case "list":
-                    logger.LogInformation("Listing Vaultwarden items (V1 - bw CLI)...");
+                    logger.LogInformation("Listing Vaultwarden items...");
                     var items = await vaultwardenService.GetItemsAsync();
-                    var itemsWithNamespace = items.Where(item => !string.IsNullOrEmpty(item.ExtractNamespace())).ToList();
+                    var itemsWithNamespace = items.Where(item => item.ExtractNamespaces().Any()).ToList();
                     
                     logger.LogInformation("Found {Count} items with namespace tags:", itemsWithNamespace.Count);
                     foreach (var item in itemsWithNamespace)
                     {
-                        logger.LogInformation("  - {Name} -> {Namespace}", item.Name, item.ExtractNamespace());
+                        var namespaces = item.ExtractNamespaces();
+                        var namespaceList = string.Join(", ", namespaces);
+                        logger.LogInformation("  - {Name} -> {Namespaces}", item.Name, namespaceList);
                     }
                     success = true;
                     break;
 
-                case "v2-list":
-                    logger.LogInformation("Listing Vaultwarden items (V2 - VwConnector)...");
-                    var itemsV2 = await vaultwardenServiceV2.GetItemsAsync();
-                    var itemsWithNamespaceV2 = itemsV2.Where(item => !item.Deleted && !string.IsNullOrEmpty(item.ExtractNamespace())).ToList();
-                    
-                    logger.LogInformation("Found {Count} active items with namespace tags:", itemsWithNamespaceV2.Count);
-                    foreach (var item in itemsWithNamespaceV2)
+                case "export":
+                    if (string.IsNullOrEmpty(namespaceArg))
                     {
-                        logger.LogInformation("  - {Name} -> {Namespace}", item.Name, item.ExtractNamespace());
+                        logger.LogError("Secret name is required for export command. Usage: export <secret-name> [namespace]");
+                        return 1;
                     }
-                    success = true;
+                    
+                    var secretName = namespaceArg;
+                    var exportNamespace = args.Skip(2).FirstOrDefault() ?? appSettings.Kubernetes.DefaultNamespace;
+                    
+                    logger.LogInformation("Exporting secret {SecretName} from namespace {Namespace}...", secretName, exportNamespace);
+                    var yamlOutput = await kubernetesService.ExportSecretAsYamlAsync(exportNamespace, secretName);
+                    
+                    if (yamlOutput != null)
+                    {
+                        Console.WriteLine(yamlOutput);
+                        success = true;
+                    }
+                    else
+                    {
+                        logger.LogError("Secret {SecretName} not found in namespace {Namespace}", secretName, exportNamespace);
+                        success = false;
+                    }
                     break;
 
                 case "config":
                     logger.LogInformation("Validating configuration...");
-                    var configKeys = new[] { "Vaultwarden:ServerUrl", "Vaultwarden:Email", "Vaultwarden:MasterPassword" };
-                    var missingConfigKeys = configuration.GetMissingConfigurationKeys(configKeys);
                     
-                    if (!missingConfigKeys.Any())
+                    if (appSettings.Validate(out var configValidationResults))
                     {
                         logger.LogInformation("✓ All required configuration keys are present");
-                        logger.LogInformation("✓ Vaultwarden Server: {Server}", configuration.GetValue("Vaultwarden:ServerUrl"));
-                        logger.LogInformation("✓ Vaultwarden Email: {Email}", configuration.GetValue("Vaultwarden:Email"));
-                        logger.LogInformation("✓ Kubernetes Default Namespace: {Namespace}", configuration.GetValue("Kubernetes:DefaultNamespace", "default"));
-                        logger.LogInformation("✓ Sync Secret Prefix: {Prefix}", configuration.GetValue("Sync:SecretPrefix", "vaultwarden-"));
+                        logger.LogInformation("✓ Vaultwarden Server: {Server}", appSettings.Vaultwarden.ServerUrl);
+                        logger.LogInformation("✓ Vaultwarden Email: {Email}", appSettings.Vaultwarden.Email);
+                        logger.LogInformation("✓ Kubernetes Default Namespace: {Namespace}", appSettings.Kubernetes.DefaultNamespace);
+                        logger.LogInformation("✓ Sync Secret Prefix: {Prefix}", appSettings.Sync.SecretPrefix);
+                        logger.LogInformation("✓ Dry Run Mode: {DryRun}", appSettings.Sync.DryRun);
+                        logger.LogInformation("✓ API Key Mode: {UseApiKey}", appSettings.Vaultwarden.UseApiKey);
                     }
                     else
                     {
-                        logger.LogWarning("✗ Missing required configuration keys: {MissingKeys}", string.Join(", ", missingConfigKeys));
-                        logger.LogInformation("Please check your .env file or appsettings.json");
+                        logger.LogWarning("✗ Configuration validation failed:");
+                        foreach (var result in configValidationResults)
+                        {
+                            logger.LogWarning("  - {Error}", result.ErrorMessage);
+                        }
+                        logger.LogInformation("Please check your .env file or environment variables");
                     }
                     success = true;
                     break;
@@ -208,7 +203,7 @@ class Program
             }
 
             // Logout from Vaultwarden
-            await currentVaultwardenService.LogoutAsync();
+            await vaultwardenService.LogoutAsync();
 
             return success ? 0 : 1;
         }
@@ -216,6 +211,65 @@ class Program
         {
             Console.WriteLine($"Fatal error: {ex.Message}");
             return 1;
+        }
+    }
+
+    private static async Task<bool> RunContinuousSyncAsync(ISyncService syncService, IVaultwardenService vaultwardenService, ILogger logger, SyncSettings syncConfig)
+    {
+        var cancellationTokenSource = new CancellationTokenSource();
+        
+        // Handle graceful shutdown
+        Console.CancelKeyPress += (sender, e) =>
+        {
+            logger.LogInformation("Received shutdown signal, stopping continuous sync...");
+            e.Cancel = true; // Prevent immediate termination
+            cancellationTokenSource.Cancel();
+        };
+
+        try
+        {
+            var runCount = 0;
+            while (!cancellationTokenSource.Token.IsCancellationRequested)
+            {
+                runCount++;
+                logger.LogInformation("Starting sync run #{RunCount}...", runCount);
+                
+                try
+                {
+                    var syncSuccess = await syncService.SyncAsync();
+                    if (syncSuccess)
+                    {
+                        logger.LogInformation("Sync run #{RunCount} completed successfully", runCount);
+                    }
+                    else
+                    {
+                        logger.LogWarning("Sync run #{RunCount} completed with errors", runCount);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Sync run #{RunCount} failed with exception", runCount);
+                }
+
+                if (!cancellationTokenSource.Token.IsCancellationRequested)
+                {
+                    logger.LogInformation("Waiting {Interval} seconds before next sync...", syncConfig.SyncIntervalSeconds);
+                    await Task.Delay(TimeSpan.FromSeconds(syncConfig.SyncIntervalSeconds), cancellationTokenSource.Token);
+                }
+            }
+
+            logger.LogInformation("Continuous sync stopped gracefully");
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogInformation("Continuous sync was cancelled");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Continuous sync failed with exception");
+            return false;
         }
     }
 
@@ -227,29 +281,25 @@ Vaultwarden Kubernetes Secrets Sync Tool
 Usage:
   VaultwardenK8sSync [command] [options]
 
-Commands (V1 - bw CLI):
+Commands:
   sync                    Perform full sync of all Vaultwarden items to Kubernetes secrets
+                          (Use SYNC__CONTINUOUSSYNC=true for continuous operation)
   sync-namespace <name>   Sync only items for a specific namespace
   cleanup                 Clean up orphaned secrets (secrets that no longer exist in Vaultwarden)
   list                    List all Vaultwarden items with namespace tags
+  export <secret> [ns]    Export a secret as YAML with proper multiline formatting
 
-Commands (V2 - VwConnector):
-  v2-sync                 Perform full sync using VwConnector library (no bw CLI required)
-  v2-sync-namespace <name> Sync only items for a specific namespace using VwConnector
-  v2-cleanup              Clean up orphaned secrets using VwConnector
-  v2-list                 List all Vaultwarden items with namespace tags using VwConnector
+
 
 General Commands:
   config                  Validate and display current configuration
   help                    Show this help message
 
 Configuration:
-  The tool reads configuration from:
+  The tool reads configuration from environment variables:
   - .env file (recommended for sensitive data)
-  - appsettings.json
-  - appsettings.Development.json
-  - Environment variables
-  - Command line arguments
+  - System environment variables
+  - Launch configuration environment variables
 
   Create a .env file from env.example for secure configuration.
 
@@ -259,14 +309,12 @@ Namespace Tagging:
 
 Examples:
   VaultwardenK8sSync config                  # Validate configuration
-  VaultwardenK8sSync sync                    # Using bw CLI
-  VaultwardenK8sSync v2-sync                 # Using VwConnector
+  VaultwardenK8sSync sync                    # Perform full sync
   VaultwardenK8sSync sync-namespace production
-  VaultwardenK8sSync v2-sync-namespace production
   VaultwardenK8sSync cleanup
-  VaultwardenK8sSync v2-cleanup
   VaultwardenK8sSync list
-  VaultwardenK8sSync v2-list
+  VaultwardenK8sSync export my-secret        # Export secret with proper YAML formatting
+  VaultwardenK8sSync export my-secret prod   # Export secret from specific namespace
 ");
     }
 }

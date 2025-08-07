@@ -10,17 +10,12 @@ public class VaultwardenItem
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
 
-    [JsonPropertyName("description")]
-    public string Description { get; set; } = string.Empty;
-
-    [JsonPropertyName("username")]
-    public string Username { get; set; } = string.Empty;
 
     [JsonPropertyName("password")]
     public string Password { get; set; } = string.Empty;
 
-    [JsonPropertyName("url")]
-    public string Url { get; set; } = string.Empty;
+    [JsonPropertyName("uris")]
+    public List<UriInfo>? Uris { get; set; }
 
     [JsonPropertyName("notes")]
     public string Notes { get; set; } = string.Empty;
@@ -72,10 +67,10 @@ public class VaultwardenItem
 
     public string? ExtractNamespace()
     {
-        if (string.IsNullOrEmpty(Description))
+        if (string.IsNullOrEmpty(Notes))
             return null;
 
-        var lines = Description.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var lines = Notes.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         foreach (var line in lines)
         {
             var trimmedLine = line.Trim();
@@ -85,6 +80,109 @@ public class VaultwardenItem
             }
         }
 
+        return null;
+    }
+
+    public List<string> ExtractNamespaces()
+    {
+        var namespaces = new List<string>();
+        
+        if (string.IsNullOrEmpty(Notes))
+            return namespaces;
+
+        var lines = Notes.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var line in lines)
+        {
+            var trimmedLine = line.Trim();
+            if (trimmedLine.StartsWith("#namespace:", StringComparison.OrdinalIgnoreCase))
+            {
+                var namespaceValue = trimmedLine.Substring("#namespace:".Length).Trim();
+                if (!string.IsNullOrEmpty(namespaceValue))
+                {
+                    // Split by comma and add each namespace
+                    var namespaceList = namespaceValue.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var ns in namespaceList)
+                    {
+                        var cleanNs = ns.Trim();
+                        if (!string.IsNullOrEmpty(cleanNs) && !namespaces.Contains(cleanNs))
+                        {
+                            namespaces.Add(cleanNs);
+                        }
+                    }
+                }
+            }
+        }
+
+        return namespaces;
+    }
+
+    public string? ExtractSecretName()
+    {
+        if (string.IsNullOrEmpty(Notes))
+            return null;
+
+        var lines = Notes.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var line in lines)
+        {
+            var trimmedLine = line.Trim();
+            if (trimmedLine.StartsWith("#secret-name:", StringComparison.OrdinalIgnoreCase))
+            {
+                return trimmedLine.Substring("#secret-name:".Length).Trim();
+            }
+        }
+
+        return null;
+    }
+
+    public string? ExtractSecretKey()
+    {
+        if (string.IsNullOrEmpty(Notes))
+            return null;
+
+        var lines = Notes.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var line in lines)
+        {
+            var trimmedLine = line.Trim();
+            if (trimmedLine.StartsWith("#secret-key:", StringComparison.OrdinalIgnoreCase))
+            {
+                return trimmedLine.Substring("#secret-key:".Length).Trim();
+            }
+        }
+
+        return null;
+    }
+
+    public string? ExtractSecretKeyPassword()
+    {
+        if (string.IsNullOrEmpty(Notes))
+            return null;
+
+        var lines = Notes.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var line in lines)
+        {
+            var trimmedLine = line.Trim();
+            if (trimmedLine.StartsWith("#secret-key-password:", StringComparison.OrdinalIgnoreCase))
+            {
+                return trimmedLine.Substring("#secret-key-password:".Length).Trim();
+            }
+        }
+        return null;
+    }
+
+    public string? ExtractSecretKeyUsername()
+    {
+        if (string.IsNullOrEmpty(Notes))
+            return null;
+
+        var lines = Notes.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var line in lines)
+        {
+            var trimmedLine = line.Trim();
+            if (trimmedLine.StartsWith("#secret-key-username:", StringComparison.OrdinalIgnoreCase))
+            {
+                return trimmedLine.Substring("#secret-key-username:".Length).Trim();
+            }
+        }
         return null;
     }
 }

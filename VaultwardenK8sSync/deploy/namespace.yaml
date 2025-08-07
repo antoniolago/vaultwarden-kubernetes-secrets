@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vaultwarden-sync
+  labels:
+    name: vaultwarden-sync
+    app.kubernetes.io/name: vaultwarden-k8s-sync
+    app.kubernetes.io/part-of: vaultwarden-sync
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vaultwarden-sync
+  namespace: vaultwarden-sync
+  labels:
+    app.kubernetes.io/name: vaultwarden-k8s-sync
+    app.kubernetes.io/part-of: vaultwarden-sync
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vaultwarden-sync
+  labels:
+    app.kubernetes.io/name: vaultwarden-k8s-sync
+    app.kubernetes.io/part-of: vaultwarden-sync
+rules:
+  # Allow reading and writing secrets in all namespaces
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Allow reading namespaces to discover where to sync secrets
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vaultwarden-sync
+  labels:
+    app.kubernetes.io/name: vaultwarden-k8s-sync
+    app.kubernetes.io/part-of: vaultwarden-sync
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vaultwarden-sync
+subjects:
+  - kind: ServiceAccount
+    name: vaultwarden-sync
+    namespace: vaultwarden-sync 

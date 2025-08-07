@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vaultwarden-sync-config
+  namespace: vaultwarden-sync
+  labels:
+    app.kubernetes.io/name: vaultwarden-k8s-sync
+    app.kubernetes.io/part-of: vaultwarden-sync
+data:
+  # Vaultwarden Configuration
+  VAULTWARDEN__SERVERURL: "https://your-vaultwarden-server.com"
+  VAULTWARDEN__EMAIL: "your-email@example.com"
+  
+  # Kubernetes Configuration
+  KUBERNETES__INCLUSTER: "true"
+  
+  # Sync Configuration
+  SYNC__NAMESPACETAG: "#namespace:"
+  SYNC__DRYRUN: "false"
+  SYNC__DELETEORPHANS: "true"
+  SYNC__SECRETPREFIX: ""
+  SYNC__SYNCINTERVALSECONDS: "60"
+  SYNC__CONTINUOUSSYNC: "true"
+  
+  # Logging Configuration
+  LOGGING__LOGLEVEL__DEFAULT: "Information"
+  LOGGING__LOGLEVEL__MICROSOFT: "Warning"
+  LOGGING__LOGLEVEL__MICROSOFT__HOSTING__LIFETIME: "Information" 

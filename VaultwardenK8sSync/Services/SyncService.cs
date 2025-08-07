@@ -8,13 +8,13 @@ public class SyncService : ISyncService
     private readonly ILogger<SyncService> _logger;
     private readonly IVaultwardenService _vaultwardenService;
     private readonly IKubernetesService _kubernetesService;
-    private readonly SyncConfig _syncConfig;
+    private readonly SyncSettings _syncConfig;
 
     public SyncService(
         ILogger<SyncService> logger,
         IVaultwardenService vaultwardenService,
         IKubernetesService kubernetesService,
-        SyncConfig syncConfig)
+        SyncSettings syncConfig)
     {
         _logger = logger;
         _vaultwardenService = vaultwardenService;
@@ -36,11 +36,21 @@ public class SyncService : ISyncService
                 return true;
             }
 
-            // Group items by namespace
-            var itemsByNamespace = items
-                .Where(item => !string.IsNullOrEmpty(item.ExtractNamespace()))
-                .GroupBy(item => item.ExtractNamespace()!)
-                .ToDictionary(g => g.Key, g => g.ToList());
+            // Group items by namespace (supporting multiple namespaces per item)
+            var itemsByNamespace = new Dictionary<string, List<Models.VaultwardenItem>>();
+            
+            foreach (var item in items)
+            {
+                var namespaces = item.ExtractNamespaces();
+                foreach (var namespaceName in namespaces)
+                {
+                    if (!itemsByNamespace.ContainsKey(namespaceName))
+                    {
+                        itemsByNamespace[namespaceName] = new List<Models.VaultwardenItem>();
+                    }
+                    itemsByNamespace[namespaceName].Add(item);
+                }
+            }
 
             _logger.LogInformation("Found {Count} items with namespace tags across {NamespaceCount} namespaces", 
                 itemsByNamespace.Values.Sum(x => x.Count), itemsByNamespace.Count);
@@ -84,7 +94,7 @@ public class SyncService : ISyncService
     {
         var items = await _vaultwardenService.GetItemsAsync();
         var namespaceItems = items
-            .Where(item => item.ExtractNamespace() == namespaceName)
+            .Where(item => item.ExtractNamespaces().Contains(namespaceName))
             .ToList();
 
         return await SyncNamespaceAsync(namespaceName, namespaceItems);
@@ -96,20 +106,23 @@ public class SyncService : ISyncService
         {
             _logger.LogInformation("Syncing {Count} items to namespace {Namespace}", items.Count, namespaceName);
 
+            // Group items by secret name to handle multiple items pointing to the same secret
+            var itemsBySecretName = GroupItemsBySecretName(items);
+            
             var success = true;
-            foreach (var item in items)
+            foreach (var (secretName, secretItems) in itemsBySecretName)
             {
                 try
                 {
-                    var itemSuccess = await SyncItemAsync(namespaceName, item);
-                    if (!itemSuccess)
+                    var secretSuccess = await SyncSecretAsync(namespaceName, secretName, secretItems);
+                    if (!secretSuccess)
                     {
                         success = false;
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to sync item {ItemName} to namespace {Namespace}", item.Name, namespaceName);
+                    _logger.LogError(ex, "Failed to sync secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
                     success = false;
                 }
             }
@@ -127,7 +140,12 @@ public class SyncService : ISyncService
     {
         try
         {
-            var secretName = $"{_syncConfig.SecretPrefix}{SanitizeSecretName(item.Name)}";
+            // Use extracted secret name if available, otherwise use item name
+            var extractedSecretName = item.ExtractSecretName();
+            var secretName = !string.IsNullOrEmpty(extractedSecretName) 
+                ? extractedSecretName 
+                : $"{_syncConfig.SecretPrefix}{SanitizeSecretName(item.Name)}";
+            
             var secretData = await ExtractSecretDataAsync(item);
 
             if (_syncConfig.DryRun)
@@ -137,15 +155,51 @@ public class SyncService : ISyncService
                 return true;
             }
 
-            var exists = await _kubernetesService.SecretExistsAsync(namespaceName, secretName);
-            bool success;
+            // Check if there's an existing secret with the old name (based on item name)
+            var oldSecretName = $"{_syncConfig.SecretPrefix}{SanitizeSecretName(item.Name)}";
+            var oldSecretExists = await _kubernetesService.SecretExistsAsync(namespaceName, oldSecretName);
+            var newSecretExists = await _kubernetesService.SecretExistsAsync(namespaceName, secretName);
 
-            if (exists)
+            bool success = true;
+
+            // If the secret name changed and old secret exists, delete it
+            if (oldSecretName != secretName && oldSecretExists)
             {
+                if (_syncConfig.DryRun)
+                {
+                    _logger.LogInformation("[DRY RUN] Would delete old secret {OldSecretName} in namespace {Namespace} due to name change", 
+                        oldSecretName, namespaceName);
+                }
+                else
+                {
+                    var deleteSuccess = await _kubernetesService.DeleteSecretAsync(namespaceName, oldSecretName);
+                    if (deleteSuccess)
+                    {
+                        _logger.LogInformation("Deleted old secret {OldSecretName} in namespace {Namespace} due to name change", 
+                            oldSecretName, namespaceName);
+                    }
+                    else
+                    {
+                        success = false;
+                    }
+                }
+            }
+
+            // Create or update the new secret
+            if (newSecretExists)
+            {
+                // Check if the secret data has actually changed
+                var existingData = await _kubernetesService.GetSecretDataAsync(namespaceName, secretName);
+                if (existingData != null && !HasSecretDataChanged(existingData, secretData))
+                {
+                    _logger.LogDebug("Secret {SecretName} in namespace {Namespace} is up to date, skipping update", secretName, namespaceName);
+                    return true;
+                }
+
                 success = await _kubernetesService.UpdateSecretAsync(namespaceName, secretName, secretData);
                 if (success)
                 {
-                    _logger.LogInformation("Updated secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
+                    _logger.LogInformation("Updated secret {SecretName} in namespace {Namespace} due to content changes", secretName, namespaceName);
                 }
             }
             else
@@ -170,103 +224,142 @@ public class SyncService : ISyncService
     {
         var data = new Dictionary<string, string>();
 
-        // Add basic fields
-        if (!string.IsNullOrEmpty(item.Username))
-            data["username"] = item.Username;
-
-        if (!string.IsNullOrEmpty(item.Password))
-            data["password"] = item.Password;
-
-        if (!string.IsNullOrEmpty(item.Url))
-            data["url"] = item.Url;
-
-        if (!string.IsNullOrEmpty(item.Notes))
-            data["notes"] = item.Notes;
-
-        // Add login-specific fields
-        if (item.Login != null)
+        // Get username if available
+        var username = GetUsername(item);
+        if (!string.IsNullOrEmpty(username))
         {
-            if (!string.IsNullOrEmpty(item.Login.Username))
-                data["login_username"] = item.Login.Username;
-
-            if (!string.IsNullOrEmpty(item.Login.Password))
-                data["login_password"] = item.Login.Password;
-
-            if (!string.IsNullOrEmpty(item.Login.Totp))
-                data["totp"] = item.Login.Totp;
-
-            if (item.Login.Uris?.Any() == true)
+            // Use custom username key if specified, otherwise use sanitized item name with _username suffix
+            var usernameKey = item.ExtractSecretKeyUsername();
+            if (string.IsNullOrEmpty(usernameKey))
             {
-                for (int i = 0; i < item.Login.Uris.Count; i++)
+                usernameKey = $"{SanitizeFieldName(item.Name)}_username";
+            }
+            data[usernameKey] = FormatMultilineValue(username);
+        }
+
+        // Get the password/credential value
+        var password = GetLoginPasswordOrSshKey(item);
+        
+        if (!string.IsNullOrEmpty(password))
+        {
+            // Use custom password key if specified, otherwise use sanitized item name
+            var passwordKey = item.ExtractSecretKeyPassword();
+            if (string.IsNullOrEmpty(passwordKey))
+            {
+                // Fall back to the old secret-key tag for backward compatibility
+                passwordKey = item.ExtractSecretKey();
+                if (string.IsNullOrEmpty(passwordKey))
                 {
-                    data[$"uri_{i}"] = item.Login.Uris[i].Uri;
+                    passwordKey = SanitizeFieldName(item.Name);
                 }
             }
+            data[passwordKey] = FormatMultilineValue(password);
         }
-
-        // Add custom fields
-        if (item.Fields?.Any() == true)
+        else
         {
-            foreach (var field in item.Fields)
+            // If no password found, store a placeholder or the item name itself
+            var passwordKey = item.ExtractSecretKeyPassword();
+            if (string.IsNullOrEmpty(passwordKey))
             {
-                var fieldName = SanitizeFieldName(field.Name);
-                data[fieldName] = field.Value;
+                // Fall back to the old secret-key tag for backward compatibility
+                passwordKey = item.ExtractSecretKey();
+                if (string.IsNullOrEmpty(passwordKey))
+                {
+                    passwordKey = SanitizeFieldName(item.Name);
+                }
             }
-        }
-
-        // Add card information
-        if (item.Card != null)
-        {
-            if (!string.IsNullOrEmpty(item.Card.CardholderName))
-                data["cardholder_name"] = item.Card.CardholderName;
-
-            if (!string.IsNullOrEmpty(item.Card.Brand))
-                data["card_brand"] = item.Card.Brand;
-
-            if (!string.IsNullOrEmpty(item.Card.Number))
-                data["card_number"] = item.Card.Number;
-
-            if (!string.IsNullOrEmpty(item.Card.ExpMonth))
-                data["card_exp_month"] = item.Card.ExpMonth;
-
-            if (!string.IsNullOrEmpty(item.Card.ExpYear))
-                data["card_exp_year"] = item.Card.ExpYear;
-
-            if (!string.IsNullOrEmpty(item.Card.Code))
-                data["card_code"] = item.Card.Code;
-        }
-
-        // Add identity information
-        if (item.Identity != null)
-        {
-            var identityFields = new[]
-            {
-                ("title", item.Identity.Title),
-                ("first_name", item.Identity.FirstName),
-                ("middle_name", item.Identity.MiddleName),
-                ("last_name", item.Identity.LastName),
-                ("email", item.Identity.Email),
-                ("phone", item.Identity.Phone),
-                ("company", item.Identity.Company),
-                ("address1", item.Identity.Address1),
-                ("address2", item.Identity.Address2),
-                ("city", item.Identity.City),
-                ("state", item.Identity.State),
-                ("postal_code", item.Identity.PostalCode),
-                ("country", item.Identity.Country),
-                ("ssn", item.Identity.Ssn),
-                ("passport_number", item.Identity.PassportNumber),
-                ("license_number", item.Identity.LicenseNumber)
-            };
-
-            foreach (var (fieldName, value) in identityFields)
-            {
-                if (!string.IsNullOrEmpty(value))
-                    data[fieldName] = value;
-            }
+            data[passwordKey] = item.Name;
         }
 
         return Task.FromResult(data);
+    }
+
+    private static string GetPasswordOrSshKey(Models.VaultwardenItem item)
+    {
+        // First check for regular password
+        if (!string.IsNullOrEmpty(item.Password))
+            return item.Password;
+
+        // Check for SSH key in custom fields
+        if (item.Fields?.Any() == true)
+        {
+            var sshKeyField = item.Fields.FirstOrDefault(f => 
+                f.Name.Equals("ssh_key", StringComparison.OrdinalIgnoreCase) ||
+                f.Name.Equals("private_key", StringComparison.OrdinalIgnoreCase) ||
+                f.Name.Equals("ssh_private_key", StringComparison.OrdinalIgnoreCase) ||
+                f.Name.Equals("key", StringComparison.OrdinalIgnoreCase));
+            
+            if (sshKeyField != null && !string.IsNullOrEmpty(sshKeyField.Value))
+                return sshKeyField.Value;
+        }
+
+        // Check for SSH key in notes (common pattern)
+        if (!string.IsNullOrEmpty(item.Notes))
+        {
+            var lines = item.Notes.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            bool inSshKeyBlock = false;
+            var sshKeyLines = new List<string>();
+
+            foreach (var line in lines)
+            {
+                var trimmedLine = line.Trim();
+                
+                // Check for SSH key markers
+                if (trimmedLine.StartsWith("-----BEGIN") && trimmedLine.Contains("PRIVATE KEY"))
+                {
+                    inSshKeyBlock = true;
+                    sshKeyLines.Add(line);
+                }
+                else if (trimmedLine.StartsWith("-----END") && trimmedLine.Contains("PRIVATE KEY"))
+                {
+                    inSshKeyBlock = false;
+                    sshKeyLines.Add(line);
+                    break;
+                }
+                else if (inSshKeyBlock)
+                {
+                    sshKeyLines.Add(line);
+                }
+            }
+
+            if (sshKeyLines.Any())
+            {
+                return string.Join("\n", sshKeyLines);
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string GetUsername(Models.VaultwardenItem item)
+    {
+        // First check for login username
+        if (item.Login != null && !string.IsNullOrEmpty(item.Login.Username))
+            return item.Login.Username;
+
+        // Check for username in custom fields
+        if (item.Fields?.Any() == true)
+        {
+            var usernameField = item.Fields.FirstOrDefault(f => 
+                f.Name.Equals("username", StringComparison.OrdinalIgnoreCase) ||
+                f.Name.Equals("user", StringComparison.OrdinalIgnoreCase) ||
+                f.Name.Equals("login", StringComparison.OrdinalIgnoreCase));
+            
+            if (usernameField != null && !string.IsNullOrEmpty(usernameField.Value))
+                return usernameField.Value;
+        }
+
+        return string.Empty;
+    }
+
+    private static string GetLoginPasswordOrSshKey(Models.VaultwardenItem item)
+    {
+        // First check for login password
+        if (item.Login != null && !string.IsNullOrEmpty(item.Login.Password))
+            return item.Login.Password;
+
+        // If no login password, fall back to the general password/SSH key logic
+        return GetPasswordOrSshKey(item);
     }
 
     public async Task<bool> CleanupOrphanedSecretsAsync()
@@ -277,16 +370,33 @@ public class SyncService : ISyncService
 
             // Get all items from Vaultwarden
             var items = await _vaultwardenService.GetItemsAsync();
-            var itemsByNamespace = items
-                .Where(item => !string.IsNullOrEmpty(item.ExtractNamespace()))
-                .GroupBy(item => item.ExtractNamespace()!)
-                .ToDictionary(g => g.Key, g => g.ToList());
+            
+            // Group items by namespace (supporting multiple namespaces per item)
+            var itemsByNamespace = new Dictionary<string, List<Models.VaultwardenItem>>();
+            
+            foreach (var item in items)
+            {
+                var namespaces = item.ExtractNamespaces();
+                foreach (var namespaceName in namespaces)
+                {
+                    if (!itemsByNamespace.ContainsKey(namespaceName))
+                    {
+                        itemsByNamespace[namespaceName] = new List<Models.VaultwardenItem>();
+                    }
+                    itemsByNamespace[namespaceName].Add(item);
+                }
+            }
 
+            // Get all namespaces that have secrets (including those no longer in use)
+            var allNamespacesWithSecrets = await GetAllNamespacesWithSecretsAsync();
+            
             var success = true;
-            foreach (var (namespaceName, namespaceItems) in itemsByNamespace)
+            foreach (var namespaceName in allNamespacesWithSecrets)
             {
                 try
                 {
+                    // Get items for this namespace (empty list if no items currently sync to this namespace)
+                    var namespaceItems = itemsByNamespace.GetValueOrDefault(namespaceName, new List<Models.VaultwardenItem>());
                     var namespaceSuccess = await CleanupOrphanedSecretsInNamespaceAsync(namespaceName, namespaceItems);
                     if (!namespaceSuccess)
                     {
@@ -309,16 +419,54 @@ public class SyncService : ISyncService
         }
     }
 
+    private async Task<HashSet<string>> GetAllNamespacesWithSecretsAsync()
+    {
+        var namespacesWithSecrets = new HashSet<string>();
+        
+        // Get all namespaces from Kubernetes
+        var allNamespaces = await _kubernetesService.GetAllNamespacesAsync();
+        
+        foreach (var namespaceName in allNamespaces)
+        {
+            try
+            {
+                // Only check for secrets that have our management labels
+                var managedSecrets = await _kubernetesService.GetManagedSecretNamesAsync(namespaceName);
+                
+                if (managedSecrets.Any())
+                {
+                    namespacesWithSecrets.Add(namespaceName);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not check secrets in namespace {Namespace}", namespaceName);
+            }
+        }
+        
+        return namespacesWithSecrets;
+    }
+
     private async Task<bool> CleanupOrphanedSecretsInNamespaceAsync(string namespaceName, List<Models.VaultwardenItem> items)
     {
         try
         {
-            // Get existing secrets in the namespace
-            var existingSecrets = await _kubernetesService.GetExistingSecretNamesAsync(namespaceName);
-            var managedSecrets = existingSecrets.Where(s => s.StartsWith(_syncConfig.SecretPrefix)).ToList();
+            // Only get secrets that have our management labels
+            var managedSecrets = await _kubernetesService.GetManagedSecretNamesAsync(namespaceName);
+            
+            if (!managedSecrets.Any())
+            {
+                _logger.LogInformation("No managed secrets found in namespace {Namespace}", namespaceName);
+                return true;
+            }
 
             // Calculate expected secret names
-            var expectedSecrets = items.Select(item => $"{_syncConfig.SecretPrefix}{SanitizeSecretName(item.Name)}").ToHashSet();
+            var expectedSecrets = items.Select(item => {
+                var extractedSecretName = item.ExtractSecretName();
+                return !string.IsNullOrEmpty(extractedSecretName) 
+                    ? extractedSecretName 
+                    : $"{_syncConfig.SecretPrefix}{SanitizeSecretName(item.Name)}";
+            }).ToHashSet();
 
             // Find orphaned secrets
             var orphanedSecrets = managedSecrets.Where(s => !expectedSecrets.Contains(s)).ToList();
@@ -413,6 +561,204 @@ public class SyncService : ISyncService
             .Trim('-');
     }
 
+    private static bool HasSecretDataChanged(Dictionary<string, string> existingData, Dictionary<string, string> newData)
+    {
+        // Check if the number of keys is different
+        if (existingData.Count != newData.Count)
+            return true;
+
+        // Check if any keys are missing or have different values
+        foreach (var kvp in newData)
+        {
+            if (!existingData.TryGetValue(kvp.Key, out var existingValue) || existingValue != kvp.Value)
+                return true;
+        }
+
+        // Check if any existing keys are missing in new data
+        foreach (var kvp in existingData)
+        {
+            if (!newData.ContainsKey(kvp.Key))
+                return true;
+        }
+
+        return false;
+    }
+
+    private Dictionary<string, List<Models.VaultwardenItem>> GroupItemsBySecretName(List<Models.VaultwardenItem> items)
+    {
+        var itemsBySecretName = new Dictionary<string, List<Models.VaultwardenItem>>();
+
+        foreach (var item in items)
+        {
+            var extractedSecretName = item.ExtractSecretName();
+            var secretName = !string.IsNullOrEmpty(extractedSecretName) 
+                ? extractedSecretName 
+                : $"{_syncConfig.SecretPrefix}{SanitizeSecretName(item.Name)}";
+
+            if (!itemsBySecretName.ContainsKey(secretName))
+            {
+                itemsBySecretName[secretName] = new List<Models.VaultwardenItem>();
+            }
+            itemsBySecretName[secretName].Add(item);
+        }
+
+        return itemsBySecretName;
+    }
+
+    private async Task<bool> SyncSecretAsync(string namespaceName, string secretName, List<Models.VaultwardenItem> items)
+    {
+        try
+        {
+            // Combine all items' data into a single secret
+            var combinedSecretData = new Dictionary<string, string>();
+            var itemHashes = new List<string>();
+
+            foreach (var item in items)
+            {
+                var itemData = await ExtractSecretDataAsync(item);
+                foreach (var kvp in itemData)
+                {
+                    // If multiple items have the same key, the last one wins
+                    combinedSecretData[kvp.Key] = kvp.Value;
+                }
+                
+                // Calculate hash for this item
+                var itemHash = CalculateItemHash(item);
+                itemHashes.Add(itemHash);
+            }
+
+            // Create a combined hash for all items
+            var combinedHash = string.Join("|", itemHashes.OrderBy(h => h));
+            var hashKey = "vaultwarden-sync-hash";
+
+            if (_syncConfig.DryRun)
+            {
+                _logger.LogInformation("[DRY RUN] Would sync {Count} items as secret {SecretName} in namespace {Namespace}", 
+                    items.Count, secretName, namespaceName);
+                return true;
+            }
+
+            // Check if there's an existing secret with the old name (based on item name)
+            var oldSecretName = $"{_syncConfig.SecretPrefix}{SanitizeSecretName(items.First().Name)}";
+            var oldSecretExists = await _kubernetesService.SecretExistsAsync(namespaceName, oldSecretName);
+            var newSecretExists = await _kubernetesService.SecretExistsAsync(namespaceName, secretName);
+
+            bool success = true;
+
+            // If the secret name changed and old secret exists, delete it
+            if (oldSecretName != secretName && oldSecretExists)
+            {
+                if (_syncConfig.DryRun)
+                {
+                    _logger.LogInformation("[DRY RUN] Would delete old secret {OldSecretName} in namespace {Namespace} due to name change", 
+                        oldSecretName, namespaceName);
+                }
+                else
+                {
+                    var deleteSuccess = await _kubernetesService.DeleteSecretAsync(namespaceName, oldSecretName);
+                    if (deleteSuccess)
+                    {
+                        _logger.LogInformation("Deleted old secret {OldSecretName} in namespace {Namespace} due to name change", 
+                            oldSecretName, namespaceName);
+                    }
+                    else
+                    {
+                        success = false;
+                    }
+                }
+            }
+
+            // Create or update the new secret
+            if (newSecretExists)
+            {
+                // Check if the secret data or item hashes have changed
+                var existingData = await _kubernetesService.GetSecretDataAsync(namespaceName, secretName);
+                var hasDataChanged = existingData == null || HasSecretDataChanged(existingData, combinedSecretData);
+                var hasHashChanged = !existingData?.ContainsKey(hashKey) == true || existingData[hashKey] != combinedHash;
+
+                if (!hasDataChanged && !hasHashChanged)
+                {
+                    _logger.LogDebug("Secret {SecretName} in namespace {Namespace} is up to date, skipping update", secretName, namespaceName);
+                    return true;
+                }
+
+                // Add the hash to the secret data for future comparisons
+                combinedSecretData[hashKey] = combinedHash;
+
+                success = await _kubernetesService.UpdateSecretAsync(namespaceName, secretName, combinedSecretData);
+                if (success)
+                {
+                    var changeReason = hasDataChanged && hasHashChanged ? "content and metadata changes" :
+                                      hasDataChanged ? "content changes" : "metadata changes";
+                    _logger.LogInformation("Updated secret {SecretName} in namespace {Namespace} due to {ChangeReason}", 
+                        secretName, namespaceName, changeReason);
+                }
+            }
+            else
+            {
+                // Add the hash to the secret data for future comparisons
+                combinedSecretData[hashKey] = combinedHash;
+
+                success = await _kubernetesService.CreateSecretAsync(namespaceName, secretName, combinedSecretData);
+                if (success)
+                {
+                    _logger.LogInformation("Created secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
+                }
+            }
+
+            return success;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to sync secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
+            return false;
+        }
+    }
+
+    private static string CalculateItemHash(Models.VaultwardenItem item)
+    {
+        // Create a hash based on all relevant fields that could affect the secret
+        var hashData = new List<string>
+        {
+            item.Name ?? "",
+            item.Notes ?? "",
+            item.Password ?? "",
+            item.ExtractSecretName() ?? "",
+            item.ExtractSecretKey() ?? "",
+            item.ExtractSecretKeyPassword() ?? "",
+            item.ExtractSecretKeyUsername() ?? "",
+            string.Join(",", item.ExtractNamespaces().OrderBy(ns => ns))
+        };
+
+        // Add login information if available
+        if (item.Login != null)
+        {
+            hashData.Add(item.Login.Username ?? "");
+            hashData.Add(item.Login.Password ?? "");
+            if (item.Login.Uris?.Any() == true)
+            {
+                var uris = string.Join(",", item.Login.Uris.Select(u => u.Uri).OrderBy(u => u));
+                hashData.Add(uris);
+            }
+        }
+
+        // Add custom fields if available
+        if (item.Fields?.Any() == true)
+        {
+            var sortedFields = item.Fields
+                .OrderBy(f => f.Name)
+                .Select(f => $"{f.Name}:{f.Value}")
+                .ToList();
+            hashData.AddRange(sortedFields);
+        }
+
+        // Create a hash of all the data
+        var combinedData = string.Join("|", hashData);
+        using var sha256 = System.Security.Cryptography.SHA256.Create();
+        var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(combinedData));
+        return Convert.ToBase64String(hashBytes);
+    }
+
     private static string SanitizeFieldName(string fieldName)
     {
         // Kubernetes secret keys must be valid environment variable names
@@ -452,5 +798,35 @@ public class SyncService : ISyncService
             .Replace("?", "_")
             .Replace("__", "_")
             .Trim('_');
+    }
+
+    /// <summary>
+    /// Formats a value to ensure proper handling of multiline content.
+    /// This method ensures that multiline values (like SSH keys, certificates, etc.)
+    /// are preserved correctly when stored in Kubernetes secrets.
+    /// </summary>
+    /// <param name="value">The value to format</param>
+    /// <returns>The formatted value with proper multiline handling</returns>
+    private static string FormatMultilineValue(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+
+        // Normalize line endings to ensure consistent handling across platforms
+        var normalizedValue = value.Replace("\r\n", "\n").Replace("\r", "\n");
+        
+        // If the value contains newlines, log it for debugging purposes
+        if (normalizedValue.Contains('\n'))
+        {
+            // This is a multiline value - ensure it's properly formatted
+            // The current implementation already handles this correctly by preserving all characters
+            // including newlines when converting to bytes for Kubernetes storage
+            var lineCount = normalizedValue.Split('\n').Length;
+            // Note: We can't use _logger here since this is a static method
+            // The multiline handling is working correctly - this is just for reference
+            return normalizedValue;
+        }
+        
+        return normalizedValue;
     }
 } 

@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: vaultwarden-sync
+
+namespace: vaultwarden-sync
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - deployment.yaml
+
+commonLabels:
+  app.kubernetes.io/name: vaultwarden-k8s-sync
+  app.kubernetes.io/part-of: vaultwarden-sync
+  app.kubernetes.io/version: v1.0.0
+
+images:
+  - name: your-registry/vaultwarden-k8s-sync
+    newTag: latest 
