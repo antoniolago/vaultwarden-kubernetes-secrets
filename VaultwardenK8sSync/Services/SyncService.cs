@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using System.Text.RegularExpressions;
 using VaultwardenK8sSync.Models;
 
 namespace VaultwardenK8sSync.Services;
@@ -253,7 +254,8 @@ public class SyncService : ISyncService
                     passwordKey = SanitizeFieldName(item.Name);
                 }
             }
-            data[passwordKey] = FormatMultilineValue(password);
+            var formattedPassword = FormatPasswordPossiblyPrivateKey(password);
+            data[passwordKey] = formattedPassword;
         }
         else
         {
@@ -269,6 +271,36 @@ public class SyncService : ISyncService
                 }
             }
             data[passwordKey] = item.Name;
+        }
+
+        // Include custom fields from the item as additional secret keys
+        if (item.Fields?.Any() == true)
+        {
+            foreach (var field in item.Fields)
+            {
+                if (string.IsNullOrWhiteSpace(field.Name))
+                    continue;
+                if (string.IsNullOrEmpty(field.Value))
+                    continue;
+
+                var fieldKey = SanitizeFieldName(field.Name);
+                // Avoid overwriting previously added keys unless explicit
+                if (!data.ContainsKey(fieldKey))
+                {
+                    data[fieldKey] = FormatMultilineValue(field.Value);
+                }
+            }
+        }
+
+        // Include extra key/values extracted from notes (supports multiline blocks)
+        var extraFromNotes = item.ExtractSecretDataFromNotes();
+        if (extraFromNotes.Count > 0)
+        {
+            foreach (var kvp in extraFromNotes)
+            {
+                var noteKey = SanitizeFieldName(kvp.Key);
+                data[noteKey] = FormatMultilineValue(kvp.Value);
+            }
         }
 
         return Task.FromResult(data);
@@ -625,6 +657,9 @@ public class SyncService : ISyncService
                 // Calculate hash for this item
                 var itemHash = CalculateItemHash(item);
                 itemHashes.Add(itemHash);
+                
+                // Log hash calculation data for debugging
+                LogHashCalculationData(item, _logger);
             }
 
             // Create a combined hash for all items
@@ -674,7 +709,24 @@ public class SyncService : ISyncService
                 // Check if the secret data or item hashes have changed
                 var existingData = await _kubernetesService.GetSecretDataAsync(namespaceName, secretName);
                 var hasDataChanged = existingData == null || HasSecretDataChanged(existingData, combinedSecretData);
-                var hasHashChanged = !existingData?.ContainsKey(hashKey) == true || existingData[hashKey] != combinedHash;
+
+                bool hasHashChanged;
+                if (existingData != null && existingData.TryGetValue(hashKey, out var oldHashValue))
+                {
+                    hasHashChanged = oldHashValue != combinedHash;
+                }
+                else
+                {
+                    hasHashChanged = true;
+                }
+
+                // Log detailed information about what changed
+                if (hasHashChanged)
+                {
+                    var oldHash = existingData?.GetValueOrDefault(hashKey, "none");
+                    _logger.LogInformation("Hash changed for secret {SecretName} in namespace {Namespace}: old={OldHash}, new={NewHash}", 
+                        secretName, namespaceName, oldHash, combinedHash);
+                }
 
                 if (!hasDataChanged && !hasHashChanged)
                 {
@@ -742,7 +794,7 @@ public class SyncService : ISyncService
             }
         }
 
-        // Add custom fields if available
+        // Add custom fields if available (including tags)
         if (item.Fields?.Any() == true)
         {
             var sortedFields = item.Fields
@@ -752,11 +804,56 @@ public class SyncService : ISyncService
             hashData.AddRange(sortedFields);
         }
 
+        // Add revision date to catch any changes to the item
+        hashData.Add(item.RevisionDate.ToString("O"));
+
         // Create a hash of all the data
         var combinedData = string.Join("|", hashData);
         using var sha256 = System.Security.Cryptography.SHA256.Create();
         var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(combinedData));
         return Convert.ToBase64String(hashBytes);
+    }
+
+    /// <summary>
+    /// Debug method to log the hash calculation data for troubleshooting
+    /// </summary>
+    private static void LogHashCalculationData(Models.VaultwardenItem item, ILogger logger)
+    {
+        var hashData = new List<string>
+        {
+            $"Name: {item.Name}",
+            $"Notes: {item.Notes}",
+            $"Password: {item.Password}",
+            $"ExtractSecretName: {item.ExtractSecretName()}",
+            $"ExtractSecretKey: {item.ExtractSecretKey()}",
+            $"ExtractSecretKeyPassword: {item.ExtractSecretKeyPassword()}",
+            $"ExtractSecretKeyUsername: {item.ExtractSecretKeyUsername()}",
+            $"Namespaces: {string.Join(",", item.ExtractNamespaces().OrderBy(ns => ns))}",
+            $"RevisionDate: {item.RevisionDate:O}"
+        };
+
+        if (item.Login != null)
+        {
+            hashData.Add($"Login.Username: {item.Login.Username}");
+            hashData.Add($"Login.Password: {item.Login.Password}");
+            if (item.Login.Uris?.Any() == true)
+            {
+                var uris = string.Join(",", item.Login.Uris.Select(u => u.Uri).OrderBy(u => u));
+                hashData.Add($"Login.Uris: {uris}");
+            }
+        }
+
+        if (item.Fields?.Any() == true)
+        {
+            var sortedFields = item.Fields
+                .OrderBy(f => f.Name)
+                .Select(f => $"Field.{f.Name}: {f.Value}")
+                .ToList();
+            hashData.AddRange(sortedFields);
+        }
+
+        logger.LogDebug("Hash calculation data for item {ItemName}: {HashData}", 
+            item.Name, string.Join(" | ", hashData));
     }
 
     private static string SanitizeFieldName(string fieldName)
@@ -828,5 +925,76 @@ public class SyncService : ISyncService
         }
         
         return normalizedValue;
+    }
+
+    /// <summary>
+    /// If the provided value appears to be a PEM private key, normalize it to canonical PEM format:
+    /// - Ensure header/footer are on separate lines
+    /// - Remove extraneous whitespace inside the base64 body
+    /// - Wrap the base64 body at 64 characters per line
+    /// Otherwise, return the value with normalized line endings.
+    /// </summary>
+    private static string FormatPasswordPossiblyPrivateKey(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+
+        var normalized = value.Replace("\r\n", "\n").Replace("\r", "\n");
+
+        // Detect PEM private key markers
+        var headerMatch = Regex.Match(normalized, "-+BEGIN ([A-Z ]*PRIVATE KEY)-+", RegexOptions.CultureInvariant);
+        var footerMatch = Regex.Match(normalized, "-+END ([A-Z ]*PRIVATE KEY)-+", RegexOptions.CultureInvariant);
+
+        if (!headerMatch.Success || !footerMatch.Success)
+        {
+            // Not a PEM-looking value; just normalize newlines
+            return FormatMultilineValue(normalized);
+        }
+
+        var keyTypeHeader = headerMatch.Groups[1].Value.Trim();
+
+        // If header/footer types differ, fall back to normalized value
+        var keyTypeFooter = footerMatch.Groups[1].Value.Trim();
+        if (!string.Equals(keyTypeHeader, keyTypeFooter, StringComparison.Ordinal))
+        {
+            return FormatMultilineValue(normalized);
+        }
+
+        var pemHeader = $"-----BEGIN {keyTypeHeader}-----";
+        var pemFooter = $"-----END {keyTypeHeader}-----";
+
+        // Extract the raw base64 body between header and footer
+        var startIdx = headerMatch.Index + headerMatch.Length;
+        var endIdx = footerMatch.Index;
+        if (endIdx <= startIdx)
+        {
+            return FormatMultilineValue(normalized);
+        }
+
+        var bodyRaw = normalized.Substring(startIdx, endIdx - startIdx);
+        // Convert escaped newlines when users paste with literal \n
+        bodyRaw = bodyRaw.Replace("\\n", "\n");
+        // Remove all whitespace to re-wrap cleanly
+        var base64Body = Regex.Replace(bodyRaw, "\\s+", string.Empty, RegexOptions.CultureInvariant);
+
+        // Wrap to 64 characters per line
+        var wrapped = WrapAtColumn(base64Body, 64);
+
+        var rebuilt = string.Join("\n", new[] { pemHeader, wrapped, pemFooter });
+        return rebuilt;
+    }
+
+    private static string WrapAtColumn(string text, int column)
+    {
+        if (string.IsNullOrEmpty(text) || column <= 0)
+            return text ?? string.Empty;
+
+        var chunks = new List<string>(capacity: Math.Max(1, text.Length / Math.Max(1, column)));
+        for (int i = 0; i < text.Length; i += column)
+        {
+            var len = Math.Min(column, text.Length - i);
+            chunks.Add(text.Substring(i, len));
+        }
+        return string.Join("\n", chunks);
     }
 } 

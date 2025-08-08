@@ -65,6 +65,98 @@ public class VaultwardenItem
     [JsonPropertyName("deletedDate")]
     public DateTime? DeletedDate { get; set; }
 
+    /// <summary>
+    /// Extract additional secret key/value entries defined in the item's notes.
+    /// Supported syntaxes:
+    /// - Inline key/value: lines starting with "#kv:" followed by key=value
+    /// - Fenced blocks for multiline values:
+    ///     ```secret:your_key
+    ///     multi\nline\nvalue
+    ///     ```
+    /// Keys will be sanitized by the caller; this method returns raw keys/values.
+    /// </summary>
+    public Dictionary<string, string> ExtractSecretDataFromNotes()
+    {
+        var results = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrEmpty(Notes))
+        {
+            return results;
+        }
+
+        var text = Notes.Replace("\r\n", "\n").Replace("\r", "\n");
+
+        // Parse fenced code blocks: ```secret:<key> ... ```
+        var lines = text.Split('\n');
+        bool inBlock = false;
+        string currentKey = string.Empty;
+        var blockBuffer = new List<string>();
+
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine;
+            if (!inBlock)
+            {
+                // Detect start of secret block
+                if (line.StartsWith("```secret:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var key = line.Substring("```secret:".Length).Trim();
+                    if (!string.IsNullOrEmpty(key))
+                    {
+                        inBlock = true;
+                        currentKey = key;
+                        blockBuffer.Clear();
+                        continue;
+                    }
+                }
+
+                // Parse inline kv entries: #kv:key=value
+                var trimmed = line.Trim();
+                if (trimmed.StartsWith("#kv:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var kv = trimmed.Substring("#kv:".Length);
+                    var idx = kv.IndexOf('=');
+                    if (idx > 0)
+                    {
+                        var k = kv.Substring(0, idx).Trim();
+                        var v = kv.Substring(idx + 1);
+                        if (!string.IsNullOrEmpty(k))
+                        {
+                            results[k] = v;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // We are inside a fenced block
+                if (line.StartsWith("```"))
+                {
+                    // End of block
+                    var value = string.Join("\n", blockBuffer);
+                    if (!string.IsNullOrEmpty(currentKey))
+                    {
+                        results[currentKey] = value;
+                    }
+                    inBlock = false;
+                    currentKey = string.Empty;
+                    blockBuffer.Clear();
+                }
+                else
+                {
+                    blockBuffer.Add(line);
+                }
+            }
+        }
+
+        // If notes ended while still in a block, flush it
+        if (inBlock && !string.IsNullOrEmpty(currentKey))
+        {
+            results[currentKey] = string.Join("\n", blockBuffer);
+        }
+
+        return results;
+    }
+
     public string? ExtractNamespace()
     {
         if (string.IsNullOrEmpty(Notes))
