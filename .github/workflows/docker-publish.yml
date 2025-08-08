@@ -2,16 +2,16 @@ name: Build and Push Image
 
 on:
   push:
-    branches: [ main ]
-    paths:
-      - 'VaultwardenK8sSync/**'
-      - '.github/workflows/docker-publish.yml'
+    tags:
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: write
 
     steps:
       - name: Checkout
@@ -30,13 +30,22 @@ jobs:
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_PASSWORD }}
 
-      - name: Extract version
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from tag
         id: vars
         run: |
-          VERSION="${GITHUB_SHA::7}"
+          RAW_TAG="${GITHUB_REF_NAME}"
+          VERSION="${RAW_TAG#v}"
+          echo "raw_tag=${RAW_TAG}" >> $GITHUB_OUTPUT
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Build and push
+      - name: Build and push (Harbor and GHCR)
         uses: docker/build-push-action@v6
         with:
           context: ./VaultwardenK8sSync
@@ -44,6 +53,10 @@ jobs:
           push: true
           tags: |
             harbor.lag0.com.br/library/vaultwarden-k8s-sync:latest
+            harbor.lag0.com.br/library/vaultwarden-k8s-sync:${{ steps.vars.outputs.raw_tag }}
             harbor.lag0.com.br/library/vaultwarden-k8s-sync:${{ steps.vars.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync:latest
+            ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync:${{ steps.vars.outputs.raw_tag }}
+            ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync:${{ steps.vars.outputs.version }}
           cache-from: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-k8s-sync:buildcache
           cache-to: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-k8s-sync:buildcache,mode=max
