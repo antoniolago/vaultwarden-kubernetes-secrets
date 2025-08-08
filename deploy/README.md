@@ -5,7 +5,7 @@ Parameterization is done via a ConfigMap and Secret.
 
 Quick start (replace placeholders):
 
-kubectl apply -k https://raw.githubusercontent.com/antoniolago/vaultwarden-kubernetes-secrets/main/VaultwardenK8sSync/deploy
+kubectl apply -k https://raw.githubusercontent.com/antoniolago/vaultwarden-kubernetes-secrets/main/deploy
 
 Then patch the ConfigMap/Secret in place or create overlays.
 

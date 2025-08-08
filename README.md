@@ -9,7 +9,7 @@ For development and detailed usage, see `VaultwardenK8sSync/README.md`.
 Remote (public repo):
 
 ```
-kubectl apply -k https://raw.githubusercontent.com/antoniolago/vaultwarden-kubernetes-secrets/main/VaultwardenK8sSync/deploy
+kubectl apply -k https://raw.githubusercontent.com/antoniolago/vaultwarden-kubernetes-secrets/main/deploy
 ```
 
 Local (cloned repo):
@@ -61,19 +61,19 @@ data:
 
 Secret:
 ```yaml
-apiVersion: v1                          # Core API group
-kind: Secret                            # Sensitive configuration
+apiVersion: v1
+kind: Secret
 metadata:
-  name: vaultwarden-sync-secrets        # Secret name used by the Deployment
-  namespace: vaultwarden-sync           # Must match the app namespace
+  name: vaultwarden-sync-secrets
+  namespace: vaultwarden-sync
 type: Opaque
 stringData:
+  # Bitwarden CLI API key credentials
+  BW_CLIENTID: "your-client-id"
+  BW_CLIENTSECRET: "your-client-secret"
   # Bitwarden/Vaultwarden CLI will login via API key and unlock with this password
   VAULTWARDEN__MASTERPASSWORD: "your-master-password"
 
-  # Bitwarden CLI API key credentials
-  BW_CLIENTID: "your-client-id"        # e.g., xxxx-xxxx-xxxx-xxxx
-  BW_CLIENTSECRET: "your-client-secret"# keep secret
 ```
 
 ## Image override
@@ -89,5 +89,5 @@ If you pefer to use CronJobs, there is a manifest provided at `VaultwardenK8sSyn
 ## Uninstall
 
 ```
-kubectl delete -k https://raw.githubusercontent.com/antoniolago/vaultwarden-kubernetes-secrets/main/VaultwardenK8sSync/deploy
+kubectl delete -k https://raw.githubusercontent.com/antoniolago/vaultwarden-kubernetes-secrets/main/deploy
 ```

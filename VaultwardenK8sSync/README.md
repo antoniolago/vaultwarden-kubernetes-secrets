@@ -44,7 +44,7 @@ dotnet build
 
 Remote apply via kustomize:
 ```bash
-kubectl apply -k https://raw.githubusercontent.com/antoniolago/vaultwarden-kubernetes-secrets/main/VaultwardenK8sSync/deploy
+kubectl apply -k https://raw.githubusercontent.com/antoniolago/vaultwarden-kubernetes-secrets/main/deploy
 ```
 Then edit the `ConfigMap` and `Secret` to set your server URL and credentials, or fork and create an overlay that pins the image/tag and values.
 
