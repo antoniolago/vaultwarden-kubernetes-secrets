@@ -1,0 +1,55 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vaultwarden-sync
+  namespace: vaultwarden-sync
+  labels:
+    app.kubernetes.io/name: vaultwarden-k8s-sync
+    app.kubernetes.io/part-of: vaultwarden-sync
+spec:
+  schedule: "*/10 * * * *" # every 10 minutes
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: vaultwarden-k8s-sync
+            app.kubernetes.io/part-of: vaultwarden-sync
+        spec:
+          serviceAccountName: vaultwarden-sync
+          restartPolicy: OnFailure
+          containers:
+            - name: vaultwarden-sync
+              image: harbor.lag0.com.br/library/vaultwarden-k8s-sync:latest
+              imagePullPolicy: Always
+              command: ["dotnet", "VaultwardenK8sSync.dll", "sync"]
+              envFrom:
+                - configMapRef:
+                    name: vaultwarden-sync-config
+                    optional: true
+                - secretRef:
+                    name: vaultwarden-sync-secrets
+                    optional: true
+              # Force one-shot behavior under CronJob
+              env:
+                - name: SYNC__CONTINUOUSSYNC
+                  value: "false"
+              resources:
+                requests:
+                  memory: "128Mi"
+                  cpu: "10m"
+                limits:
+                  memory: "512Mi"
+                  cpu: "500m"
+              securityContext:
+                allowPrivilegeEscalation: false
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL

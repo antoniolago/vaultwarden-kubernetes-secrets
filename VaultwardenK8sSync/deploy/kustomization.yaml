@@ -11,6 +11,7 @@ resources:
   - configmap.yaml
   - secret.yaml
   - deployment.yaml
+  # - cronjob.yaml
 
 commonLabels:
   app.kubernetes.io/name: vaultwarden-k8s-sync
@@ -18,5 +19,5 @@ commonLabels:
   app.kubernetes.io/version: v1.0.0
 
 images:
-  - name: your-registry/vaultwarden-k8s-sync
-    newTag: latest 
+  - name: harbor.lag0.com.br/library/vaultwarden-k8s-sync
+    newTag: latest

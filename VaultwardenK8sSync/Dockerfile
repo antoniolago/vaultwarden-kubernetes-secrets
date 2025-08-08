@@ -24,9 +24,10 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 # Copy published application
 COPY --from=publish /app/publish .
 
-# Install Bitwarden CLI
+# Install Bitwarden CLI dependencies
 RUN apt-get update && apt-get install -y \
     curl \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Download and install Bitwarden CLI

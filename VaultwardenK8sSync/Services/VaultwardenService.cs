@@ -21,7 +21,7 @@ public class VaultwardenService : IVaultwardenService
     {
         try
         {
-            _logger.LogInformation("Authenticating with Vaultwarden...");
+            _logger.LogInformation("Authenticating with Vaultwarden (API key)...");
 
             // Logout first to ensure clean state
             await LogoutAsync();
@@ -37,14 +37,7 @@ public class VaultwardenService : IVaultwardenService
                 }
             }
 
-            if (true)
-            {
-                return await AuthenticateWithApiKeyAsync();
-            }
-            else
-            {
-                return await AuthenticateWithPasswordAsync();
-            }
+            return await AuthenticateWithApiKeyAsync();
         }
         catch (Exception ex)
         {
@@ -136,42 +129,7 @@ public class VaultwardenService : IVaultwardenService
         return false;
     }
 
-    private async Task<bool> AuthenticateWithPasswordAsync()
-    {
-        var process = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = "bw",
-                Arguments = $"login {_config.Email} --raw",
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            }
-        };
-
-        process.Start();
-        await process.StandardInput.WriteLineAsync(_config.MasterPassword);
-        await process.StandardInput.FlushAsync();
-        process.StandardInput.Close();
-
-        await process.WaitForExitAsync();
-
-        if (process.ExitCode == 0)
-        {
-            _isAuthenticated = true;
-            _logger.LogInformation("Successfully authenticated with password");
-            
-            // Unlock the vault
-            return await UnlockVaultAsync();
-        }
-
-        var error = await process.StandardError.ReadToEndAsync();
-        _logger.LogError("Authentication failed: {Error}", error);
-        return false;
-    }
+    // Password login removed
 
     private async Task<bool> UnlockVaultAsync()
     {
@@ -287,7 +245,31 @@ public class VaultwardenService : IVaultwardenService
                 PropertyNameCaseInsensitive = true
             }) ?? new List<VaultwardenItem>();
 
-            _logger.LogInformation("Retrieved {Count} items from Vaultwarden", items.Count);
+            // Apply optional organization filter
+            var resolvedOrgId = await ResolveOrganizationIdAsync();
+            if (!string.IsNullOrWhiteSpace(resolvedOrgId))
+            {
+                items = items.Where(i => string.Equals(i.OrganizationId, resolvedOrgId, StringComparison.OrdinalIgnoreCase)).ToList();
+                _logger.LogInformation("Retrieved {Count} items from Vaultwarden (filtered to organization {OrgId})", items.Count, resolvedOrgId);
+            }
+
+            // Apply optional folder filter
+            var resolvedFolderId = await ResolveFolderIdAsync();
+            if (!string.IsNullOrWhiteSpace(resolvedFolderId))
+            {
+                items = items.Where(i => string.Equals(i.FolderId, resolvedFolderId, StringComparison.OrdinalIgnoreCase)).ToList();
+                _logger.LogInformation("Filtered to folder {FolderId}: {Count} items remain", resolvedFolderId, items.Count);
+            }
+
+            // Apply optional collection filter (item.CollectionIds contains zero or more collections)
+            var resolvedCollectionId = await ResolveCollectionIdAsync(resolvedOrgId);
+            if (!string.IsNullOrWhiteSpace(resolvedCollectionId))
+            {
+                items = items.Where(i => i.CollectionIds != null && i.CollectionIds.Contains(resolvedCollectionId, StringComparer.OrdinalIgnoreCase)).ToList();
+                _logger.LogInformation("Filtered to collection {CollectionId}: {Count} items remain", resolvedCollectionId, items.Count);
+            }
+
+            _logger.LogInformation("Retrieved {Count} items from Vaultwarden after all filters", items.Count);
             return items;
         }
         catch (Exception ex)
@@ -295,6 +277,183 @@ public class VaultwardenService : IVaultwardenService
             _logger.LogError(ex, "Failed to retrieve items from Vaultwarden");
             return new List<VaultwardenItem>();
         }
+    }
+
+    private async Task<string?> ResolveOrganizationIdAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(_config.OrganizationId))
+        {
+            return _config.OrganizationId;
+        }
+        if (string.IsNullOrWhiteSpace(_config.OrganizationName))
+        {
+            return null;
+        }
+
+        try
+        {
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "bw",
+                    Arguments = "list organizations --raw",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.Start();
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode != 0)
+            {
+                var error = await errorTask;
+                _logger.LogWarning("Failed to list organizations: {Error}", error);
+                return null;
+            }
+
+            var output = await outputTask;
+            var organizations = JsonSerializer.Deserialize<List<OrganizationInfo>>(output, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            }) ?? new List<OrganizationInfo>();
+
+            var org = organizations.FirstOrDefault(o => string.Equals(o.Name, _config.OrganizationName, StringComparison.OrdinalIgnoreCase));
+            if (org != null)
+            {
+                return org.Id;
+            }
+
+            _logger.LogWarning("Organization with name '{OrgName}' not found.", _config.OrganizationName);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error resolving organization by name");
+            return null;
+        }
+    }
+
+    private async Task<string?> ResolveFolderIdAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(_config.FolderId))
+            return _config.FolderId;
+        if (string.IsNullOrWhiteSpace(_config.FolderName))
+            return null;
+
+        try
+        {
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "bw",
+                    Arguments = "list folders --raw",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.Start();
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode != 0)
+            {
+                var error = await errorTask;
+                _logger.LogWarning("Failed to list folders: {Error}", error);
+                return null;
+            }
+
+            var output = await outputTask;
+            var folders = JsonSerializer.Deserialize<List<FolderInfo>>(output, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                          ?? new List<FolderInfo>();
+            var folder = folders.FirstOrDefault(f => string.Equals(f.Name, _config.FolderName, StringComparison.OrdinalIgnoreCase));
+            return folder?.Id;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error resolving folder by name");
+            return null;
+        }
+    }
+
+    private async Task<string?> ResolveCollectionIdAsync(string? orgId)
+    {
+        if (!string.IsNullOrWhiteSpace(_config.CollectionId))
+            return _config.CollectionId;
+        if (string.IsNullOrWhiteSpace(_config.CollectionName))
+            return null;
+
+        try
+        {
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "bw",
+                    Arguments = "list collections --raw",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.Start();
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode != 0)
+            {
+                var error = await errorTask;
+                _logger.LogWarning("Failed to list collections: {Error}", error);
+                return null;
+            }
+
+            var output = await outputTask;
+            var collections = JsonSerializer.Deserialize<List<CollectionInfo>>(output, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                               ?? new List<CollectionInfo>();
+            // If orgId is known, prefer matching collections from that org
+            var candidates = !string.IsNullOrWhiteSpace(orgId)
+                ? collections.Where(c => string.Equals(c.OrganizationId, orgId, StringComparison.OrdinalIgnoreCase))
+                : collections;
+            var col = candidates.FirstOrDefault(c => string.Equals(c.Name, _config.CollectionName, StringComparison.OrdinalIgnoreCase));
+            return col?.Id;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error resolving collection by name");
+            return null;
+        }
+    }
+
+    private class OrganizationInfo
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+    }
+
+    private class FolderInfo
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+    }
+
+    private class CollectionInfo
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string? OrganizationId { get; set; }
     }
 
     public async Task<VaultwardenItem?> GetItemAsync(string id)

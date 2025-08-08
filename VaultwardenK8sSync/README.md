@@ -6,12 +6,14 @@ A .NET 9 console application that synchronizes Vaultwarden vault entries to Kube
 
 - **Automatic Sync**: Syncs Vaultwarden items to Kubernetes secrets based on namespace tags
 - **Consistency Management**: Automatically deletes secrets that no longer exist in Vaultwarden
-- **Flexible Configuration**: Supports both API key and password authentication
+- **Authentication**: API key authentication only
 - **Dry Run Mode**: Test sync operations without making changes
 - **Continuous Sync**: Run sync continuously with configurable intervals
 - **Comprehensive Logging**: Detailed logging for troubleshooting
 - **Multiple Item Types**: Supports login, secure notes, cards, and identity items
 - **Custom Fields**: Syncs custom fields from Vaultwarden items
+- **Custom Fields**: Syncs custom fields from Vaultwarden items
+- **Multiline Secrets from Notes**: Define extra secret keys and multiline values directly in item notes
 
 
 ## Prerequisites
@@ -40,17 +42,50 @@ dotnet build
 
 ### Kubernetes Deployment
 
-For production deployment to Kubernetes, see the [deploy/README.md](deploy/README.md) for detailed instructions.
-
-Quick deployment:
+Remote apply via kustomize:
 ```bash
-# Build and push the container image
-cd deploy
-./build.sh
-
-# Deploy to Kubernetes
-./deploy.sh
+kubectl apply -k https://raw.githubusercontent.com/antoniolago/vaultwarden-kubernetes-secrets/main/VaultwardenK8sSync/deploy
 ```
+Then edit the `ConfigMap` and `Secret` to set your server URL and credentials, or fork and create an overlay that pins the image/tag and values.
+
+#### FluxCD (GitRepository + Kustomization)
+
+Example to deploy this base with FluxCD:
+
+```yaml
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: vaultwarden-sync
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/<org>/<repo>.git
+  ref:
+    branch: main
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: vaultwarden-sync
+  namespace: flux-system
+spec:
+  interval: 5m
+  prune: true
+  targetNamespace: vaultwarden-sync
+  sourceRef:
+    kind: GitRepository
+    name: vaultwarden-sync
+  path: ./VaultwardenK8sSync/deploy
+  # Optionally override image tag
+  images:
+    - name: harbor.lag0.com.br/library/vaultwarden-k8s-sync
+      newTag: latest
+```
+
+Notes:
+- Manage sensitive values by creating `Secret/vaultwarden-sync-secrets` in `vaultwarden-sync` namespace (or use SealedSecrets/SOPS).
+- Non-sensitive values live in `ConfigMap/vaultwarden-sync-config` and can be customized via an overlay in your Git repo.
 
 ## Configuration
 
@@ -74,12 +109,15 @@ Example `.env` file:
 ```env
 # Vaultwarden Configuration
 VAULTWARDEN__SERVERURL=https://your-vaultwarden-server.com
-VAULTWARDEN__EMAIL=your-email@example.com
 VAULTWARDEN__MASTERPASSWORD=your-master-password
-VAULTWARDEN__APIKEY=your-api-key
 BW_CLIENTID=your-client-id
 BW_CLIENTSECRET=your-client-secret
-VAULTWARDEN__USEAPIKEY=false
+VAULTWARDEN__ORGANIZATIONID=optional-org-id
+VAULTWARDEN__ORGANIZATIONNAME=optional-org-name
+VAULTWARDEN__FOLDERID=optional-folder-id
+VAULTWARDEN__FOLDERNAME=optional-folder-name
+VAULTWARDEN__COLLECTIONID=optional-collection-id
+VAULTWARDEN__COLLECTIONNAME=optional-collection-name
 
 # Kubernetes Configuration
 KUBERNETES__KUBECONFIGPATH=
@@ -88,7 +126,7 @@ KUBERNETES__DEFAULTNAMESPACE=default
 KUBERNETES__INCLUSTER=false
 
 # Sync Configuration
-SYNC__NAMESPACETAG=#namespace:
+SYNC__NAMESPACETAG=#namespaces:
 SYNC__DRYRUN=false
 SYNC__DELETEORPHANS=true
 SYNC__SECRETPREFIX=vaultwarden-
@@ -110,17 +148,29 @@ SYNC__CONTINUOUSSYNC=false
 **Environment Variables:**
 ```bash
 VAULTWARDEN__SERVERURL=https://your-vaultwarden-server.com
-VAULTWARDEN__EMAIL=your-email@example.com
 VAULTWARDEN__MASTERPASSWORD=your-master-password
-VAULTWARDEN__APIKEY=your-api-key
-VAULTWARDEN__CLIENTID=your-client-id
-VAULTWARDEN__CLIENTSECRET=your-client-secret
-VAULTWARDEN__USEAPIKEY=false
+BW_CLIENTID=your-client-id
+BW_CLIENTSECRET=your-client-secret
+VAULTWARDEN__ORGANIZATIONID=optional-org-id
+VAULTWARDEN__ORGANIZATIONNAME=optional-org-name
 ```
 
-**Authentication Options:**
-- **Password Authentication**: Set `VAULTWARDEN__USEAPIKEY=false` and provide `VAULTWARDEN__EMAIL` and `VAULTWARDEN__MASTERPASSWORD`
-- **API Key Authentication**: Set `VAULTWARDEN__USEAPIKEY=true` and provide `VAULTWARDEN__APIKEY`, `VAULTWARDEN__CLIENTID`, and `VAULTWARDEN__CLIENTSECRET`
+**Authentication:** API key only (default and only mode)
+- Set `BW_CLIENTID` and `BW_CLIENTSECRET`
+- Set `VAULTWARDEN__MASTERPASSWORD` to unlock the vault after API key login
+
+**Organization Scoping (Optional):**
+- To sync only items that belong to a specific organization, set one of:
+  - `VAULTWARDEN__ORGANIZATIONID`
+  - `VAULTWARDEN__ORGANIZATIONNAME`
+  
+If an organization is specified, the tool will fetch all items and then filter to that organization.
+
+**Folder/Collection Filters (Optional):**
+- Restrict synced items further by folder or collection:
+  - `VAULTWARDEN__FOLDERID` or `VAULTWARDEN__FOLDERNAME`
+  - `VAULTWARDEN__COLLECTIONID` or `VAULTWARDEN__COLLECTIONNAME`
+The tool resolves names to IDs via `bw list folders` / `bw list collections` and filters items accordingly.
 
 ### Kubernetes Configuration
 
@@ -140,7 +190,7 @@ KUBERNETES__INCLUSTER=false
 
 **Environment Variables:**
 ```bash
-SYNC__NAMESPACETAG=#namespace:
+SYNC__NAMESPACETAG=#namespaces:
 SYNC__DRYRUN=false
 SYNC__DELETEORPHANS=true
 SYNC__SECRETPREFIX=vaultwarden-
@@ -188,23 +238,17 @@ dotnet run help
 To sync a Vaultwarden item to Kubernetes namespaces, add the following to the item's notes:
 
 ```
-#namespace:your-namespace-name
+#namespaces:your-namespace-name
 ```
 
 **Examples:**
 ```
-# Single namespace
-Database credentials for production environment
-#namespace:production
+# Sync to multiple namespaces
+#namespaces:staging,production,development
 
-# Multiple namespaces (comma-separated)
-Shared API keys for multiple environments
-#namespace:staging,production,development
-
-# Multiple namespace tags (each on separate line)
-Global configuration
-#namespace:ns1,ns2,ns3
-#namespace:ns4
+# This will work too
+#namespaces:ns1,ns2,ns3
+#namespaces:ns4
 ```
 
 ### Secret Name Tagging
@@ -218,12 +262,13 @@ To specify a custom name for the Kubernetes secret, add the following to the ite
 **Example:**
 ```
 Database credentials for production environment
-#namespace:production
+
+#namespaces:production
 #secret-name:oracle-secrets
 #secret-key:db_password
 ```
 
-**Note:** If no secret name is specified, the tool will use the item name with the configured prefix.
+**Note:** If no secret name is specified, the tool will use the item name.
 
 ### Secret Key Tagging
 
@@ -254,14 +299,14 @@ The old `#secret-key:` tag is still supported for backward compatibility and app
 ```
 # Separate username and password keys
 Database credentials for production environment
-#namespace:production
+#namespaces:production
 #secret-name:oracle-secrets
 #secret-key-password:db_password
 #secret-key-username:db_user
 
 # Legacy format (password only)
 Database credentials for production environment
-#namespace:production
+#namespaces:production
 #secret-name:oracle-secrets
 #secret-key:db_password
 ```
@@ -286,7 +331,7 @@ Secrets are named using one of the following patterns:
 1. **Custom Secret Name**: If `#secret-name:` is specified in the item's notes, that name is used directly
 2. **Default Pattern**: `{SecretPrefix}{SanitizedItemName}`
 
-Default prefix is `vaultwarden-`, so an item named "Database Credentials" becomes `vaultwarden-database-credentials` unless a custom secret name is specified.
+By default, an item named "Database Credentials" becomes a secret named `database-credentials` unless a custom `#secret-name:` is specified.
 
 ### Secret Management and Security
 
@@ -329,7 +374,7 @@ type: Opaque
 data:
   private_key: |
     -----BEGIN PRIVATE KEY-----
-    MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC7VJTUt9Us8cKB
+    MIIEvgIBADANBgkqhkiG9wsaFASCBKwggSk34AgEA123AoIBQC7VJTUt9Us8cKB
     ...
     -----END PRIVATE KEY-----
   username: admin
@@ -337,13 +382,37 @@ data:
 
 **Note:** When using `kubectl get secret -o yaml`, multiline values may appear quoted. Use the application's `export` command for proper YAML formatting with literal block style.
 
+### Adding Extra Keys and Multiline Values via Notes
+
+You can define additional secret entries directly in the Vaultwarden item's notes using either inline key/value or fenced blocks:
+
+1. Inline key/value (single line):
+```
+#kv:API_URL=https://api.example.com
+#kv:API_KEY=sk-123...
+```
+
+2. Fenced block (for multiline values):
+```
+```secret:private_key
+-----BEGIN PRIVATE KEY-----
+...
+-----END PRIVATE KEY-----
+```
+```
+
+Notes:
+- Keys from notes are combined with the regular username/password and custom fields
+- Keys are sanitized to be valid Kubernetes secret keys (lowercase, underscores)
+- Last writer wins if the same key appears multiple times
+
 ## Examples
 
 ### Example 1: Database Credentials
 
 **Vaultwarden Item:**
 - Name: "Production Database"
-- Description: "Production database credentials\n#namespace:production"
+- Description: "Production database credentials\n#namespaces:production"
 - Username: "dbuser"
 - Password: "securepassword123"
 
@@ -365,7 +434,7 @@ data:
 
 **Vaultwarden Item:**
 - Name: "External API"
-- Description: "External service API keys\n#namespace:staging"
+- Description: "External service API keys\n#namespaces:staging"
 - Custom Fields:
   - API_KEY: "sk-1234567890abcdef"
   - API_URL: "https://api.external.com"
@@ -375,7 +444,7 @@ data:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: vaultwarden-external-api
+  name: external-api
   namespace: staging
   labels:
     app.kubernetes.io/managed-by: vaultwarden-k8s-sync
@@ -388,7 +457,7 @@ data:
 
 **Vaultwarden Item:**
 - Name: "Database User"
-- Notes: "Production database user\n#namespace:production\n#secret-name:oracle-secrets\n#secret-key-password:db_password\n#secret-key-username:db_user"
+- Notes: "Production database user\n#namespaces:production\n#secret-name:oracle-secrets\n#secret-key-password:db_password\n#secret-key-username:db_user"
 - Username: "dbuser"
 - Password: "securepassword123"
 
@@ -407,71 +476,17 @@ data:
   db_password: c2VjdXJlcGFzc3dvcmQxMjM=
 ```
 
-**Note:** The secret name is `oracle-secrets` (from the `#secret-name:` tag) instead of the default `vaultwarden-database-user`.
-
-### Example 4: Multiple Namespaces
-
-**Vaultwarden Item:**
-- Name: "Shared API Key"
-- Notes: "API key shared across environments\n#namespace:staging,production,development"
-- Custom Fields:
-  - API_KEY: "sk-abcdef1234567890"
-  - API_URL: "https://api.shared.com"
-
-**Resulting Kubernetes Secrets:**
-```yaml
-# In staging namespace
-apiVersion: v1
-kind: Secret
-metadata:
-  name: vaultwarden-shared-api-key
-  namespace: staging
-  labels:
-    app.kubernetes.io/managed-by: vaultwarden-k8s-sync
-type: Opaque
-data:
-  shared_api_key: c2stYWJjZGVmMTIzNDU2Nzg5MA==
-
----
-# In production namespace
-apiVersion: v1
-kind: Secret
-metadata:
-  name: vaultwarden-shared-api-key
-  namespace: production
-  labels:
-    app.kubernetes.io/managed-by: vaultwarden-k8s-sync
-type: Opaque
-data:
-  shared_api_key: c2stYWJjZGVmMTIzNDU2Nzg5MA==
-
----
-# In development namespace
-apiVersion: v1
-kind: Secret
-metadata:
-  name: vaultwarden-shared-api-key
-  namespace: development
-  labels:
-    app.kubernetes.io/managed-by: vaultwarden-k8s-sync
-type: Opaque
-data:
-  shared_api_key: c2stYWJjZGVmMTIzNDU2Nzg5MA==
-```
-
-**Note:** The same secret is created in all three namespaces (staging, production, development) with identical content.
-
 ### Example 5: Multiple Items with Same Secret Name
 
 **Vaultwarden Item 1:**
 - Name: "Database User"
-- Notes: "Production database user\n#namespace:production\n#secret-name:oracle-secrets\n#secret-key-password:user_password\n#secret-key-username:user_name"
+- Notes: "Production database user\n#namespaces:production\n#secret-name:oracle-secrets\n#secret-key-password:user_password\n#secret-key-username:user_name"
 - Username: "dbuser"
 - Password: "userpassword123"
 
 **Vaultwarden Item 2:**
 - Name: "Database Admin"
-- Notes: "Production database admin\n#namespace:production\n#secret-name:oracle-secrets\n#secret-key-password:admin_password\n#secret-key-username:admin_name"
+- Notes: "Production database admin\n#namespaces:production\n#secret-name:oracle-secrets\n#secret-key-password:admin_password\n#secret-key-username:admin_name"
 - Username: "dbadmin"
 - Password: "adminpassword456"
 
@@ -494,15 +509,11 @@ data:
 
 **Note:** Both items are combined into a single secret named `oracle-secrets`, with each item's username and password data stored under separate keys.
 
-
-
 ## Security Considerations
 
-1. **Credentials Storage**: Never store sensitive credentials in configuration files. Use environment variables or secure secret management.
-2. **API Keys**: Use API key authentication when possible for better security.
-3. **Network Security**: Ensure secure communication between the sync tool and Vaultwarden/Kubernetes.
-4. **Access Control**: Limit the sync tool's access to only necessary namespaces and secrets.
-5. **Safe Secret Management**: The application only manages secrets with its specific labels (`app.kubernetes.io/managed-by: vaultwarden-k8s-sync`), preventing accidental deletion of secrets created by other applications.
+1. **Network Security**: Ensure secure communication between the sync tool and Vaultwarden/Kubernetes.
+2. **Access Control**: Limit the sync tool's access to only necessary collections/folders, namespaces and secrets.
+3. **Safe Secret Management**: The application only touches secrets with its specific labels (`app.kubernetes.io/managed-by: vaultwarden-k8s-sync`), preventing accidental deletion of secrets created by other means.
 
 ## Troubleshooting
 

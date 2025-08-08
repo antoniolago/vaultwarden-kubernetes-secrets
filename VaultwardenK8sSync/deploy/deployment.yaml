@@ -21,14 +21,16 @@ spec:
       serviceAccountName: vaultwarden-sync
       containers:
         - name: vaultwarden-sync
-          image: your-registry/vaultwarden-k8s-sync:latest
+          image: harbor.lag0.com.br/library/vaultwarden-k8s-sync:latest
           imagePullPolicy: Always
           command: ["dotnet", "VaultwardenK8sSync.dll", "sync"]
           envFrom:
             - configMapRef:
                 name: vaultwarden-sync-config
+                optional: true
             - secretRef:
                 name: vaultwarden-sync-secrets
+                optional: true
           resources:
             requests:
               memory: "128Mi"

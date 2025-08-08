@@ -54,15 +54,7 @@ class Program
                 logger.LogInformation("Please check your .env file or environment variables");
             }
 
-            // Validate API key mode if enabled
-            if (appSettings.Vaultwarden.UseApiKey && !appSettings.Vaultwarden.ValidateApiKeyMode(out var apiKeyValidationResults))
-            {
-                logger.LogWarning("API Key configuration validation failed:");
-                foreach (var result in apiKeyValidationResults)
-                {
-                    logger.LogWarning("  - {Error}", result.ErrorMessage);
-                }
-            }
+            // API key is the only supported mode; AppSettings validation already enforces ClientId/ClientSecret
 
             logger.LogInformation("Vaultwarden Kubernetes Secrets Sync Tool");
             logger.LogInformation("========================================");
@@ -173,11 +165,10 @@ class Program
                     {
                         logger.LogInformation("✓ All required configuration keys are present");
                         logger.LogInformation("✓ Vaultwarden Server: {Server}", appSettings.Vaultwarden.ServerUrl);
-                        logger.LogInformation("✓ Vaultwarden Email: {Email}", appSettings.Vaultwarden.Email);
-                        logger.LogInformation("✓ Kubernetes Default Namespace: {Namespace}", appSettings.Kubernetes.DefaultNamespace);
-                        logger.LogInformation("✓ Sync Secret Prefix: {Prefix}", appSettings.Sync.SecretPrefix);
+                         logger.LogInformation("✓ Kubernetes Default Namespace: {Namespace}", appSettings.Kubernetes.DefaultNamespace);
+                         // Prefix removed; secret name defaults to sanitized item name unless #secret-name is set
                         logger.LogInformation("✓ Dry Run Mode: {DryRun}", appSettings.Sync.DryRun);
-                        logger.LogInformation("✓ API Key Mode: {UseApiKey}", appSettings.Vaultwarden.UseApiKey);
+                         logger.LogInformation("✓ Auth Mode: API Key (default)");
                     }
                     else
                     {
@@ -305,7 +296,7 @@ Configuration:
 
 Namespace Tagging:
   To sync a Vaultwarden item to a Kubernetes namespace, add the following to the item's description:
-  #namespace:your-namespace-name
+  #namespaces:your-namespace-name
 
 Examples:
   VaultwardenK8sSync config                  # Validate configuration

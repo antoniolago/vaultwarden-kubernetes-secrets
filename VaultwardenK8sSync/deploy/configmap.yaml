@@ -9,16 +9,20 @@ metadata:
 data:
   # Vaultwarden Configuration
   VAULTWARDEN__SERVERURL: "https://your-vaultwarden-server.com"
-  VAULTWARDEN__EMAIL: "your-email@example.com"
+  VAULTWARDEN__ORGANIZATIONID: ""
+  VAULTWARDEN__ORGANIZATIONNAME: ""
+  VAULTWARDEN__FOLDERID: ""
+  VAULTWARDEN__FOLDERNAME: ""
+  VAULTWARDEN__COLLECTIONID: ""
+  VAULTWARDEN__COLLECTIONNAME: ""
   
   # Kubernetes Configuration
   KUBERNETES__INCLUSTER: "true"
   
   # Sync Configuration
-  SYNC__NAMESPACETAG: "#namespace:"
+  SYNC__NAMESPACETAG: "#namespaces:"
   SYNC__DRYRUN: "false"
   SYNC__DELETEORPHANS: "true"
-  SYNC__SECRETPREFIX: ""
   SYNC__SYNCINTERVALSECONDS: "60"
   SYNC__CONTINUOUSSYNC: "true"
   

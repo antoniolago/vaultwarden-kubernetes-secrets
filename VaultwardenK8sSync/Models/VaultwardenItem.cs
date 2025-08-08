@@ -166,9 +166,9 @@ public class VaultwardenItem
         foreach (var line in lines)
         {
             var trimmedLine = line.Trim();
-            if (trimmedLine.StartsWith("#namespace:", StringComparison.OrdinalIgnoreCase))
+            if (trimmedLine.StartsWith("#namespaces:", StringComparison.OrdinalIgnoreCase))
             {
-                return trimmedLine.Substring("#namespace:".Length).Trim();
+                return trimmedLine.Substring("#namespaces:".Length).Trim();
             }
         }
 
@@ -186,9 +186,9 @@ public class VaultwardenItem
         foreach (var line in lines)
         {
             var trimmedLine = line.Trim();
-            if (trimmedLine.StartsWith("#namespace:", StringComparison.OrdinalIgnoreCase))
+            if (trimmedLine.StartsWith("#namespaces:", StringComparison.OrdinalIgnoreCase))
             {
-                var namespaceValue = trimmedLine.Substring("#namespace:".Length).Trim();
+                var namespaceValue = trimmedLine.Substring("#namespaces:".Length).Trim();
                 if (!string.IsNullOrEmpty(namespaceValue))
                 {
                     // Split by comma and add each namespace

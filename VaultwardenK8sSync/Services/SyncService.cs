@@ -145,7 +145,7 @@ public class SyncService : ISyncService
             var extractedSecretName = item.ExtractSecretName();
             var secretName = !string.IsNullOrEmpty(extractedSecretName) 
                 ? extractedSecretName 
-                : $"{_syncConfig.SecretPrefix}{SanitizeSecretName(item.Name)}";
+                : SanitizeSecretName(item.Name);
             
             var secretData = await ExtractSecretDataAsync(item);
 
@@ -157,7 +157,7 @@ public class SyncService : ISyncService
             }
 
             // Check if there's an existing secret with the old name (based on item name)
-            var oldSecretName = $"{_syncConfig.SecretPrefix}{SanitizeSecretName(item.Name)}";
+            var oldSecretName = SanitizeSecretName(item.Name);
             var oldSecretExists = await _kubernetesService.SecretExistsAsync(namespaceName, oldSecretName);
             var newSecretExists = await _kubernetesService.SecretExistsAsync(namespaceName, secretName);
 
@@ -497,7 +497,7 @@ public class SyncService : ISyncService
                 var extractedSecretName = item.ExtractSecretName();
                 return !string.IsNullOrEmpty(extractedSecretName) 
                     ? extractedSecretName 
-                    : $"{_syncConfig.SecretPrefix}{SanitizeSecretName(item.Name)}";
+                    : SanitizeSecretName(item.Name);
             }).ToHashSet();
 
             // Find orphaned secrets
@@ -625,7 +625,7 @@ public class SyncService : ISyncService
             var extractedSecretName = item.ExtractSecretName();
             var secretName = !string.IsNullOrEmpty(extractedSecretName) 
                 ? extractedSecretName 
-                : $"{_syncConfig.SecretPrefix}{SanitizeSecretName(item.Name)}";
+                : SanitizeSecretName(item.Name);
 
             if (!itemsBySecretName.ContainsKey(secretName))
             {
@@ -674,7 +674,7 @@ public class SyncService : ISyncService
             }
 
             // Check if there's an existing secret with the old name (based on item name)
-            var oldSecretName = $"{_syncConfig.SecretPrefix}{SanitizeSecretName(items.First().Name)}";
+            var oldSecretName = SanitizeSecretName(items.First().Name);
             var oldSecretExists = await _kubernetesService.SecretExistsAsync(namespaceName, oldSecretName);
             var newSecretExists = await _kubernetesService.SecretExistsAsync(namespaceName, secretName);
 
