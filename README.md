@@ -6,35 +6,11 @@ For development and detailed usage, see `VaultwardenK8sSync/README.md`.
 
 ## Quick deploy
 
-Remote (public repo):
-
-```
-kubectl apply -k https://raw.githubusercontent.com/antoniolago/vaultwarden-kubernetes-secrets/main/deploy
-```
-
-Local (cloned repo):
-
-```
-kubectl apply -k VaultwardenK8sSync/deploy
-```
-
-## What gets created
-
-- Namespace `vaultwarden-sync`
-- ServiceAccount + RBAC for managing Secrets
-- ConfigMap `vaultwarden-sync-config` (non-sensitive)
-- Secret `vaultwarden-sync-secrets` (sensitive)
-- Deployment `vaultwarden-sync`
- - CronJob `vaultwarden-sync` (optional; runs sync on a schedule)
-
-## Configure values
-
 Apply these manifests (replace placeholders):
 
 ConfigMap:
 ```yaml
 apiVersion: v1                      # Core API group
-kind: ConfigMap                     # Non-sensitive configuration
 metadata:
   name: vaultwarden-sync-config     # ConfigMap name used by the Deployment
   namespace: vaultwarden-sync       # Must match the app namespace
@@ -74,6 +50,18 @@ stringData:
   # Bitwarden/Vaultwarden CLI will login via API key and unlock with this password
   VAULTWARDEN__MASTERPASSWORD: "your-master-password"
 
+```
+
+Remote (public repo):
+
+```
+kubectl apply -k https://raw.githubusercontent.com/antoniolago/vaultwarden-kubernetes-secrets/main/deploy
+```
+
+Local (cloned repo):
+
+```
+kubectl apply -k VaultwardenK8sSync/deploy
 ```
 
 ## Image override
