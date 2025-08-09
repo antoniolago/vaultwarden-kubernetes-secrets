@@ -23,12 +23,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Harbor Registry
-        uses: docker/login-action@v3
-        with:
-          registry: harbor.lag0.com.br
-          username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_PASSWORD }}
+      # - name: Log in to Harbor Registry
+      #   uses: docker/login-action@v3
+      #   with:
+      #     registry: harbor.lag0.com.br
+      #     username: ${{ secrets.HARBOR_USERNAME }}
+      #     password: ${{ secrets.HARBOR_PASSWORD }}
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -52,9 +52,9 @@ jobs:
           file: ./VaultwardenK8sSync/Dockerfile
           push: true
           tags: |
-            harbor.lag0.com.br/library/vaultwarden-k8s-sync:latest
-            harbor.lag0.com.br/library/vaultwarden-k8s-sync:${{ steps.vars.outputs.raw_tag }}
-            harbor.lag0.com.br/library/vaultwarden-k8s-sync:${{ steps.vars.outputs.version }}
+            # harbor.lag0.com.br/library/vaultwarden-k8s-sync:latest
+            # harbor.lag0.com.br/library/vaultwarden-k8s-sync:${{ steps.vars.outputs.raw_tag }}
+            # harbor.lag0.com.br/library/vaultwarden-k8s-sync:${{ steps.vars.outputs.version }}
             ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync:latest
             ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync:${{ steps.vars.outputs.raw_tag }}
             ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync:${{ steps.vars.outputs.version }}
