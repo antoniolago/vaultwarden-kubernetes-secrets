@@ -58,3 +58,28 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync:${{ steps.vars.outputs.version }}
           # cache-from: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-k8s-sync:buildcache
           # cache-to: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-k8s-sync:buildcache,mode=max
+
+      # --- Helm Chart Publish to GHCR (OCI) ---
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.4
+
+      - name: Helm lint chart
+        run: helm lint charts/vaultwarden-k8s-sync
+
+      - name: Package Helm chart
+        run: |
+          mkdir -p dist
+          helm package charts/vaultwarden-k8s-sync \
+            --version "${{ steps.vars.outputs.version }}" \
+            --app-version "${{ steps.vars.outputs.version }}" \
+            --destination dist
+
+      - name: Login to GHCR (Helm OCI)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io --username "${{ github.actor }}" --password-stdin
+
+      - name: Push Helm chart to GHCR
+        run: |
+          CHART_FILE="dist/vaultwarden-k8s-sync-${{ steps.vars.outputs.version }}.tgz"
+          helm push "$CHART_FILE" oci://ghcr.io/${{ github.repository_owner }}/charts
