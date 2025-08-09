@@ -98,10 +98,14 @@ public class VaultwardenItem
             var line = rawLine;
             if (!inBlock)
             {
-                // Detect start of secret block
-                if (line.StartsWith("```secret:", StringComparison.OrdinalIgnoreCase))
+                // Detect start of secret block (configurable prefix)
+                var blockPrefix = $"```{FieldNameConfig.SecretBlockPrefix}:";
+                if (line.StartsWith(blockPrefix, StringComparison.OrdinalIgnoreCase) ||
+                    line.StartsWith("```secret:", StringComparison.OrdinalIgnoreCase))
                 {
-                    var key = line.Substring("```secret:".Length).Trim();
+                    var key = line.Substring(line.StartsWith(blockPrefix, StringComparison.OrdinalIgnoreCase)
+                        ? blockPrefix.Length
+                        : "```secret:".Length).Trim();
                     if (!string.IsNullOrEmpty(key))
                     {
                         inBlock = true;
@@ -111,11 +115,15 @@ public class VaultwardenItem
                     }
                 }
 
-                // Parse inline kv entries: #kv:key=value
+                // Parse inline kv entries: configurable, defaults to #kv:key=value
                 var trimmed = line.Trim();
-                if (trimmed.StartsWith("#kv:", StringComparison.OrdinalIgnoreCase))
+                var kvPrefix = $"#{FieldNameConfig.InlineKvTagPrefix}:";
+                if (trimmed.StartsWith(kvPrefix, StringComparison.OrdinalIgnoreCase) ||
+                    trimmed.StartsWith("#kv:", StringComparison.OrdinalIgnoreCase))
                 {
-                    var kv = trimmed.Substring("#kv:".Length);
+                    var kv = trimmed.Substring(trimmed.StartsWith(kvPrefix, StringComparison.OrdinalIgnoreCase)
+                        ? kvPrefix.Length
+                        : "#kv:".Length);
                     var idx = kv.IndexOf('=');
                     if (idx > 0)
                     {
@@ -187,7 +195,7 @@ public class VaultwardenItem
         if (string.IsNullOrEmpty(Notes))
             return null;
 
-        var lines = Notes.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var lines = Notes.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
         foreach (var line in lines)
         {
             var trimmedLine = line.Trim();
@@ -226,9 +234,13 @@ public class VaultwardenItem
         foreach (var line in lines)
         {
             var trimmedLine = line.Trim();
-            if (trimmedLine.StartsWith("#namespaces:", StringComparison.OrdinalIgnoreCase))
+            if (trimmedLine.StartsWith($"#{FieldNameConfig.NamespacesFieldName}:", StringComparison.OrdinalIgnoreCase) ||
+                trimmedLine.StartsWith("#namespaces:", StringComparison.OrdinalIgnoreCase))
             {
-                var namespaceValue = trimmedLine.Substring("#namespaces:".Length).Trim();
+                var tagPrefix = $"#{FieldNameConfig.NamespacesFieldName}:";
+                var namespaceValue = trimmedLine.Substring(trimmedLine.StartsWith(tagPrefix, StringComparison.OrdinalIgnoreCase)
+                    ? tagPrefix.Length
+                    : "#namespaces:".Length).Trim();
                 if (!string.IsNullOrEmpty(namespaceValue))
                 {
                     // Split by comma and add each namespace
@@ -258,13 +270,17 @@ public class VaultwardenItem
         if (string.IsNullOrEmpty(Notes))
             return null;
 
-        var lines = Notes.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var lines = Notes.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
         foreach (var line in lines)
         {
             var trimmedLine = line.Trim();
-            if (trimmedLine.StartsWith("#secret-name:", StringComparison.OrdinalIgnoreCase))
+            if (trimmedLine.StartsWith($"#{FieldNameConfig.SecretNameFieldName}:", StringComparison.OrdinalIgnoreCase) ||
+                trimmedLine.StartsWith("#secret-name:", StringComparison.OrdinalIgnoreCase))
             {
-                return trimmedLine.Substring("#secret-name:".Length).Trim();
+                var tagPrefix = $"#{FieldNameConfig.SecretNameFieldName}:";
+                return trimmedLine.Substring(trimmedLine.StartsWith(tagPrefix, StringComparison.OrdinalIgnoreCase)
+                    ? tagPrefix.Length
+                    : "#secret-name:".Length).Trim();
             }
         }
 
@@ -281,13 +297,17 @@ public class VaultwardenItem
         if (string.IsNullOrEmpty(Notes))
             return null;
 
-        var lines = Notes.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var lines = Notes.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
         foreach (var line in lines)
         {
             var trimmedLine = line.Trim();
-            if (trimmedLine.StartsWith("#secret-key:", StringComparison.OrdinalIgnoreCase))
+            if (trimmedLine.StartsWith($"#{FieldNameConfig.LegacySecretKeyFieldName}:", StringComparison.OrdinalIgnoreCase) ||
+                trimmedLine.StartsWith("#secret-key:", StringComparison.OrdinalIgnoreCase))
             {
-                return trimmedLine.Substring("#secret-key:".Length).Trim();
+                var tagPrefix = $"#{FieldNameConfig.LegacySecretKeyFieldName}:";
+                return trimmedLine.Substring(trimmedLine.StartsWith(tagPrefix, StringComparison.OrdinalIgnoreCase)
+                    ? tagPrefix.Length
+                    : "#secret-key:".Length).Trim();
             }
         }
 
@@ -304,13 +324,17 @@ public class VaultwardenItem
         if (string.IsNullOrEmpty(Notes))
             return null;
 
-        var lines = Notes.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var lines = Notes.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
         foreach (var line in lines)
         {
             var trimmedLine = line.Trim();
-            if (trimmedLine.StartsWith("#secret-key-password:", StringComparison.OrdinalIgnoreCase))
+            if (trimmedLine.StartsWith($"#{FieldNameConfig.SecretKeyPasswordFieldName}:", StringComparison.OrdinalIgnoreCase) ||
+                trimmedLine.StartsWith("#secret-key-password:", StringComparison.OrdinalIgnoreCase))
             {
-                return trimmedLine.Substring("#secret-key-password:".Length).Trim();
+                var tagPrefix = $"#{FieldNameConfig.SecretKeyPasswordFieldName}:";
+                return trimmedLine.Substring(trimmedLine.StartsWith(tagPrefix, StringComparison.OrdinalIgnoreCase)
+                    ? tagPrefix.Length
+                    : "#secret-key-password:".Length).Trim();
             }
         }
         return null;
@@ -326,13 +350,17 @@ public class VaultwardenItem
         if (string.IsNullOrEmpty(Notes))
             return null;
 
-        var lines = Notes.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var lines = Notes.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
         foreach (var line in lines)
         {
             var trimmedLine = line.Trim();
-            if (trimmedLine.StartsWith("#secret-key-username:", StringComparison.OrdinalIgnoreCase))
+            if (trimmedLine.StartsWith($"#{FieldNameConfig.SecretKeyUsernameFieldName}:", StringComparison.OrdinalIgnoreCase) ||
+                trimmedLine.StartsWith("#secret-key-username:", StringComparison.OrdinalIgnoreCase))
             {
-                return trimmedLine.Substring("#secret-key-username:".Length).Trim();
+                var tagPrefix = $"#{FieldNameConfig.SecretKeyUsernameFieldName}:";
+                return trimmedLine.Substring(trimmedLine.StartsWith(tagPrefix, StringComparison.OrdinalIgnoreCase)
+                    ? tagPrefix.Length
+                    : "#secret-key-username:".Length).Trim();
             }
         }
         return null;
@@ -353,6 +381,14 @@ internal static class FieldNameConfig
         Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETKEYUSERNAME")?.Trim() ?? "secret-key-username";
     public static readonly string LegacySecretKeyFieldName =
         Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETKEY")?.Trim() ?? "secret-key";
+
+    // Additional configurable tag prefixes for notes parsing
+    // SYNC__FIELD__INLINEKVPREFIX controls the inline kv tag (default "kv") → recognized as #kv:
+    public static readonly string InlineKvTagPrefix =
+        Environment.GetEnvironmentVariable("SYNC__FIELD__INLINEKVPREFIX")?.Trim('#', ' ', ':') ?? "kv";
+    // SYNC__FIELD__SECRETBLOCKPREFIX controls fenced block prefix (default "secret") → recognized as ```secret:
+    public static readonly string SecretBlockPrefix =
+        Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETBLOCKPREFIX")?.Trim('`', ' ', ':') ?? "secret";
 }
 
 public class LoginInfo

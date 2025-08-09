@@ -1,0 +1,86 @@
+{{- if not .Values.runAsCronJob }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vaultwarden-k8s-sync.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "vaultwarden-k8s-sync.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "vaultwarden-k8s-sync.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      annotations:
+        {{- toYaml .Values.podAnnotations | nindent 8 }}
+      labels:
+        app.kubernetes.io/name: {{ include "vaultwarden-k8s-sync.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ include "vaultwarden-k8s-sync.serviceAccountName" . }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      affinity:
+        {{- toYaml .Values.affinity | nindent 8 }}
+      containers:
+        - name: {{ include "vaultwarden-k8s-sync.name" . }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["dotnet", "VaultwardenK8sSync.dll", "sync"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "vaultwarden-k8s-sync.fullname" . }}-config
+                optional: true
+          # Propagate SYNC__FIELD_* env overrides from values.env.fields
+          {{- with .Values.env.fields }}
+          env:
+            - name: SYNC__FIELD__NAMESPACES
+              value: {{ .namespaces | quote }}
+            - name: SYNC__FIELD__SECRETNAME
+              value: {{ .secretName | quote }}
+            - name: SYNC__FIELD__SECRETKEYPASSWORD
+              value: {{ .secretKeyPassword | quote }}
+            - name: SYNC__FIELD__SECRETKEYUSERNAME
+              value: {{ .secretKeyUsername | quote }}
+            - name: SYNC__FIELD__SECRETKEY
+              value: {{ .secretKey | quote }}
+            - name: SYNC__FIELD__INLINEKVPREFIX
+              value: {{ .inlineKvPrefix | quote }}
+            - name: SYNC__FIELD__SECRETBLOCKPREFIX
+              value: {{ .secretBlockPrefix | quote }}
+          {{- end }}
+          env:
+          {{- range $name, $ref := .Values.env.secrets }}
+            - name: {{ $name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $ref.secretName }}
+                  key: {{ $ref.secretKey }}
+                  optional: true
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          livenessProbe:
+            exec:
+              command: ["dotnet", "VaultwardenK8sSync.dll", "config"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["dotnet", "VaultwardenK8sSync.dll", "config"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+{{- end }}

@@ -35,7 +35,6 @@ public class AppSettings
             },
             Sync = new SyncSettings
             {
-                NamespaceTag = Environment.GetEnvironmentVariable("SYNC__NAMESPACETAG") ?? "#namespaces:",
                 DryRun = bool.TryParse(Environment.GetEnvironmentVariable("SYNC__DRYRUN"), out var dryRun) && dryRun,
                 DeleteOrphans = bool.TryParse(Environment.GetEnvironmentVariable("SYNC__DELETEORPHANS"), out var deleteOrphans) ? deleteOrphans : true,
                 SyncIntervalSeconds = int.TryParse(Environment.GetEnvironmentVariable("SYNC__SYNCINTERVALSECONDS"), out var syncInterval) ? syncInterval : 3600,
@@ -97,7 +96,6 @@ public class KubernetesSettings
 
 public class SyncSettings
 {
-    public string NamespaceTag { get; set; } = "#namespaces:";
     public bool DryRun { get; set; } = false;
     public bool DeleteOrphans { get; set; } = true;
     public int SyncIntervalSeconds { get; set; } = 3600; // 60 minutes in seconds

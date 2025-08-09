@@ -1,0 +1,98 @@
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/antoniolago/vaultwarden-k8s-sync
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  name: ""
+
+# Namespace management
+namespace:
+  create: false
+  name: ""
+
+schedule: "*/10 * * * *"
+runAsCronJob: false
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+env:
+  config:
+    VAULTWARDEN__SERVERURL: "https://your-vaultwarden-server.com"
+    VAULTWARDEN__ORGANIZATIONID: ""
+    VAULTWARDEN__ORGANIZATIONNAME: ""
+    VAULTWARDEN__FOLDERID: ""
+    VAULTWARDEN__FOLDERNAME: ""
+    VAULTWARDEN__COLLECTIONID: ""
+    VAULTWARDEN__COLLECTIONNAME: ""
+    KUBERNETES__INCLUSTER: "true"
+    KUBERNETES__DEFAULTNAMESPACE: "default"
+    SYNC__DRYRUN: "false"
+    SYNC__DELETEORPHANS: "true"
+    SYNC__SECRETPREFIX: ""
+    SYNC__SYNCINTERVALSECONDS: "60"
+    SYNC__CONTINUOUSSYNC: "true"
+    LOGGING__LOGLEVEL__DEFAULT: "Information"
+    LOGGING__LOGLEVEL__MICROSOFT: "Warning"
+    LOGGING__LOGLEVEL__MICROSOFT__HOSTING__LIFETIME: "Information"
+  secrets:
+    # Map of env var -> {secretName, secretKey}
+    BW_CLIENTID:
+      secretName: "vaultwarden-sync-secrets"
+      secretKey: "BW_CLIENTID"
+    BW_CLIENTSECRET:
+      secretName: "vaultwarden-sync-secrets"
+      secretKey: "BW_CLIENTSECRET"
+    VAULTWARDEN__MASTERPASSWORD:
+      secretName: "vaultwarden-sync-secrets"
+      secretKey: "VAULTWARDEN__MASTERPASSWORD"
+
+  # Configure note/custom-field tag names understood by the app
+  fields:
+    # SYNC__FIELD__NAMESPACES
+    namespaces: "namespaces"
+    # SYNC__FIELD__SECRETNAME
+    secretName: "secret-name"
+    # SYNC__FIELD__SECRETKEYPASSWORD
+    secretKeyPassword: "secret-key-password"
+    # SYNC__FIELD__SECRETKEYUSERNAME
+    secretKeyUsername: "secret-key-username"
+    # SYNC__FIELD__SECRETKEY (legacy)
+    secretKey: "secret-key"
+    # SYNC__FIELD__INLINEKVPREFIX
+    inlineKvPrefix: "kv"
+    # SYNC__FIELD__SECRETBLOCKPREFIX
+    secretBlockPrefix: "secret"
+
+podAnnotations: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

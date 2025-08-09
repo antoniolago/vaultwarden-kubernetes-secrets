@@ -1,6 +1,6 @@
 # Vaultwarden Kubernetes Secrets Sync
 
-.NET 9 app that syncs Vaultwarden items to Kubernetes Secrets. Simple tags or custom fields on items control what gets synced.
+A .NET 9 console application that synchronizes Vaultwarden vault entries to Kubernetes secrets. The tool automatically syncs secrets based on namespace tags in Vaultwarden item descriptions and maintains consistency by cleaning up orphaned secrets.
 
 ## Features
 
@@ -89,7 +89,10 @@ Notes:
 
 ## Configuration
 
-Create `.env` (see `env.example`).
+The application reads configuration from environment variables in the following order:
+1. `.env` file (loaded first)
+2. System environment variables
+3. Launch configuration environment variables
 
 ### Environment Variables (.env file)
 
@@ -102,7 +105,7 @@ cp env.example .env
 # Edit the .env file with your actual values
 ```
 
-Minimal `.env`:
+Example `.env` file:
 ```env
 # Vaultwarden Configuration
 VAULTWARDEN__SERVERURL=https://your-vaultwarden-server.com
@@ -116,33 +119,33 @@ VAULTWARDEN__FOLDERNAME=optional-folder-name
 VAULTWARDEN__COLLECTIONID=optional-collection-id
 VAULTWARDEN__COLLECTIONNAME=optional-collection-name
 
-# Kubernetes (optional)
+# Kubernetes Configuration
 KUBERNETES__KUBECONFIGPATH=
 KUBERNETES__CONTEXT=
 KUBERNETES__DEFAULTNAMESPACE=default
 KUBERNETES__INCLUSTER=false
 
-# Sync
-SYNC__NAMESPACETAG=#namespaces:
+# Sync Configuration
+  # Note tag keys follow SYNC__FIELD__* names; default is `#namespaces:` for namespaces
 SYNC__DRYRUN=false
 SYNC__DELETEORPHANS=true
-SYNC__SECRETPREFIX=vaultwarden-
+SYNC__SECRETPREFIX=
 SYNC__SYNCINTERVALSECONDS=3600
 SYNC__CONTINUOUSSYNC=false
 ```
 
-Note: `SYNC__SYNCINTERVALSECONDS` is seconds:
+**Note:** `SYNC__SYNCINTERVALSECONDS` is specified in seconds. Common values:
 - 60 = 1 minute
 - 300 = 5 minutes  
 - 600 = 10 minutes
 - 3600 = 1 hour (default)
 - 86400 = 24 hours
 
-Add `.env` to `.gitignore`.
+**Important**: Add `.env` to your `.gitignore` file to prevent committing sensitive information to version control.
 
 ### Vaultwarden Configuration
 
-Required:
+**Environment Variables:**
 ```bash
 VAULTWARDEN__SERVERURL=https://your-vaultwarden-server.com
 VAULTWARDEN__MASTERPASSWORD=your-master-password
@@ -152,15 +155,26 @@ VAULTWARDEN__ORGANIZATIONID=optional-org-id
 VAULTWARDEN__ORGANIZATIONNAME=optional-org-name
 ```
 
-Auth: API key (`BW_CLIENTID`/`BW_CLIENTSECRET`) + `VAULTWARDEN__MASTERPASSWORD`.
+**Authentication:** API key only (default and only mode)
+- Set `BW_CLIENTID` and `BW_CLIENTSECRET`
+- Set `VAULTWARDEN__MASTERPASSWORD` to unlock the vault after API key login
 
-Organization scoping (optional): set `VAULTWARDEN__ORGANIZATIONID` or `VAULTWARDEN__ORGANIZATIONNAME`.
+**Organization Scoping (Optional):**
+- To sync only items that belong to a specific organization, set one of:
+  - `VAULTWARDEN__ORGANIZATIONID`
+  - `VAULTWARDEN__ORGANIZATIONNAME`
+  
+If an organization is specified, the tool will fetch all items and then filter to that organization.
 
-Folder/Collection filters (optional): `VAULTWARDEN__FOLDERID/FOLDERNAME`, `VAULTWARDEN__COLLECTIONID/COLLECTIONNAME`.
+**Folder/Collection Filters (Optional):**
+- Restrict synced items further by folder or collection:
+  - `VAULTWARDEN__FOLDERID` or `VAULTWARDEN__FOLDERNAME`
+  - `VAULTWARDEN__COLLECTIONID` or `VAULTWARDEN__COLLECTIONNAME`
+The tool resolves names to IDs via `bw list folders` / `bw list collections` and filters items accordingly.
 
 ### Kubernetes Configuration
 
-Vars:
+**Environment Variables:**
 ```bash
 KUBERNETES__KUBECONFIGPATH=/path/to/kubeconfig
 KUBERNETES__CONTEXT=your-context
@@ -176,13 +190,12 @@ KUBERNETES__INCLUSTER=false
 
 **Environment Variables:**
 ```bash
-SYNC__NAMESPACETAG=#namespaces:
 SYNC__DRYRUN=false
 SYNC__DELETEORPHANS=true
-SYNC__SECRETPREFIX=vaultwarden-
+SYNC__SECRETPREFIX=
 SYNC__SYNCINTERVALSECONDS=3600
 SYNC__CONTINUOUSSYNC=false
-# Custom field name overrides (optional)
+# Custom field names (optional overrides)
 SYNC__FIELD__NAMESPACES=namespaces
 SYNC__FIELD__SECRETNAME=secret-name
 SYNC__FIELD__SECRETKEYPASSWORD=secret-key-password
@@ -225,13 +238,17 @@ dotnet run config
 dotnet run help
 ```
 
-### Namespace
-Notes:
+### Namespace Tagging
+
+To sync a Vaultwarden item to Kubernetes namespaces, you can use either notes or custom fields.
+
+1) Notes (existing):
 ```
 #namespaces:your-namespace-name
 ```
-Custom field:
-- `namespaces=staging,production` (comma-separated)
+
+2) Custom field (new):
+- Add a custom field named `namespaces` with value like `staging,production` or a single namespace `production`.
 
 **Examples:**
 ```
@@ -247,13 +264,17 @@ Custom field:
 #namespaces:ns4
 ```
 
-### Secret name
-Notes:
+### Secret Name Tagging
+
+You can set the Kubernetes secret name via notes or a custom field.
+
+1) Notes (existing):
 ```
 #secret-name:your-secret-name
 ```
-Custom field:
-- `secret-name=my-secret`
+
+2) Custom field (new):
+- Add a custom field named `secret-name` with the desired secret name.
 
 **Example:**
 ```
@@ -271,28 +292,43 @@ Database credentials for production environment
 
 **Note:** If no secret name is specified, the tool will use the item name.
 
-### Keys in the secret
-Password key:
-Notes:
+### Secret Key Tagging
+
+The application supports separate key tags for username and password data, via notes or custom fields.
+
+#### Password Key Tagging
+To specify a custom key name for the password within the Kubernetes secret:
+
+1) Notes (existing):
 ```
 #secret-key-password:your-password-key
 ```
-Custom field:
-- `secret-key-password=db_password`
-Username key:
-Notes:
+
+2) Custom field (new):
+- Add a custom field named `secret-key-password` with the desired key.
+
+#### Username Key Tagging
+To specify a custom key name for the username within the Kubernetes secret:
+
+1) Notes (existing):
 ```
 #secret-key-username:your-username-key
 ```
-Custom field:
-- `secret-key-username=db_user`
 
-Legacy (password key):
-Notes:
+2) Custom field (new):
+- Add a custom field named `secret-key-username` with the desired key.
+
+#### Legacy Key Tagging (Backward Compatible)
+The old `#secret-key:` tag is still supported via notes and as a custom field for backward compatibility and applies to the password:
+
+1) Notes:
 ```
 #secret-key:your-key-name
 ```
-Custom field: `secret-key=your-key-name`
+
+2) Custom field:
+- field name: `secret-key`
+- field value: `your-key-name`
 
 **Examples:**
 ```
@@ -317,9 +353,10 @@ Database credentials for production environment
 #   secret-key-username=db_user
 ```
 
-Notes:
-- Default password key: sanitized item name
-- Default username key: `{sanitized_item_name}_username` (only if username exists)
+**Note:** 
+- If no password key is specified, the tool will use the sanitized item name as the key
+- If no username key is specified but a username is available, the tool will use `{sanitized_item_name}_username` as the key
+- Username data is only included if the Vaultwarden item has login information or custom fields with username data
 
 ### Multiple Items with Same Secret Name
 
@@ -329,14 +366,24 @@ When multiple Vaultwarden items point to the same secret name (via `#secret-name
 - If no custom key is specified, the sanitized item name will be used as the key
 - If multiple items have the same key, the last item processed will overwrite previous values
 
-### Secret naming
-- If `secret-name` is set: use it
-- Else: sanitized item name
+### Secret Naming
 
-### Behavior
-- Labels set: `app.kubernetes.io/managed-by|created-by: vaultwarden-k8s-sync`
-- Orphan cleanup only touches labeled secrets
-- Hash-based change detection updates when content/metadata changes
+Secrets are named using one of the following patterns:
+
+1. **Custom Secret Name**: If `#secret-name:` is specified in the item's notes, that name is used directly
+2. **Default Pattern**: `{SecretPrefix}{SanitizedItemName}`
+
+By default, an item named "Database Credentials" becomes a secret named `database-credentials` unless a custom `#secret-name:` is specified.
+
+### Secret Management and Security
+
+**Application Labels**: All secrets created by this application are automatically labeled with:
+- `app.kubernetes.io/managed-by: vaultwarden-k8s-sync`
+- `app.kubernetes.io/created-by: vaultwarden-k8s-sync`
+
+**Safe Cleanup**: The application only manages secrets with its specific labels, ensuring it never deletes secrets created by other applications. This prevents accidental deletion of secrets managed by other tools or applications.
+
+**Change Detection**: The application uses SHA256 hashes to detect changes in Vaultwarden items. A hash is calculated from all relevant item fields (name, notes, password, login info, custom fields, etc.) and stored in the Kubernetes secret. This ensures that any change to the Vaultwarden item (including metadata changes like notes, username, or custom fields) will trigger a secret update, even if the final secret data remains the same.
 
 ### Secret Data Structure
 
@@ -350,15 +397,13 @@ For a Vaultwarden item named "Database User" with password "mypassword123":
 - Key: `database_user`
 - Value: `mypassword123`
 
-### Multiline & extra keys via Notes
-```
-#kv:API_URL=https://api.example.com
-```secret:private_key
------BEGIN PRIVATE KEY-----
-...
------END PRIVATE KEY-----
-```
-```
+### Multiline Secret Handling
+
+The application properly handles multiline secrets (such as SSH keys, certificates, etc.) by:
+
+1. **Storage**: Multiline values are stored correctly in Kubernetes secrets with all line breaks preserved
+2. **Normalization**: Line endings are normalized to Unix-style (`\n`) for consistency across platforms
+3. **Export**: The `export` command displays multiline values using YAML's literal block style (`|`) instead of quoted strings
 
 **Example Export Output:**
 ```yaml
@@ -377,7 +422,7 @@ data:
   username: admin
 ```
 
-Use `dotnet run export` for readable YAML (literal blocks).
+**Note:** When using `kubectl get secret -o yaml`, multiline values may appear quoted. Use the application's `export` command for proper YAML formatting with literal block style.
 
 ### Adding Extra Keys and Multiline Values via Notes
 
@@ -403,7 +448,12 @@ Notes:
 - Keys are sanitized to be valid Kubernetes secret keys (lowercase, underscores)
 - Last writer wins if the same key appears multiple times
 
-Secure notes: if no password exists, the note body (without metadata lines/secret blocks) is stored under the resolved password key.
+### Syncing Secure Notes Content
+
+- If an item has no password or login password, the tool writes the note body as the primary value under the resolved password key (from `secret-key-password`, legacy `secret-key`, or the sanitized item name).
+- Metadata lines and blocks are excluded from the note body by default:
+  - `#namespaces:`, `#secret-name:`, `#secret-key:`, `#secret-key-password:`, `#secret-key-username:`, `#kv:` and fenced blocks starting with ```secret:...
+- To include specific note content as separate keys, prefer the note KV or fenced secret blocks shown above.
 
 ## Examples
 
@@ -415,7 +465,7 @@ Secure notes: if no password exists, the note body (without metadata lines/secre
 - Username: "dbuser"
 - Password: "securepassword123"
 
-Resulting Secret:
+**Resulting Kubernetes Secret:**
 ```yaml
 apiVersion: v1
 kind: Secret
@@ -438,7 +488,7 @@ data:
   - API_KEY: "sk-1234567890abcdef"
   - API_URL: "https://api.external.com"
 
-Resulting Secret:
+**Resulting Kubernetes Secret:**
 ```yaml
 apiVersion: v1
 kind: Secret
@@ -460,7 +510,7 @@ data:
 - Username: "dbuser"
 - Password: "securepassword123"
 
-Resulting Secret:
+**Resulting Kubernetes Secret:**
 ```yaml
 apiVersion: v1
 kind: Secret
@@ -506,7 +556,7 @@ data:
   admin_password: YWRtaW5wYXNzd29yZDQ1Ng==
 ```
 
-Note: both items combine into the same secret.
+**Note:** Both items are combined into a single secret named `oracle-secrets`, with each item's username and password data stored under separate keys.
 
 ## Security Considerations
 
@@ -514,18 +564,80 @@ Note: both items combine into the same secret.
 2. **Access Control**: Limit the sync tool's access to only necessary collections/folders, namespaces and secrets.
 3. **Safe Secret Management**: The application only touches secrets with its specific labels (`app.kubernetes.io/managed-by: vaultwarden-k8s-sync`), preventing accidental deletion of secrets created by other means.
 
-## Troubleshooting (quick)
+## Troubleshooting
 
-1) Auth failed? Check server URL, API key, master password, `bw` installed.
-2) K8s failed? Check kubeconfig/context/permissions.
-3) Item not selected? Add `#namespaces:` or `namespaces` field.
-4) No update? Tool runs `bw sync` before listing; confirm note change wasn’t only metadata.
+### Common Issues
 
-### Dry run
-Set `SYNC__DRYRUN=true`.
+1. **Authentication Failed**
+   - Verify Vaultwarden credentials
+   - Check server URL
+   - Ensure Bitwarden CLI is properly configured
 
-### Continuous
-Set `SYNC__CONTINUOUSSYNC=true` and `SYNC__SYNCINTERVALSECONDS=300` (for 5m). Ctrl+C to stop.
+2. **Kubernetes Connection Failed**
+   - Verify kubeconfig path and context
+   - Check cluster access permissions
+   - Ensure namespace exists
+
+3. **Sync Errors**
+   - Check item descriptions for correct namespace tags
+   - Verify secret naming doesn't conflict
+   - Review logs for detailed error messages
+
+4. **Changes Not Detected**
+   - The application uses hash-based change detection for all item fields
+   - Any change to name, notes, password, username, custom fields, or metadata will trigger an update
+   - Check logs for "content changes" or "metadata changes" messages
+
+### Logging
+
+The application provides detailed logging at different levels:
+- `Information`: General sync operations
+- `Warning`: Non-critical issues
+- `Error`: Sync failures and errors
+
+### Dry Run Mode
+
+Use dry run mode to test sync operations without making changes:
+
+**Environment Variable:**
+```bash
+SYNC__DRYRUN=true
+```
+
+**Or in .env file:**
+```env
+SYNC__DRYRUN=true
+```
+
+### Continuous Sync Mode
+
+Run the sync continuously with configurable intervals:
+
+**Environment Variables:**
+```bash
+SYNC__CONTINUOUSSYNC=true
+SYNC__SYNCINTERVALSECONDS=300  # 5 minutes
+```
+
+**Or in .env file:**
+```env
+SYNC__CONTINUOUSSYNC=true
+SYNC__SYNCINTERVALSECONDS=300
+```
+
+**Usage:**
+```bash
+# Run continuous sync
+dotnet run sync
+
+# Stop with Ctrl+C (graceful shutdown)
+```
+
+**Features:**
+- Runs sync every `SYNC__SYNCINTERVALSECONDS` seconds
+- Graceful shutdown with Ctrl+C
+- Continues running even if individual sync runs fail
+- Detailed logging for each sync run
 
 ## Development
 

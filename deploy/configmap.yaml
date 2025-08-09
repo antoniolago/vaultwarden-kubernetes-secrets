@@ -20,7 +20,6 @@ data:
   KUBERNETES__INCLUSTER: "true"
   
   # Sync Configuration
-  SYNC__NAMESPACETAG: "#namespaces:"
   SYNC__DRYRUN: "false"
   SYNC__DELETEORPHANS: "true"
   SYNC__SYNCINTERVALSECONDS: "60"

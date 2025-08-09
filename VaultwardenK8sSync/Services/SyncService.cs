@@ -347,12 +347,12 @@ public class SyncService : ISyncService
             }
 
             // Skip metadata and kv lines
-            if (trimmed.StartsWith("#namespaces:", StringComparison.OrdinalIgnoreCase) ||
-                trimmed.StartsWith("#secret-name:", StringComparison.OrdinalIgnoreCase) ||
-                trimmed.StartsWith("#secret-key:", StringComparison.OrdinalIgnoreCase) ||
-                trimmed.StartsWith("#secret-key-password:", StringComparison.OrdinalIgnoreCase) ||
-                trimmed.StartsWith("#secret-key-username:", StringComparison.OrdinalIgnoreCase) ||
-                trimmed.StartsWith("#kv:", StringComparison.OrdinalIgnoreCase))
+            if (trimmed.StartsWith($"#{Models.FieldNameConfig.NamespacesFieldName}:", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith($"#{Models.FieldNameConfig.SecretNameFieldName}:", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith($"#{Models.FieldNameConfig.LegacySecretKeyFieldName}:", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith($"#{Models.FieldNameConfig.SecretKeyPasswordFieldName}:", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith($"#{Models.FieldNameConfig.SecretKeyUsernameFieldName}:", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith($"#{Models.FieldNameConfig.InlineKvTagPrefix}:", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
