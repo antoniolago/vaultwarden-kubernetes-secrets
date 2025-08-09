@@ -50,10 +50,11 @@ jobs:
         with:
           context: ./VaultwardenK8sSync
           file: ./VaultwardenK8sSync/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync:latest
             ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync:${{ steps.vars.outputs.raw_tag }}
             ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync:${{ steps.vars.outputs.version }}
-          cache-from: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-k8s-sync:buildcache
-          cache-to: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-k8s-sync:buildcache,mode=max
+          # cache-from: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-k8s-sync:buildcache
+          # cache-to: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-k8s-sync:buildcache,mode=max

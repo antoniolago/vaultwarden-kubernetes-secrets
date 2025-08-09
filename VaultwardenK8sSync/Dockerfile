@@ -31,10 +31,13 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Download and install Bitwarden CLI
-RUN curl -L "https://vault.bitwarden.com/download/?app=cli&platform=linux" -o bw.zip \
-    && unzip bw.zip -d /usr/local/bin \
-    && chmod +x /usr/local/bin/bw \
-    && rm bw.zip
+ARG TARGETARCH
+RUN set -eux; \
+    if [ "$TARGETARCH" = "arm64" ]; then platform="linux-arm64"; else platform="linux"; fi; \
+    curl -L "https://vault.bitwarden.com/download/?app=cli&platform=${platform}" -o bw.zip; \
+    unzip bw.zip -d /usr/local/bin; \
+    chmod +x /usr/local/bin/bw; \
+    rm bw.zip
 
 # Change ownership to non-root user
 RUN chown -R appuser:appuser /app
