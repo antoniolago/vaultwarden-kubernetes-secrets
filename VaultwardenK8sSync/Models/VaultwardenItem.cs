@@ -46,6 +46,9 @@ public class VaultwardenItem
     [JsonPropertyName("identity")]
     public IdentityInfo? Identity { get; set; }
 
+    [JsonPropertyName("sshKey")]
+    public SshKeyInfo? SshKey { get; set; }
+
     [JsonPropertyName("fields")]
     public List<FieldInfo>? Fields { get; set; }
 
@@ -497,6 +500,18 @@ public class IdentityInfo
 
     [JsonPropertyName("licenseNumber")]
     public string LicenseNumber { get; set; } = string.Empty;
+}
+
+public class SshKeyInfo
+{
+    [JsonPropertyName("privateKey")]
+    public string? PrivateKey { get; set; }
+
+    [JsonPropertyName("publicKey")]
+    public string? PublicKey { get; set; }
+
+    [JsonPropertyName("fingerprint")]
+    public string? Fingerprint { get; set; }
 }
 
 public class FieldInfo

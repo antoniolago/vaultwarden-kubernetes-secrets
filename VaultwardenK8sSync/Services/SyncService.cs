@@ -253,7 +253,7 @@ public class SyncService : ISyncService
             data[usernameKey] = FormatMultilineValue(username);
         }
 
-        // Get the password/credential value
+        // Get the password/credential value (login password or SSH private key if SSH item)
         var password = GetLoginPasswordOrSshKey(item);
 
         // Determine the key to use for the primary value (password/content)
@@ -279,6 +279,27 @@ public class SyncService : ISyncService
             // otherwise fall back to the item name as a placeholder.
             var noteBody = ExtractPureNoteBody(item.Notes);
             data[passwordKeyResolved] = string.IsNullOrWhiteSpace(noteBody) ? item.Name : noteBody;
+        }
+
+        // Include SSH-specific extras if present
+        if (item.SshKey != null)
+        {
+            if (!string.IsNullOrWhiteSpace(item.SshKey.PublicKey))
+            {
+                var pubKeyKey = $"{SanitizeFieldName(item.Name)}_public_key";
+                if (!data.ContainsKey(pubKeyKey))
+                {
+                    data[pubKeyKey] = FormatMultilineValue(item.SshKey.PublicKey!);
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(item.SshKey.Fingerprint))
+            {
+                var fpKey = $"{SanitizeFieldName(item.Name)}_fingerprint";
+                if (!data.ContainsKey(fpKey))
+                {
+                    data[fpKey] = item.SshKey.Fingerprint!;
+                }
+            }
         }
 
         // Include custom fields from the item as additional secret keys
@@ -372,6 +393,12 @@ public class SyncService : ISyncService
         // First check for regular password
         if (!string.IsNullOrEmpty(item.Password))
             return item.Password;
+
+        // Prefer SSH Key payload if present on item
+        if (item.SshKey != null && !string.IsNullOrWhiteSpace(item.SshKey.PrivateKey))
+        {
+            return item.SshKey.PrivateKey!;
+        }
 
         // Check for SSH key in custom fields
         if (item.Fields?.Any() == true)
@@ -850,6 +877,13 @@ public class SyncService : ISyncService
             string.Join(",", item.ExtractNamespaces().OrderBy(ns => ns))
         };
 
+        if (item.SshKey != null)
+        {
+            hashData.Add(item.SshKey.PrivateKey ?? "");
+            hashData.Add(item.SshKey.PublicKey ?? "");
+            hashData.Add(item.SshKey.Fingerprint ?? "");
+        }
+
         // Add login information if available
         if (item.Login != null)
         {
@@ -899,6 +933,13 @@ public class SyncService : ISyncService
             $"Namespaces: {string.Join(",", item.ExtractNamespaces().OrderBy(ns => ns))}",
             $"RevisionDate: {item.RevisionDate:O}"
         };
+
+        if (item.SshKey != null)
+        {
+            hashData.Add($"SshKey.PrivateKey: {(string.IsNullOrEmpty(item.SshKey.PrivateKey) ? "<empty>" : "<set>")}");
+            hashData.Add($"SshKey.PublicKey: {(string.IsNullOrEmpty(item.SshKey.PublicKey) ? "<empty>" : "<set>")}");
+            hashData.Add($"SshKey.Fingerprint: {item.SshKey.Fingerprint}");
+        }
 
         if (item.Login != null)
         {

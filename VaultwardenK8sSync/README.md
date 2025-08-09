@@ -675,3 +675,23 @@ For issues and questions:
 1. Check the troubleshooting section
 2. Review the logs
 3. Create an issue in the repository 
+
+## Limitations
+
+- **Multiline handling**:
+  - Multiline values are best handled using Secure Note items with fenced `secret:` blocks in the note body.
+  - Login/Card/Identity items support single-line custom fields; parsing fenced multiline blocks from their notes may not be consistent across all cases.
+- **Organization API Key**:
+  - Bitwarden CLI (`bw`) does not support Organization API Key authentication. Use user API key (`BW_CLIENTID`/`BW_CLIENTSECRET`) plus `VAULTWARDEN__MASTERPASSWORD` to unlock.
+- **Attachments**:
+  - File attachments are not synchronized. Only text values from passwords, usernames, notes, and custom fields are processed.
+- **Secret types**:
+  - Only `Opaque` Secrets are created. TLS/dockerconfig or other secret types are not generated.
+- **Key sanitization**:
+  - Keys are normalized (lowercase, underscores). Collisions after sanitization may overwrite previous values; last writer wins when multiple items map to the same key.
+- **Object size limits**:
+  - Kubernetes Secrets must be < ~1MiB in total size. Very large notes or many combined keys in one secret can exceed this limit.
+- **Name resolution**:
+  - Organization/Folder/Collection name filters resolve the first matching name via `bw list`. Use IDs to avoid ambiguity.
+- **Namespace requirements**:
+  - Items must include a namespace via notes (`#namespaces:`) or a `namespaces` custom field. Namespaces must exist or be created via your deployment method (Helm chart offers optional creation).
