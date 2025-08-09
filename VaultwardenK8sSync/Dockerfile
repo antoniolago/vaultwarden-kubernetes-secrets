@@ -33,11 +33,17 @@ RUN apt-get update && apt-get install -y \
 # Download and install Bitwarden CLI
 ARG TARGETARCH
 RUN set -eux; \
-    if [ "$TARGETARCH" = "arm64" ]; then platform="linux-arm64"; else platform="linux"; fi; \
-    curl -L "https://vault.bitwarden.com/download/?app=cli&platform=${platform}" -o bw.zip; \
-    unzip bw.zip -d /usr/local/bin; \
-    chmod +x /usr/local/bin/bw; \
-    rm bw.zip
+    if [ "$TARGETARCH" = "arm64" ]; then \
+        apt-get update; \
+        apt-get install -y nodejs npm; \
+        rm -rf /var/lib/apt/lists/*; \
+        npm install -g @bitwarden/cli; \
+    else \
+        curl -L "https://vault.bitwarden.com/download/?app=cli&platform=linux" -o bw.zip; \
+        unzip bw.zip -d /usr/local/bin; \
+        chmod +x /usr/local/bin/bw; \
+        rm bw.zip; \
+    fi
 
 # Change ownership to non-root user
 RUN chown -R appuser:appuser /app
