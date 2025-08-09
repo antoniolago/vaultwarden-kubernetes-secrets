@@ -78,7 +78,7 @@ stringData:
 
 ## Image override
 
-Default image: `harbor.lag0.com.br/library/vaultwarden-k8s-sync:latest`.
+Default image: `ghcr.io/antoniolago/vaultwarden-k8s-sync:latest`.
 
 To pin/override via kustomize images, create an overlay and apply that overlay.
 

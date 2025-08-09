@@ -8,8 +8,8 @@ namespace: vaultwarden-sync
 
 resources:
   - namespace.yaml
-  - configmap.yaml
-  - secret.yaml
+  # - configmap.yaml
+  # - secret.yaml
   - deployment.yaml
   # - cronjob.yaml
 
