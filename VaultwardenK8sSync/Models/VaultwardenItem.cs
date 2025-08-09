@@ -1,4 +1,6 @@
 using System.Text.Json.Serialization;
+using System.Linq;
+using System;
 
 namespace VaultwardenK8sSync.Models;
 
@@ -157,8 +159,31 @@ public class VaultwardenItem
         return results;
     }
 
+    private string? GetCustomFieldValue(params string[] candidateNames)
+    {
+        if (Fields == null || Fields.Count == 0)
+            return null;
+
+        foreach (var name in candidateNames)
+        {
+            var match = Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (match != null && !string.IsNullOrEmpty(match.Value))
+            {
+                return match.Value;
+            }
+        }
+        return null;
+    }
+
     public string? ExtractNamespace()
     {
+        // Prefer custom field if provided
+        var fromField = GetCustomFieldValue(FieldNameConfig.NamespacesFieldName, "namespaces");
+        if (!string.IsNullOrWhiteSpace(fromField))
+        {
+            return fromField.Trim();
+        }
+
         if (string.IsNullOrEmpty(Notes))
             return null;
 
@@ -178,7 +203,22 @@ public class VaultwardenItem
     public List<string> ExtractNamespaces()
     {
         var namespaces = new List<string>();
-        
+
+        // First, parse from custom field if present (comma-separated)
+        var fromField = GetCustomFieldValue(FieldNameConfig.NamespacesFieldName, "namespaces");
+        if (!string.IsNullOrWhiteSpace(fromField))
+        {
+            var list = fromField.Split(',', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var ns in list)
+            {
+                var cleanNs = ns.Trim();
+                if (!string.IsNullOrEmpty(cleanNs) && !namespaces.Contains(cleanNs))
+                {
+                    namespaces.Add(cleanNs);
+                }
+            }
+        }
+
         if (string.IsNullOrEmpty(Notes))
             return namespaces;
 
@@ -210,6 +250,11 @@ public class VaultwardenItem
 
     public string? ExtractSecretName()
     {
+        // Prefer custom field if provided
+        var fromField = GetCustomFieldValue(FieldNameConfig.SecretNameFieldName, "secret-name");
+        if (!string.IsNullOrWhiteSpace(fromField))
+            return fromField.Trim();
+
         if (string.IsNullOrEmpty(Notes))
             return null;
 
@@ -228,6 +273,11 @@ public class VaultwardenItem
 
     public string? ExtractSecretKey()
     {
+        // Prefer custom field if provided (legacy key name support)
+        var fromField = GetCustomFieldValue(FieldNameConfig.LegacySecretKeyFieldName, "secret-key");
+        if (!string.IsNullOrWhiteSpace(fromField))
+            return fromField.Trim();
+
         if (string.IsNullOrEmpty(Notes))
             return null;
 
@@ -246,6 +296,11 @@ public class VaultwardenItem
 
     public string? ExtractSecretKeyPassword()
     {
+        // Prefer custom field if provided
+        var fromField = GetCustomFieldValue(FieldNameConfig.SecretKeyPasswordFieldName, "secret-key-password");
+        if (!string.IsNullOrWhiteSpace(fromField))
+            return fromField.Trim();
+
         if (string.IsNullOrEmpty(Notes))
             return null;
 
@@ -263,6 +318,11 @@ public class VaultwardenItem
 
     public string? ExtractSecretKeyUsername()
     {
+        // Prefer custom field if provided
+        var fromField = GetCustomFieldValue(FieldNameConfig.SecretKeyUsernameFieldName, "secret-key-username");
+        if (!string.IsNullOrWhiteSpace(fromField))
+            return fromField.Trim();
+
         if (string.IsNullOrEmpty(Notes))
             return null;
 
@@ -277,6 +337,22 @@ public class VaultwardenItem
         }
         return null;
     }
+}
+
+internal static class FieldNameConfig
+{
+    // These can be overridden via environment variables
+    // SYNC__FIELD__NAMESPACES, SYNC__FIELD__SECRETNAME, SYNC__FIELD__SECRETKEYPASSWORD, SYNC__FIELD__SECRETKEYUSERNAME, SYNC__FIELD__SECRETKEY
+    public static readonly string NamespacesFieldName =
+        Environment.GetEnvironmentVariable("SYNC__FIELD__NAMESPACES")?.Trim() ?? "namespaces";
+    public static readonly string SecretNameFieldName =
+        Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETNAME")?.Trim() ?? "secret-name";
+    public static readonly string SecretKeyPasswordFieldName =
+        Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETKEYPASSWORD")?.Trim() ?? "secret-key-password";
+    public static readonly string SecretKeyUsernameFieldName =
+        Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETKEYUSERNAME")?.Trim() ?? "secret-key-username";
+    public static readonly string LegacySecretKeyFieldName =
+        Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETKEY")?.Trim() ?? "secret-key";
 }
 
 public class LoginInfo

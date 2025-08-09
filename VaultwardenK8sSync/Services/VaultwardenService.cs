@@ -50,7 +50,7 @@ public class VaultwardenService : IVaultwardenService
     {
         try
         {
-            _logger.LogInformation("Setting Bitwarden server URL: {ServerUrl}", _config.ServerUrl);
+            _logger.LogInformation("Configuring server: {ServerUrl}", _config.ServerUrl);
 
             var process = new Process
             {
@@ -70,7 +70,7 @@ public class VaultwardenService : IVaultwardenService
 
             if (process.ExitCode == 0)
             {
-                _logger.LogInformation("Successfully set server URL");
+                _logger.LogDebug("Server URL set");
                 return true;
             }
 
@@ -118,7 +118,7 @@ public class VaultwardenService : IVaultwardenService
         if (process.ExitCode == 0)
         {
             _isAuthenticated = true;
-            _logger.LogInformation("Successfully authenticated with API key");
+            _logger.LogInformation("Authenticated (API key)");
             
             // Unlock the vault
             return await UnlockVaultAsync();
@@ -135,7 +135,7 @@ public class VaultwardenService : IVaultwardenService
     {
         try
         {
-            _logger.LogInformation("Unlocking Vaultwarden vault...");
+            _logger.LogInformation("Unlocking vault...");
 
             var process = new Process
             {
@@ -160,7 +160,7 @@ public class VaultwardenService : IVaultwardenService
 
             if (process.ExitCode == 0)
             {
-                _logger.LogInformation("Successfully unlocked vault");
+                _logger.LogInformation("Vault unlocked");
                 return true;
             }
 
@@ -184,7 +184,10 @@ public class VaultwardenService : IVaultwardenService
 
         try
         {
-            _logger.LogInformation("Retrieving items from Vaultwarden...");
+            _logger.LogDebug("Ensuring Vaultwarden vault is synced...");
+            await SyncVaultAsync();
+
+            _logger.LogInformation("Fetching items from Vaultwarden...");
 
             var process = new Process
             {
@@ -219,12 +222,12 @@ public class VaultwardenService : IVaultwardenService
             var exitTask = process.WaitForExitAsync();
             
             // Wait for process to exit with timeout
-            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
+            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(60));
             var completedTask = await Task.WhenAny(exitTask, timeoutTask);
             
             if (completedTask == timeoutTask)
             {
-                _logger.LogError("Process timed out after 30 seconds");
+                _logger.LogError("bw list items timed out after 60 seconds");
                 try { process.Kill(); } catch { }
                 return new List<VaultwardenItem>();
             }
@@ -554,7 +557,7 @@ public class VaultwardenService : IVaultwardenService
             
             if (completedTask == timeoutTask)
             {
-                _logger.LogError("Process timed out after 30 seconds for password of item {Id}", id);
+                _logger.LogError("bw get password timed out after 30 seconds for item {Id}", id);
                 try { process.Kill(); } catch { }
                 return string.Empty;
             }
@@ -605,11 +608,47 @@ public class VaultwardenService : IVaultwardenService
             await process.WaitForExitAsync();
 
             _isAuthenticated = false;
-            _logger.LogInformation("Logged out from Vaultwarden");
+            _logger.LogDebug("Logged out from Vaultwarden");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to logout from Vaultwarden");
+        }
+    }
+
+    private async Task SyncVaultAsync()
+    {
+        try
+        {
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "bw",
+                    Arguments = "sync --raw",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.Start();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode != 0)
+            {
+                var error = await process.StandardError.ReadToEndAsync();
+                _logger.LogWarning("bw sync returned non-zero exit: {Error}", error);
+            }
+            else
+            {
+                _logger.LogDebug("Vault synced");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "bw sync failed (continuing)");
         }
     }
 } 
