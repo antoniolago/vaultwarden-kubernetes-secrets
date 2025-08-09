@@ -52,9 +52,6 @@ jobs:
           file: ./VaultwardenK8sSync/Dockerfile
           push: true
           tags: |
-            # harbor.lag0.com.br/library/vaultwarden-k8s-sync:latest
-            # harbor.lag0.com.br/library/vaultwarden-k8s-sync:${{ steps.vars.outputs.raw_tag }}
-            # harbor.lag0.com.br/library/vaultwarden-k8s-sync:${{ steps.vars.outputs.version }}
             ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync:latest
             ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync:${{ steps.vars.outputs.raw_tag }}
             ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync:${{ steps.vars.outputs.version }}
