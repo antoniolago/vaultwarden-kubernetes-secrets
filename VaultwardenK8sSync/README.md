@@ -143,6 +143,86 @@ SYNC__CONTINUOUSSYNC=false
 
 **Important**: Add `.env` to your `.gitignore` file to prevent committing sensitive information to version control.
 
+## Configure items in Bitwarden (GUI)
+
+Use these tags and custom fields in the Bitwarden web/desktop UI to control how items sync to Kubernetes Secrets.
+
+- Namespaces (required for syncing)
+  - Notes: `#namespaces: production` or `#namespaces: staging,production`
+  - Custom field: name `namespaces`, value `staging,production`
+
+- Secret name
+  - Notes: `#secret-name: my-secret`
+  - Custom field: name `secret-name`, value `my-secret`
+  - Default when omitted: sanitized item name
+
+- Primary value key (password/content)
+  - Notes: `#secret-key-password: db_password`
+  - Custom field: name `secret-key-password`, value `db_password`
+  - Legacy (password only): Notes/field `secret-key`
+  - Default when omitted: sanitized item name
+
+- Username key (when username exists)
+  - Notes: `#secret-key-username: db_user`
+  - Custom field: name `secret-key-username`, value `db_user`
+  - Default when omitted: `<sanitized_item_name>_username`
+
+- Extra keys from notes
+  - Inline KV: lines like `#kv:API_URL=https://api.example.com`
+  - Multiline block: fenced block
+    ```
+    ```secret:private_key
+    -----BEGIN PRIVATE KEY-----
+    ...
+    -----END PRIVATE KEY-----
+    ```
+    ```
+
+- SSH Key items (Bitwarden type "SSH Key")
+  - Private key becomes the primary value (under your chosen password key name or default)
+  - If present, `publicKey` and `fingerprint` are added automatically as `<item>_public_key` and `<item>_fingerprint`
+
+Defaults and overrides
+- Default tag/field names are:
+  - `namespaces`, `secret-name`, `secret-key-password`, `secret-key-username`, legacy `secret-key`, inline prefix `kv`, block prefix `secret`
+- You can override these via environment variables (or Helm values):
+  - `SYNC__FIELD__NAMESPACES`, `SYNC__FIELD__SECRETNAME`, `SYNC__FIELD__SECRETKEYPASSWORD`, `SYNC__FIELD__SECRETKEYUSERNAME`, `SYNC__FIELD__SECRETKEY`, `SYNC__FIELD__INLINEKVPREFIX`, `SYNC__FIELD__SECRETBLOCKPREFIX`
+
+Quick examples
+- Database login (Login item)
+  - Notes:
+    ```
+    #namespaces: production
+    #secret-name: oracle-secrets
+    #secret-key-password: db_password
+    #secret-key-username: db_user
+    ```
+  - Username/password come from the Login item; two keys `db_user` and `db_password` are written
+
+- API token only (Secure Note)
+  - Notes:
+    ```
+    Service token for X
+    #namespaces: staging
+    #secret-name: service-x
+    #kv:API_URL=https://api.example.com
+    ```
+  - Note body becomes the main value; extra key `API_URL` from inline kv
+
+- SSH key (SSH Key item)
+  - Notes:
+    ```
+    #namespaces: prod,staging
+    #secret-name: deploy-ssh
+    #secret-key-password: private_key
+    ```
+  - Private key stored under `private_key`; if available, `*_public_key` and `*_fingerprint` are added
+
+Common mistakes
+- Using `#namespace:` (missing "s") or `=` instead of `:` → must be `#namespaces:`
+- Target namespace doesn’t exist → create it first (or enable namespace creation in the chart)
+- RBAC not cluster-wide when syncing to multiple namespaces → set `rbac.clusterWide=true` in Helm
+
 ### Vaultwarden Configuration
 
 **Environment Variables:**

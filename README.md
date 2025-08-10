@@ -22,7 +22,7 @@ kubectl create secret generic vaultwarden-sync-secrets -n "$NAMESPACE" \
   --from-literal=VAULTWARDEN__MASTERPASSWORD="$MASTER_PASSWORD" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-# Install/upgrade via Helm OCI (login not required for public charts)
+# Install/upgrade via Helm OCI
 helm upgrade -i vaultwarden-sync oci://ghcr.io/antoniolago/charts/vaultwarden-k8s-sync \
   --version "$CHART_VERSION" \
   --namespace "$NAMESPACE" --create-namespace \
