@@ -56,8 +56,11 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync:latest
             ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync:${{ steps.vars.outputs.raw_tag }}
             ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync:${{ steps.vars.outputs.version }}
-          # cache-from: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-k8s-sync:buildcache
-          # cache-to: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-k8s-sync:buildcache,mode=max
+            harbor.lag0.com.br/library/vaultwarden-k8s-sync:latest
+            harbor.lag0.com.br/library/vaultwarden-k8s-sync:${{ steps.vars.outputs.raw_tag }}
+            harbor.lag0.com.br/library/vaultwarden-k8s-sync:${{ steps.vars.outputs.version }}
+          cache-from: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-k8s-sync:buildcache
+          cache-to: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-k8s-sync:buildcache,mode=max
 
       # --- Helm Chart Publish to GHCR (OCI) ---
       - name: Set up Helm
