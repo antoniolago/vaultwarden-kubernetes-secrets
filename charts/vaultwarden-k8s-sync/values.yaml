@@ -11,7 +11,8 @@ rbac:
 
 serviceAccount:
   create: true
-  name: ""
+  # Static ServiceAccount name (not based on release/deployment name)
+  name: "vaultwarden-k8s-sync"
 
 # Namespace management
 namespace:
