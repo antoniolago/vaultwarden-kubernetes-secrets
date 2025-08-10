@@ -236,9 +236,26 @@ public class SyncService : ISyncService
         }
     }
 
-    private Task<Dictionary<string, string>> ExtractSecretDataAsync(Models.VaultwardenItem item)
+    private async Task<Dictionary<string, string>> ExtractSecretDataAsync(Models.VaultwardenItem item)
     {
         var data = new Dictionary<string, string>();
+
+        // Hydrate SSH Key payload for SSH items if missing from list output
+        if ((item.SshKey == null || string.IsNullOrWhiteSpace(item.SshKey.PrivateKey)) && item.Type == 5)
+        {
+            try
+            {
+                var full = await _vaultwardenService.GetItemAsync(item.Id);
+                if (full?.SshKey != null)
+                {
+                    item.SshKey = full.SshKey;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to hydrate SSH key payload for item {ItemId}", item.Id);
+            }
+        }
 
         // Get username if available
         var username = GetUsername(item);
@@ -332,7 +349,7 @@ public class SyncService : ISyncService
             }
         }
 
-        return Task.FromResult(data);
+        return data;
     }
 
     private static string ExtractPureNoteBody(string notes)

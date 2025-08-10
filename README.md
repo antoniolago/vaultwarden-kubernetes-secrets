@@ -1,19 +1,40 @@
 # Vaultwarden Kubernetes Secrets Sync
 
-This repository syncs Vaultwarden items to Kubernetes Secrets.
+This software syncs Vaultwarden items to Kubernetes Secrets.
 
 ## Install (Helm)
 
-Recommended method:
+Recommended (from GHCR OCI):
 
 ```bash
-helm upgrade -i vaultwarden-sync charts/vaultwarden-k8s-sync \
-  --namespace vaultwarden-sync --create-namespace \
-  --set image.repository=ghcr.io/antoniolago/vaultwarden-k8s-sync \
-  --set image.tag=latest
+# Required inputs
+NAMESPACE="vaultwarden-sync"      # Target namespace
+SERVER_URL="https://your-vaultwarden-server.com"
+BW_CLIENTID="<your_user_client_id>"
+BW_CLIENTSECRET="<your_user_client_secret>"
+MASTER_PASSWORD="<your_master_password>"
+
+# Create namespace and the Secret with required credentials
+kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+kubectl create secret generic vaultwarden-sync-secrets -n "$NAMESPACE" \
+  --from-literal=BW_CLIENTID="$BW_CLIENTID" \
+  --from-literal=BW_CLIENTSECRET="$BW_CLIENTSECRET" \
+  --from-literal=VAULTWARDEN__MASTERPASSWORD="$MASTER_PASSWORD" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Install/upgrade via Helm OCI (login not required for public charts)
+helm upgrade -i vaultwarden-sync oci://ghcr.io/antoniolago/charts/vaultwarden-k8s-sync \
+  --version "$CHART_VERSION" \
+  --namespace "$NAMESPACE" --create-namespace \
+  --set env.config.VAULTWARDEN__SERVERURL="$SERVER_URL" \
+  --set image.tag="$CHART_VERSION"
 ```
 
-Configure env via values (sensitive via secretRefs). See chart values in `charts/vaultwarden-k8s-sync/values.yaml`.
+Notes:
+- The chart references Secret `vaultwarden-sync-secrets` for sensitive values; the commands above create it.
+- Set optional filters (Org/Folder/Collection) via `--set env.config.VAULTWARDEN__ORGANIZATIONID=...` etc.
+- Default image repository is `ghcr.io/antoniolago/vaultwarden-k8s-sync`. Override with `--set image.repository=...` if using a fork.
+
 
 ## Install (kubectl)
 

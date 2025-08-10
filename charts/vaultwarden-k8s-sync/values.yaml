@@ -15,8 +15,8 @@ serviceAccount:
 
 # Namespace management
 namespace:
-  create: false
-  name: ""
+  create: true
+  name: "vaultwarden-k8s-sync"
 
 schedule: "*/10 * * * *"
 runAsCronJob: false
@@ -55,7 +55,7 @@ env:
     SYNC__DRYRUN: "false"
     SYNC__DELETEORPHANS: "true"
     SYNC__SECRETPREFIX: ""
-    SYNC__SYNCINTERVALSECONDS: "60"
+    SYNC__SYNCINTERVALSECONDS: "30"
     SYNC__CONTINUOUSSYNC: "true"
     LOGGING__LOGLEVEL__DEFAULT: "Information"
     LOGGING__LOGLEVEL__MICROSOFT: "Warning"
