@@ -16,5 +16,9 @@
 {{- end -}}
 
 {{- define "vaultwarden-k8s-sync.serviceAccountName" -}}
+{{- if .Values.serviceAccount.name -}}
 {{- .Values.serviceAccount.name -}}
+{{- else -}}
+{{ include "vaultwarden-k8s-sync.fullname" . }}
+{{- end -}}
 {{- end -}}
