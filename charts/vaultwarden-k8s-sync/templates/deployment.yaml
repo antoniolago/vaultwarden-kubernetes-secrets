@@ -54,7 +54,6 @@ spec:
             - name: SYNC__FIELD__SECRETBLOCKPREFIX
               value: {{ .secretBlockPrefix | quote }}
           {{- end }}
-          env:
           {{- range $name, $ref := .Values.env.secrets }}
             - name: {{ $name }}
               valueFrom:
