@@ -86,5 +86,5 @@ jobs:
         run: |
           CHART_FILE="dist/vaultwarden-k8s-sync-${{ steps.vars.outputs.version }}.tgz"
           helm push "$CHART_FILE" oci://ghcr.io/${{ github.repository_owner }}/charts
-          helm push "$CHART_FILE" oci://harbor.lag0.com.br/library
+          helm push "$CHART_FILE" oci://harbor.lag0.com.br/charts
 
