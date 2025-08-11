@@ -27,6 +27,11 @@ spec:
         {{- toYaml .Values.tolerations | nindent 8 }}
       affinity:
         {{- toYaml .Values.affinity | nindent 8 }}
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: {{ include "vaultwarden-k8s-sync.name" . }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -39,6 +44,10 @@ spec:
           # Propagate SYNC__FIELD_* env overrides from values.env.fields
           {{- with .Values.env.fields }}
           env:
+            - name: HOME
+              value: "/data/home"
+            - name: XDG_CONFIG_HOME
+              value: "/data/home/.config"
             - name: SYNC__FIELD__NAMESPACES
               value: {{ .namespaces | quote }}
             - name: SYNC__FIELD__SECRETNAME
@@ -62,6 +71,11 @@ spec:
                   key: {{ $ref.secretKey }}
                   optional: true
           {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           livenessProbe:
