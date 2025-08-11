@@ -74,7 +74,7 @@ jobs:
       - name: Package Helm chart
         run: |
           mkdir -p dist
-          helm package vaultwarden-k8s-sync \
+          helm package charts/vaultwarden-k8s-sync \
             --version "${{ steps.vars.outputs.version }}" \
             --app-version "${{ steps.vars.outputs.version }}" \
             --destination dist
