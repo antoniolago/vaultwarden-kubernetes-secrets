@@ -43,6 +43,8 @@ securityContext:
 
 env:
   config:
+    # Force Node-based Bitwarden CLI to prefer IPv4 DNS results (avoids IPv6 egress timeouts in many clusters)
+    NODE_OPTIONS: "--dns-result-order=ipv4first"
     VAULTWARDEN__SERVERURL: "https://your-vaultwarden-server.com"
     VAULTWARDEN__ORGANIZATIONID: ""
     VAULTWARDEN__ORGANIZATIONNAME: ""
