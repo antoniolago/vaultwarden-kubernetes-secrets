@@ -22,6 +22,9 @@ spec:
             {{- toYaml .Values.podAnnotations | nindent 12 }}
         spec:
           serviceAccountName: {{ include "vaultwarden-k8s-sync.serviceAccountName" . }}
+          securityContext:
+            fsGroup: {{ .Values.securityContext.runAsGroup }}
+            fsGroupChangePolicy: OnRootMismatch
           restartPolicy: OnFailure
           nodeSelector:
             {{- toYaml .Values.nodeSelector | nindent 12 }}
@@ -29,6 +32,11 @@ spec:
             {{- toYaml .Values.tolerations | nindent 12 }}
           affinity:
             {{- toYaml .Values.affinity | nindent 12 }}
+          volumes:
+            - name: data
+              emptyDir: {}
+            - name: tmp
+              emptyDir: {}
           containers:
             - name: {{ include "vaultwarden-k8s-sync.name" . }}
               image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -41,6 +49,10 @@ spec:
               # Propagate SYNC__FIELD_* env overrides from values.env.fields
               {{- with .Values.env.fields }}
               env:
+                - name: HOME
+                  value: "/data/home"
+                - name: XDG_CONFIG_HOME
+                  value: "/data/home/.config"
                 - name: SYNC__FIELD__NAMESPACES
                   value: {{ .namespaces | quote }}
                 - name: SYNC__FIELD__SECRETNAME
@@ -67,6 +79,11 @@ spec:
                 # Force one-shot behavior under CronJob
                 - name: SYNC__CONTINUOUSSYNC
                   value: "false"
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                - name: tmp
+                  mountPath: /tmp
               resources:
                 {{- toYaml .Values.resources | nindent 16 }}
               securityContext:
