@@ -40,6 +40,57 @@ Notes:
 
 As an alternative, you can use the raw manifests. See `deploy/README.md` for step-by-step kubectl apply instructions.
 
+## How to use it
+
+- Create an item in Vaultwarden: Login, Secure Note, or SSH Key
+- Add target namespaces (required)
+  - Notes: `#namespaces: staging,production`
+  - or custom field: name `namespaces`, value `staging,production`
+- Optional: set the Kubernetes Secret name
+  - Notes: `#secret-name: my-secret`
+  - or custom field: name `secret-name`, value `my-secret`
+  - Default when omitted: sanitized item name
+- Optional: choose keys for values written to the Secret
+  - Password/content key: `#secret-key-password: db_password` (legacy: `#secret-key: db_password`)
+  - Username key: `#secret-key-username: db_user`
+  - Defaults: password key = sanitized item name; username key = `<sanitized_item_name>_username`
+- Optional: add extra entries from notes
+  - Inline KV: `#kv:API_URL=https://api.example.com`
+  - Multiline block:
+    ```
+    ```secret:private_key
+    -----BEGIN PRIVATE KEY-----
+    ...
+    -----END PRIVATE KEY-----
+    ```
+    ```
+
+- Optional:
+  - All the custom fields you add (that are not the ones mentioned before) will also be synced to the secret
+- Save the item. The sync job will:
+  - Create/update one Secret per target namespace
+  - Purge old secrets (only the ones created by the sync app)
+  - Merge multiple items pointing to the same `secret-name` into one Secret (last writer wins on key conflicts)
+  - For SSH Key items, store the private key under the password key; if present, also add `<item>_public_key` and `<item>_fingerprint`
+
+Quick examples
+
+- Login item (username/password):
+  ```
+  #namespaces: production
+  #secret-name: oracle-secrets
+  #secret-key-password: db_password
+  #secret-key-username: db_user
+  ```
+- Secure Note with extra key:
+  ```
+  API token for X
+  #namespaces: staging
+  #secret-name: service-x
+  #kv:API_URL=https://api.example.com
+  ```
+
+
 ## More docs
 
 For detailed app configuration and usage, see `VaultwardenK8sSync/README.md`.
