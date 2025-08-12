@@ -24,26 +24,14 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 # Copy published application
 COPY --from=publish /app/publish .
 
-# Install Bitwarden CLI dependencies
+# Install Bitwarden CLI via npm for all architectures so NODE_OPTIONS is honored by Node runtime
 RUN apt-get update && apt-get install -y \
     curl \
     unzip \
-    && rm -rf /var/lib/apt/lists/*
-
-# Download and install Bitwarden CLI
-ARG TARGETARCH
-RUN set -eux; \
-    if [ "$TARGETARCH" = "arm64" ]; then \
-        apt-get update; \
-        apt-get install -y nodejs npm; \
-        rm -rf /var/lib/apt/lists/*; \
-        npm install -g @bitwarden/cli; \
-    else \
-        curl -L "https://vault.bitwarden.com/download/?app=cli&platform=linux" -o bw.zip; \
-        unzip bw.zip -d /usr/local/bin; \
-        chmod +x /usr/local/bin/bw; \
-        rm bw.zip; \
-    fi
+    nodejs \
+    npm \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install -g @bitwarden/cli
 
 # Change ownership to non-root user
 RUN chown -R appuser:appuser /app
