@@ -85,7 +85,7 @@ spec:
                 secretKeyRef:
                   name: {{ $ref.secretName }}
                   key: {{ $ref.secretKey }}
-                  optional: true
+                  optional: false
           {{- end }}
           volumeMounts:
             - name: data
