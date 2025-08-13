@@ -48,7 +48,11 @@ spec:
         - name: {{ include "vaultwarden-k8s-sync.name" . }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.debug }}
+          command: ["tail", "-f", "/dev/null"]
+          {{- else }}
           command: ["dotnet", "VaultwardenK8sSync.dll", "sync"]
+          {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "vaultwarden-k8s-sync.fullname" . }}-config

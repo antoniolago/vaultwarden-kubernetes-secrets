@@ -17,26 +17,6 @@ public class VaultwardenService : IVaultwardenService
         _config = config;
     }
 
-    private void ConfigureBwEnvironment(ProcessStartInfo startInfo)
-    {
-        // Ensure API key environment variables are available to the bw CLI process
-        if (!string.IsNullOrEmpty(_config.ClientId))
-        {
-            startInfo.Environment["BW_CLIENTID"] = _config.ClientId;
-        }
-        if (!string.IsNullOrEmpty(_config.ClientSecret))
-        {
-            startInfo.Environment["BW_CLIENTSECRET"] = _config.ClientSecret;
-        }
-
-        // Force IPv4-first DNS resolution for Node-based bw CLI to avoid AAAA timeouts in clusters without IPv6 egress
-        if (!startInfo.Environment.TryGetValue("NODE_OPTIONS", out _)
-            || string.IsNullOrWhiteSpace(startInfo.Environment["NODE_OPTIONS"]))
-        {
-            startInfo.Environment["NODE_OPTIONS"] = "--dns-result-order=ipv4first";
-        }
-    }
-
     public async Task<bool> AuthenticateAsync()
     {
         try
@@ -84,7 +64,6 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
-            ConfigureBwEnvironment(process.StartInfo);
 
             process.Start();
             await process.WaitForExitAsync();
@@ -127,7 +106,6 @@ public class VaultwardenService : IVaultwardenService
                 CreateNoWindow = true
             }
         };
-        ConfigureBwEnvironment(process.StartInfo);
 
         process.Start();
         // await process.StandardInput.WriteLineAsync(_config.ClientId);
@@ -172,7 +150,6 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
-            ConfigureBwEnvironment(process.StartInfo);
 
             process.Start();
             await process.StandardInput.WriteLineAsync(_config.MasterPassword);
@@ -225,7 +202,6 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
-            ConfigureBwEnvironment(process.StartInfo);
 
             process.Start();
             
@@ -331,7 +307,6 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
-            ConfigureBwEnvironment(process.StartInfo);
 
             process.Start();
             var outputTask = process.StandardOutput.ReadToEndAsync();
@@ -388,7 +363,6 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
-            ConfigureBwEnvironment(process.StartInfo);
 
             process.Start();
             var outputTask = process.StandardOutput.ReadToEndAsync();
@@ -436,7 +410,6 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
-            ConfigureBwEnvironment(process.StartInfo);
 
             process.Start();
             var outputTask = process.StandardOutput.ReadToEndAsync();
@@ -507,7 +480,6 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
-            ConfigureBwEnvironment(process.StartInfo);
 
             process.Start();
             
@@ -571,7 +543,6 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
-            ConfigureBwEnvironment(process.StartInfo);
 
             process.Start();
             
@@ -632,7 +603,6 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
-            ConfigureBwEnvironment(process.StartInfo);
 
             process.Start();
             await process.WaitForExitAsync();
@@ -662,7 +632,6 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
-            ConfigureBwEnvironment(process.StartInfo);
 
             process.Start();
             await process.WaitForExitAsync();

@@ -21,6 +21,8 @@ namespace:
 schedule: "*/10 * * * *"
 runAsCronJob: false
 
+debug: false
+
 replicaCount: 1
 
 resources:
