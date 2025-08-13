@@ -22,6 +22,7 @@ public class VaultwardenService : IVaultwardenService
         try
         {
             _logger.LogInformation("Authenticating with Vaultwarden (API key)...");
+            await LogBwVersionAsync();
 
             // Logout first to ensure clean state
             await LogoutAsync();
@@ -107,25 +108,47 @@ public class VaultwardenService : IVaultwardenService
             }
         };
 
-        process.Start();
-        // await process.StandardInput.WriteLineAsync(_config.ClientId);
-        // await process.StandardInput.WriteLineAsync(_config.ClientSecret);
-        // await process.StandardInput.FlushAsync();
-        // process.StandardInput.Close();
+        // Ensure required env vars are available to bw
+        try
+        {
+            process.StartInfo.Environment["BW_CLIENTID"] = _config.ClientId!;
+            process.StartInfo.Environment["BW_CLIENTSECRET"] = _config.ClientSecret!;
+            _logger.LogDebug("bw login with env -> BW_CLIENTID set: {HasId}, BW_CLIENTSECRET set: {HasSecret}",
+                !string.IsNullOrWhiteSpace(_config.ClientId), !string.IsNullOrWhiteSpace(_config.ClientSecret));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not set bw env vars (will rely on inherited env)");
+        }
 
-        await process.WaitForExitAsync();
+        process.Start();
+
+        var outputTask = process.StandardOutput.ReadToEndAsync();
+        var errorTask = process.StandardError.ReadToEndAsync();
+        var exitTask = process.WaitForExitAsync();
+        var timeoutTask = Task.Delay(TimeSpan.FromSeconds(60));
+        var completed = await Task.WhenAny(exitTask, timeoutTask);
+        if (completed == timeoutTask)
+        {
+            _logger.LogError("bw login timed out after 60 seconds");
+            try { process.Kill(); } catch { }
+            return false;
+        }
+
+        await exitTask;
+        var stdout = await outputTask;
+        var stderr = await errorTask;
 
         if (process.ExitCode == 0)
         {
             _isAuthenticated = true;
-            _logger.LogInformation("Authenticated (API key)");
+            _logger.LogInformation("Authenticated (API key). Output length: {Len}", string.IsNullOrEmpty(stdout) ? 0 : stdout.Length);
             
             // Unlock the vault
             return await UnlockVaultAsync();
         }
 
-        var error = await process.StandardError.ReadToEndAsync();
-        _logger.LogError("Authentication failed: {Error}", error);
+        _logger.LogError("Authentication failed (exit {Code}). stderr: {Stderr} | stdout: {Stdout}", process.ExitCode, stderr, stdout);
         return false;
     }
 
@@ -152,26 +175,85 @@ public class VaultwardenService : IVaultwardenService
             };
 
             process.Start();
-            await process.StandardInput.WriteLineAsync(_config.MasterPassword);
-            await process.StandardInput.FlushAsync();
-            process.StandardInput.Close();
+            try
+            {
+                await process.StandardInput.WriteLineAsync(_config.MasterPassword);
+                await process.StandardInput.FlushAsync();
+                process.StandardInput.Close();
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning("Could not write master password to bw stdin: {Msg}", ex.Message);
+            }
 
-            await process.WaitForExitAsync();
+            // Read output/error concurrently with timeout
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            var exitTask = process.WaitForExitAsync();
+            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(60));
+            var completedTask = await Task.WhenAny(exitTask, timeoutTask);
+            if (completedTask == timeoutTask)
+            {
+                _logger.LogError("bw unlock timed out after 60 seconds");
+                try { process.Kill(); } catch { }
+                return false;
+            }
+
+            await exitTask;
+
+            var stdOut = await outputTask;
+            var stdErr = await errorTask;
 
             if (process.ExitCode == 0)
             {
-                _logger.LogInformation("Vault unlocked");
+                var token = (stdOut ?? string.Empty).Trim();
+                _logger.LogInformation("Vault unlocked (session token length: {Len})", string.IsNullOrEmpty(token) ? 0 : token.Length);
                 return true;
             }
 
-            var error = await process.StandardError.ReadToEndAsync();
-            _logger.LogError("Failed to unlock vault: {Error}", error);
+            _logger.LogError("Failed to unlock vault (exit {Code}). stderr: {Stderr}. stdout: {Stdout}", process.ExitCode, stdErr, stdOut);
             return false;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to unlock vault");
             return false;
+        }
+    }
+
+    private async Task LogBwVersionAsync()
+    {
+        try
+        {
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "bw",
+                    Arguments = "--version",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.Start();
+            var output = await process.StandardOutput.ReadToEndAsync();
+            var error = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            if (process.ExitCode == 0)
+            {
+                _logger.LogInformation("bw version: {Version}", output.Trim());
+            }
+            else
+            {
+                _logger.LogWarning("Could not determine bw version (exit {Code}): {Error}", process.ExitCode, error.Trim());
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to get bw version");
         }
     }
 

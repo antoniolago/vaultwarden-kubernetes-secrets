@@ -21,12 +21,15 @@ class Program
             // Build service collection
             var services = new ServiceCollection();
 
-            // Configure logging
+            // Configure logging (levels from env via LoggingSettings)
             services.AddLogging(builder =>
             {
+                builder.ClearProviders();
                 builder.AddConsole();
                 builder.AddDebug();
-                builder.SetMinimumLevel(LogLevel.Information);
+                builder.SetMinimumLevel(ParseLogLevel(appSettings.Logging.DefaultLevel));
+                builder.AddFilter("Microsoft", ParseLogLevel(appSettings.Logging.MicrosoftLevel));
+                builder.AddFilter("Microsoft.Hosting.Lifetime", ParseLogLevel(appSettings.Logging.MicrosoftHostingLifetimeLevel));
             });
 
             // Register configuration
@@ -43,6 +46,25 @@ class Program
             using var serviceProvider = services.BuildServiceProvider();
             var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
 
+            // Global exception logging
+            AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+            {
+                var ex = e.ExceptionObject as Exception;
+                if (ex != null)
+                {
+                    logger.LogCritical(ex, "Unhandled exception");
+                }
+                else
+                {
+                    logger.LogCritical("Unhandled exception: {Info}", e.ExceptionObject);
+                }
+            };
+            TaskScheduler.UnobservedTaskException += (sender, e) =>
+            {
+                logger.LogCritical(e.Exception, "Unobserved task exception");
+                e.SetObserved();
+            };
+
             // Validate configuration
             if (!appSettings.Validate(out var validationResults))
             {
@@ -58,6 +80,11 @@ class Program
 
             logger.LogInformation("Vaultwarden Kubernetes Secrets Sync Tool");
             logger.LogInformation("========================================");
+            logger.LogInformation(
+                "Log levels -> Default: {Default}, Microsoft: {Ms}, Microsoft.Hosting.Lifetime: {MsLifetime}",
+                appSettings.Logging.DefaultLevel,
+                appSettings.Logging.MicrosoftLevel,
+                appSettings.Logging.MicrosoftHostingLifetimeLevel);
 
             // Parse command line arguments
             var command = args.FirstOrDefault()?.ToLowerInvariant();
@@ -200,9 +227,23 @@ class Program
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Fatal error: {ex.Message}");
+            // Log full stack trace to aid debugging even if logger is not available
+            Console.WriteLine($"Fatal error: {ex}");
             return 1;
         }
+    }
+
+    private static LogLevel ParseLogLevel(string? configuredLevel)
+    {
+        if (string.IsNullOrWhiteSpace(configuredLevel))
+        {
+            return LogLevel.Information;
+        }
+        if (Enum.TryParse<LogLevel>(configuredLevel, ignoreCase: true, out var level))
+        {
+            return level;
+        }
+        return LogLevel.Information;
     }
 
     private static async Task<bool> RunContinuousSyncAsync(ISyncService syncService, IVaultwardenService vaultwardenService, ILogger logger, SyncSettings syncConfig)

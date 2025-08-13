@@ -154,6 +154,13 @@ public class KubernetesService : IKubernetesService
             _logger.LogInformation("Created secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
             return true;
         }
+        catch (k8s.Autorest.HttpOperationException httpEx)
+        {
+            var status = httpEx.Response?.StatusCode;
+            var content = httpEx.Response?.Content;
+            _logger.LogError(httpEx, "Failed to create secret {SecretName} in namespace {Namespace}. Status={Status}, Body={Body}", secretName, namespaceName, status, content);
+            return false;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to create secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
@@ -192,6 +199,13 @@ public class KubernetesService : IKubernetesService
             _logger.LogInformation("Updated secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
             return true;
         }
+        catch (k8s.Autorest.HttpOperationException httpEx)
+        {
+            var status = httpEx.Response?.StatusCode;
+            var content = httpEx.Response?.Content;
+            _logger.LogError(httpEx, "Failed to update secret {SecretName} in namespace {Namespace}. Status={Status}, Body={Body}", secretName, namespaceName, status, content);
+            return false;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to update secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
@@ -211,6 +225,13 @@ public class KubernetesService : IKubernetesService
             await _client.CoreV1.DeleteNamespacedSecretAsync(secretName, namespaceName);
             _logger.LogInformation("Deleted secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
             return true;
+        }
+        catch (k8s.Autorest.HttpOperationException httpEx)
+        {
+            var status = httpEx.Response?.StatusCode;
+            var content = httpEx.Response?.Content;
+            _logger.LogError(httpEx, "Failed to delete secret {SecretName} in namespace {Namespace}. Status={Status}, Body={Body}", secretName, namespaceName, status, content);
+            return false;
         }
         catch (Exception ex)
         {
@@ -265,6 +286,13 @@ public class KubernetesService : IKubernetesService
         }
         catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
+            return null;
+        }
+        catch (k8s.Autorest.HttpOperationException httpEx)
+        {
+            var status = httpEx.Response?.StatusCode;
+            var content = httpEx.Response?.Content;
+            _logger.LogError(httpEx, "Failed to get secret data for {SecretName} in namespace {Namespace}. Status={Status}, Body={Body}", secretName, namespaceName, status, content);
             return null;
         }
         catch (Exception ex)
