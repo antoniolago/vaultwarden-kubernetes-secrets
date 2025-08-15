@@ -28,6 +28,9 @@ public class VaultwardenService : IVaultwardenService
 
             // Logout first to ensure clean state
             await LogoutAsync();
+            
+            // Give the CLI time to write state changes to disk
+            await Task.Delay(1000);
 
             // Set the server URL first
             if (!string.IsNullOrEmpty(_config.ServerUrl))
@@ -38,6 +41,10 @@ public class VaultwardenService : IVaultwardenService
                     _logger.LogError("Failed to set server URL: {ServerUrl}", _config.ServerUrl);
                     return false;
                 }
+                
+                // Give the CLI time to write server config to disk
+                await Task.Delay(1000);
+                await LogBwStatusAsync("post-server-config");
             }
 
             var ok = await AuthenticateWithApiKeyAsync();
@@ -156,6 +163,10 @@ public class VaultwardenService : IVaultwardenService
             _isAuthenticated = true;
             _logger.LogInformation("Authenticated (API key). Output length: {Len}", string.IsNullOrEmpty(stdout) ? 0 : stdout.Length);
             
+            // Give the CLI time to write authentication state to disk
+            await Task.Delay(1500);
+            await LogBwStatusAsync("post-api-login");
+            
             // Unlock the vault
             return await UnlockVaultAsync();
         }
@@ -171,6 +182,9 @@ public class VaultwardenService : IVaultwardenService
         try
         {
             _logger.LogInformation("Unlocking vault...");
+            
+            // Verify we're in the correct state before attempting unlock
+            await LogBwStatusAsync("pre-unlock");
 
             var process = new Process
             {
