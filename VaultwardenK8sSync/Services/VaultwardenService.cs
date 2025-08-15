@@ -160,16 +160,20 @@ public class VaultwardenService : IVaultwardenService
 
         if (process.ExitCode == 0)
         {
+            // Log exactly what the login command returned
+            _logger.LogInformation("bw login stdout: '{Stdout}'", stdout ?? "null");
+            _logger.LogInformation("bw login stderr: '{Stderr}'", stderr ?? "null");
+            
             // Capture the session token from the login output
             var sessionToken = (stdout ?? string.Empty).Trim();
             if (!string.IsNullOrEmpty(sessionToken))
             {
                 _sessionToken = sessionToken;
-                _logger.LogInformation("Authenticated (API key). Session token length: {Len}", sessionToken.Length);
+                _logger.LogInformation("Authenticated (API key). Session token captured, length: {Len}", sessionToken.Length);
             }
             else
             {
-                _logger.LogWarning("Authenticated (API key) but no session token returned");
+                _logger.LogWarning("Authenticated (API key) but no session token returned from stdout");
             }
             
             _isAuthenticated = true;
@@ -178,8 +182,19 @@ public class VaultwardenService : IVaultwardenService
             await Task.Delay(1500);
             await LogBwStatusAsync("post-api-login");
             
-            // Unlock the vault
-            return await UnlockVaultAsync();
+            // For API key authentication, try to check if unlock is needed
+            // Some setups may not require unlock with API keys
+            if (!string.IsNullOrEmpty(sessionToken))
+            {
+                _logger.LogInformation("API key login returned session token - attempting unlock");
+                return await UnlockVaultAsync();
+            }
+            else
+            {
+                _logger.LogInformation("API key login succeeded but no session token - trying direct operation");
+                // Try to test if we can operate without unlock
+                return await TestVaultAccessAsync();
+            }
         }
 
         _logger.LogError("Authentication failed (exit {Code}). stderr: {Stderr} | stdout: {Stdout}", process.ExitCode, stderr, stdout);
@@ -187,6 +202,80 @@ public class VaultwardenService : IVaultwardenService
     }
 
     // Password login removed
+
+    private async Task<bool> TestVaultAccessAsync()
+    {
+        try
+        {
+            _logger.LogInformation("Testing vault access without unlock...");
+            
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "bw",
+                    Arguments = "status --raw",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+            ApplyCommonEnv(process.StartInfo, includeSession: true);
+
+            process.Start();
+            
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            var exitTask = process.WaitForExitAsync();
+            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
+            var completedTask = await Task.WhenAny(exitTask, timeoutTask);
+            
+            if (completedTask == timeoutTask)
+            {
+                _logger.LogWarning("bw status timed out after 30 seconds");
+                try { process.Kill(); } catch { }
+                return false;
+            }
+            
+            await exitTask;
+            var output = await outputTask;
+            var error = await errorTask;
+
+            _logger.LogInformation("Vault status: {Status}", output?.Trim());
+            
+            if (process.ExitCode == 0)
+            {
+                // Parse the status to see if we need to unlock
+                var status = output?.Trim()?.ToLowerInvariant();
+                if (status == "unlocked")
+                {
+                    _logger.LogInformation("Vault is already unlocked - API key authentication complete");
+                    return true;
+                }
+                else if (status == "locked")
+                {
+                    _logger.LogInformation("Vault is locked - attempting unlock");
+                    return await UnlockVaultAsync();
+                }
+                else
+                {
+                    _logger.LogWarning("Unknown vault status: {Status} - attempting unlock anyway", status);
+                    return await UnlockVaultAsync();
+                }
+            }
+            else
+            {
+                _logger.LogWarning("Failed to get vault status (exit {Code}): {Error} - attempting unlock", process.ExitCode, error);
+                return await UnlockVaultAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to test vault access - attempting unlock");
+            return await UnlockVaultAsync();
+        }
+    }
 
     private async Task<bool> UnlockVaultAsync()
     {
@@ -211,6 +300,16 @@ public class VaultwardenService : IVaultwardenService
                 }
             };
             ApplyCommonEnv(process.StartInfo, includeSession: true);
+            
+            // Log what session token we're using
+            if (!string.IsNullOrWhiteSpace(_sessionToken))
+            {
+                _logger.LogInformation("Using session token for unlock (length: {Len})", _sessionToken.Length);
+            }
+            else
+            {
+                _logger.LogWarning("No session token available for unlock - this may cause the 'You are not logged in' error");
+            }
 
             process.Start();
             try
