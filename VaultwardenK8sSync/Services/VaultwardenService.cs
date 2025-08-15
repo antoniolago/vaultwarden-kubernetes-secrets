@@ -160,8 +160,19 @@ public class VaultwardenService : IVaultwardenService
 
         if (process.ExitCode == 0)
         {
+            // Capture the session token from the login output
+            var sessionToken = (stdout ?? string.Empty).Trim();
+            if (!string.IsNullOrEmpty(sessionToken))
+            {
+                _sessionToken = sessionToken;
+                _logger.LogInformation("Authenticated (API key). Session token length: {Len}", sessionToken.Length);
+            }
+            else
+            {
+                _logger.LogWarning("Authenticated (API key) but no session token returned");
+            }
+            
             _isAuthenticated = true;
-            _logger.LogInformation("Authenticated (API key). Output length: {Len}", string.IsNullOrEmpty(stdout) ? 0 : stdout.Length);
             
             // Give the CLI time to write authentication state to disk
             await Task.Delay(1500);
@@ -199,7 +210,7 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
-            ApplyCommonEnv(process.StartInfo, includeSession: false);
+            ApplyCommonEnv(process.StartInfo, includeSession: true);
 
             process.Start();
             try
