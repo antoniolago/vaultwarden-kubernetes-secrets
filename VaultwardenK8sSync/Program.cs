@@ -76,6 +76,16 @@ class Program
                 logger.LogInformation("Please check your .env file or environment variables");
             }
 
+            // Log presence (not values) of critical env vars
+            logger.LogInformation(
+                "Config: ServerUrl set={ServerSet}, InCluster={InCluster}, DefaultNamespace={Ns}, BW_CLIENTID set={HasId}, BW_CLIENTSECRET set={HasSecret}, MASTERPASSWORD set={HasPw}",
+                !string.IsNullOrWhiteSpace(appSettings.Vaultwarden.ServerUrl),
+                appSettings.Kubernetes.InCluster,
+                appSettings.Kubernetes.DefaultNamespace,
+                !string.IsNullOrWhiteSpace(appSettings.Vaultwarden.ClientId),
+                !string.IsNullOrWhiteSpace(appSettings.Vaultwarden.ClientSecret),
+                !string.IsNullOrWhiteSpace(appSettings.Vaultwarden.MasterPassword));
+
             // API key is the only supported mode; AppSettings validation already enforces ClientId/ClientSecret
 
             logger.LogInformation("Vaultwarden Kubernetes Secrets Sync Tool");

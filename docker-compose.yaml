@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  vaultwarden-k8s-sync:
+    build:
+      context: ./VaultwardenK8sSync
+      dockerfile: Dockerfile
+    image: vaultwarden-k8s-sync:local
+    env_file:
+      - VaultwardenK8sSync/.env
+    environment:
+      KUBERNETES__INCLUSTER: "false"
+      KUBERNETES__KUBECONFIGPATH: /kube/config
+      KUBERNETES__DEFAULTNAMESPACE: ${KUBERNETES__DEFAULTNAMESPACE:-default}
+      SYNC__CONTINUOUSSYNC: ${SYNC__CONTINUOUSSYNC:-true}
+      SYNC__SYNCINTERVALSECONDS: ${SYNC__SYNCINTERVALSECONDS:-3600}
+      LOGGING__LOGLEVEL__DEFAULT: ${LOGGING__LOGLEVEL__DEFAULT:-Information}
+      LOGGING__LOGLEVEL__MICROSOFT: ${LOGGING__LOGLEVEL__MICROSOFT:-Warning}
+      LOGGING__LOGLEVEL__MICROSOFT__HOSTING__LIFETIME: ${LOGGING__LOGLEVEL__MICROSOFT__HOSTING__LIFETIME:-Information}
+    volumes:
+      - ${USERPROFILE}/.kube/config:/kube/config:ro
+    restart: unless-stopped
+
+

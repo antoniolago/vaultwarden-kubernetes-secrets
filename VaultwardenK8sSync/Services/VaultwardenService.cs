@@ -10,6 +10,7 @@ public class VaultwardenService : IVaultwardenService
     private readonly ILogger<VaultwardenService> _logger;
     private readonly VaultwardenSettings _config;
     private bool _isAuthenticated = false;
+    private string? _sessionToken;
 
     public VaultwardenService(ILogger<VaultwardenService> logger, VaultwardenSettings config)
     {
@@ -23,6 +24,7 @@ public class VaultwardenService : IVaultwardenService
         {
             _logger.LogInformation("Authenticating with Vaultwarden (API key)...");
             await LogBwVersionAsync();
+            await LogBwStatusAsync("pre-login");
 
             // Logout first to ensure clean state
             await LogoutAsync();
@@ -38,7 +40,9 @@ public class VaultwardenService : IVaultwardenService
                 }
             }
 
-            return await AuthenticateWithApiKeyAsync();
+            var ok = await AuthenticateWithApiKeyAsync();
+            await LogBwStatusAsync("post-login");
+            return ok;
         }
         catch (Exception ex)
         {
@@ -65,9 +69,30 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
+            ApplyCommonEnv(process.StartInfo, includeSession: false);
 
             process.Start();
-            await process.WaitForExitAsync();
+            
+            // Read output and error streams asynchronously with timeout
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            var exitTask = process.WaitForExitAsync();
+            
+            // Wait for process to exit with timeout
+            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
+            var completedTask = await Task.WhenAny(exitTask, timeoutTask);
+            
+            if (completedTask == timeoutTask)
+            {
+                _logger.LogError("bw config server timed out after 30 seconds");
+                try { process.Kill(); } catch { }
+                return false;
+            }
+            
+            await exitTask; // Ensure we get the actual exit code
+            
+            var output = await outputTask;
+            var error = await errorTask;
 
             if (process.ExitCode == 0)
             {
@@ -75,7 +100,6 @@ public class VaultwardenService : IVaultwardenService
                 return true;
             }
 
-            var error = await process.StandardError.ReadToEndAsync();
             _logger.LogError("Failed to set server URL: {Error}", error);
             return false;
         }
@@ -94,7 +118,7 @@ public class VaultwardenService : IVaultwardenService
             return false;
         }
 
-        var process = new Process
+            var process = new Process
         {
             StartInfo = new ProcessStartInfo
             {
@@ -107,19 +131,7 @@ public class VaultwardenService : IVaultwardenService
                 CreateNoWindow = true
             }
         };
-
-        // Ensure required env vars are available to bw
-        try
-        {
-            process.StartInfo.Environment["BW_CLIENTID"] = _config.ClientId!;
-            process.StartInfo.Environment["BW_CLIENTSECRET"] = _config.ClientSecret!;
-            _logger.LogDebug("bw login with env -> BW_CLIENTID set: {HasId}, BW_CLIENTSECRET set: {HasSecret}",
-                !string.IsNullOrWhiteSpace(_config.ClientId), !string.IsNullOrWhiteSpace(_config.ClientSecret));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Could not set bw env vars (will rely on inherited env)");
-        }
+        ApplyCommonEnv(process.StartInfo, includeSession: false);
 
         process.Start();
 
@@ -173,10 +185,15 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
+            ApplyCommonEnv(process.StartInfo, includeSession: false);
 
             process.Start();
             try
             {
+                if (string.IsNullOrWhiteSpace(_config.MasterPassword))
+                {
+                    _logger.LogError("Master password is not configured (VAULTWARDEN__MASTERPASSWORD)");
+                }
                 await process.StandardInput.WriteLineAsync(_config.MasterPassword);
                 await process.StandardInput.FlushAsync();
                 process.StandardInput.Close();
@@ -207,7 +224,10 @@ public class VaultwardenService : IVaultwardenService
             if (process.ExitCode == 0)
             {
                 var token = (stdOut ?? string.Empty).Trim();
-                _logger.LogInformation("Vault unlocked (session token length: {Len})", string.IsNullOrEmpty(token) ? 0 : token.Length);
+                var len = string.IsNullOrEmpty(token) ? 0 : token.Length;
+                _sessionToken = token;
+                _logger.LogInformation("Vault unlocked (session token length: {Len})", len);
+                await LogBwStatusAsync("post-unlock");
                 return true;
             }
 
@@ -257,6 +277,44 @@ public class VaultwardenService : IVaultwardenService
         }
     }
 
+    private async Task LogBwStatusAsync(string stage)
+    {
+        try
+        {
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "bw",
+                    Arguments = "status --raw",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+            ApplyCommonEnv(process.StartInfo, includeSession: true);
+
+            process.Start();
+            var output = await process.StandardOutput.ReadToEndAsync();
+            var error = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode == 0)
+            {
+                _logger.LogDebug("bw status at {Stage}: {Output}", stage, output.Trim());
+            }
+            else
+            {
+                _logger.LogDebug("bw status at {Stage} failed (exit {Code}): {Err}", stage, process.ExitCode, error.Trim());
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogTrace(ex, "Failed to get bw status at {Stage}", stage);
+        }
+    }
+
     public async Task<List<VaultwardenItem>> GetItemsAsync()
     {
         if (!_isAuthenticated)
@@ -277,27 +335,20 @@ public class VaultwardenService : IVaultwardenService
                 {
                     FileName = "bw",
                     Arguments = "list items --raw",
-                    RedirectStandardInput = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 }
             };
+            ApplyCommonEnv(process.StartInfo, includeSession: true);
+
+            if (string.IsNullOrWhiteSpace(_sessionToken))
+            {
+                _logger.LogWarning("BW_SESSION is not set before 'bw list items'. This may cause prompts or failures.");
+            }
 
             process.Start();
-            
-            try
-            {
-                await process.StandardInput.WriteLineAsync(_config.MasterPassword);
-                await process.StandardInput.FlushAsync();
-                process.StandardInput.Close();
-            }
-            catch (InvalidOperationException ex)
-            {
-                _logger.LogWarning("Could not write to StandardInput: {Error}", ex.Message);
-                // Continue anyway - the process might not need input
-            }
             // Read output and error streams asynchronously with timeout
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
@@ -389,6 +440,7 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
+            ApplyCommonEnv(process.StartInfo, includeSession: true);
 
             process.Start();
             var outputTask = process.StandardOutput.ReadToEndAsync();
@@ -445,6 +497,7 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
+            ApplyCommonEnv(process.StartInfo, includeSession: true);
 
             process.Start();
             var outputTask = process.StandardOutput.ReadToEndAsync();
@@ -492,6 +545,7 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
+            ApplyCommonEnv(process.StartInfo, includeSession: true);
 
             process.Start();
             var outputTask = process.StandardOutput.ReadToEndAsync();
@@ -562,6 +616,7 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
+            ApplyCommonEnv(process.StartInfo, includeSession: true);
 
             process.Start();
             
@@ -625,6 +680,7 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
+            ApplyCommonEnv(process.StartInfo, includeSession: true);
 
             process.Start();
             
@@ -687,14 +743,42 @@ public class VaultwardenService : IVaultwardenService
             };
 
             process.Start();
-            await process.WaitForExitAsync();
+            
+            // Read output and error streams asynchronously with timeout
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            var exitTask = process.WaitForExitAsync();
+            
+            // Wait for process to exit with timeout
+            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
+            var completedTask = await Task.WhenAny(exitTask, timeoutTask);
+            
+            if (completedTask == timeoutTask)
+            {
+                _logger.LogWarning("bw logout timed out after 30 seconds");
+                try { process.Kill(); } catch { }
+            }
+            else
+            {
+                await exitTask; // Ensure we get the actual exit code
+                var output = await outputTask;
+                var error = await errorTask;
+                
+                if (process.ExitCode != 0)
+                {
+                    _logger.LogWarning("bw logout returned non-zero exit code {Code}: {Error}", process.ExitCode, error);
+                }
+            }
 
             _isAuthenticated = false;
+            _sessionToken = null;
             _logger.LogDebug("Logged out from Vaultwarden");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to logout from Vaultwarden");
+            _isAuthenticated = false;
+            _sessionToken = null;
         }
     }
 
@@ -714,13 +798,33 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
+            ApplyCommonEnv(process.StartInfo, includeSession: true);
 
             process.Start();
-            await process.WaitForExitAsync();
+            
+            // Read output and error streams asynchronously with timeout
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            var exitTask = process.WaitForExitAsync();
+            
+            // Wait for process to exit with timeout
+            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(60));
+            var completedTask = await Task.WhenAny(exitTask, timeoutTask);
+            
+            if (completedTask == timeoutTask)
+            {
+                _logger.LogWarning("bw sync timed out after 60 seconds");
+                try { process.Kill(); } catch { }
+                return;
+            }
+            
+            await exitTask; // Ensure we get the actual exit code
+            
+            var output = await outputTask;
+            var error = await errorTask;
 
             if (process.ExitCode != 0)
             {
-                var error = await process.StandardError.ReadToEndAsync();
                 _logger.LogWarning("bw sync returned non-zero exit: {Error}", error);
             }
             else
@@ -731,6 +835,29 @@ public class VaultwardenService : IVaultwardenService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "bw sync failed (continuing)");
+        }
+    }
+
+    private void ApplyCommonEnv(ProcessStartInfo startInfo, bool includeSession = true)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(_config.ClientId))
+            {
+                startInfo.Environment["BW_CLIENTID"] = _config.ClientId!;
+            }
+            if (!string.IsNullOrWhiteSpace(_config.ClientSecret))
+            {
+                startInfo.Environment["BW_CLIENTSECRET"] = _config.ClientSecret!;
+            }
+            if (includeSession && !string.IsNullOrWhiteSpace(_sessionToken))
+            {
+                startInfo.Environment["BW_SESSION"] = _sessionToken!;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to apply bw environment variables");
         }
     }
 } 
