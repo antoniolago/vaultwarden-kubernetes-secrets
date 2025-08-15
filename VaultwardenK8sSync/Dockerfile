@@ -25,11 +25,14 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 COPY --from=publish /app/publish .
 
 # Install Bitwarden CLI via npm for all architectures so NODE_OPTIONS is honored by Node runtime
+# Update Node.js to version 20+ to fix ES module compatibility issues
 RUN apt-get update && apt-get install -y \
     curl \
     unzip \
-    nodejs \
-    npm \
+    ca-certificates \
+    gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g @bitwarden/cli
 
