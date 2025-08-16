@@ -471,7 +471,7 @@ public class VaultwardenService : IVaultwardenService
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "bw",
-                    Arguments = $"list items --raw{GetSessionArgs()}",
+                    Arguments = $"list items --raw{GetSessionArgs()}{GetOrganizationArgs()}{GetFolderArgs()}{GetCollectionArgs()}",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
@@ -585,6 +585,27 @@ public class VaultwardenService : IVaultwardenService
             _logger.LogError(ex, "Failed to retrieve items from Vaultwarden");
             return new List<VaultwardenItem>();
         }
+    }
+
+    private string GetOrganizationArgs()
+    {
+        if (string.IsNullOrWhiteSpace(_config.OrganizationId))
+            return string.Empty;
+        return $" --organization {_config.OrganizationId}";
+    }
+
+    private string GetFolderArgs()
+    {
+        if (string.IsNullOrWhiteSpace(_config.FolderId))
+            return string.Empty;
+        return $" --folder {_config.FolderId}";
+    }
+
+    private string GetCollectionArgs()
+    {
+        if (string.IsNullOrWhiteSpace(_config.CollectionId))
+            return string.Empty;
+        return $" --collection {_config.CollectionId}";
     }
 
     private async Task<string?> ResolveOrganizationIdAsync()
