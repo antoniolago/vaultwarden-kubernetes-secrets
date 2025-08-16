@@ -242,28 +242,47 @@ public class VaultwardenService : IVaultwardenService
             var output = await outputTask;
             var error = await errorTask;
 
-            _logger.LogInformation("Vault status: {Status}", output?.Trim());
-            
-            if (process.ExitCode == 0)
-            {
-                // Parse the status to see if we need to unlock
-                var status = output?.Trim()?.ToLowerInvariant();
-                if (status == "unlocked")
-                {
-                    _logger.LogInformation("Vault is already unlocked - API key authentication complete");
-                    return true;
-                }
-                else if (status == "locked")
-                {
-                    _logger.LogInformation("Vault is locked - attempting unlock");
-                    return await UnlockVaultAsync();
-                }
-                else
-                {
-                    _logger.LogWarning("Unknown vault status: {Status} - attempting unlock anyway", status);
-                    return await UnlockVaultAsync();
-                }
-            }
+                         _logger.LogInformation("Vault status: {Status}", output?.Trim());
+             
+             if (process.ExitCode == 0)
+             {
+                 // Parse the JSON status to see if we need to unlock
+                 var statusText = output?.Trim();
+                 var vaultStatus = "unknown";
+                 
+                 try
+                 {
+                     if (!string.IsNullOrEmpty(statusText))
+                     {
+                         var statusJson = System.Text.Json.JsonDocument.Parse(statusText);
+                         if (statusJson.RootElement.TryGetProperty("status", out var statusProperty))
+                         {
+                             vaultStatus = statusProperty.GetString()?.ToLowerInvariant() ?? "unknown";
+                         }
+                     }
+                 }
+                 catch (Exception ex)
+                 {
+                     _logger.LogDebug(ex, "Failed to parse status JSON, treating as text: {Status}", statusText);
+                     vaultStatus = statusText?.ToLowerInvariant() ?? "unknown";
+                 }
+                 
+                 if (vaultStatus == "unlocked")
+                 {
+                     _logger.LogInformation("Vault is already unlocked - API key authentication complete");
+                     return true;
+                 }
+                 else if (vaultStatus == "locked")
+                 {
+                     _logger.LogInformation("Vault is locked - attempting unlock");
+                     return await UnlockVaultAsync();
+                 }
+                 else
+                 {
+                     _logger.LogWarning("Unknown vault status: {Status} - attempting unlock anyway", vaultStatus);
+                     return await UnlockVaultAsync();
+                 }
+             }
             else
             {
                 _logger.LogWarning("Failed to get vault status (exit {Code}): {Error} - attempting unlock", process.ExitCode, error);
@@ -452,6 +471,9 @@ public class VaultwardenService : IVaultwardenService
             await SyncVaultAsync();
 
             _logger.LogInformation("Fetching items from Vaultwarden...");
+            _logger.LogDebug("Session token for list items: {HasToken} (length: {Len})", 
+                !string.IsNullOrWhiteSpace(_sessionToken), 
+                string.IsNullOrWhiteSpace(_sessionToken) ? 0 : _sessionToken!.Length);
 
             var process = new Process
             {
@@ -496,14 +518,32 @@ public class VaultwardenService : IVaultwardenService
 
             if (process.ExitCode != 0)
             {
-                _logger.LogError("Failed to retrieve items: {Error}", error);
+                _logger.LogError("Failed to retrieve items (exit {Code}). stderr: {Stderr} | stdout: {Stdout}", 
+                    process.ExitCode, error, output);
                 return new List<VaultwardenItem>();
             }
 
-            var items = JsonSerializer.Deserialize<List<VaultwardenItem>>(output, new JsonSerializerOptions
+            if (string.IsNullOrWhiteSpace(output))
             {
-                PropertyNameCaseInsensitive = true
-            }) ?? new List<VaultwardenItem>();
+                _logger.LogWarning("bw list items returned empty output");
+                return new List<VaultwardenItem>();
+            }
+
+            List<VaultwardenItem> items;
+            try
+            {
+                items = JsonSerializer.Deserialize<List<VaultwardenItem>>(output, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                }) ?? new List<VaultwardenItem>();
+                
+                _logger.LogDebug("Successfully parsed {Count} items from Vaultwarden", items.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to parse JSON response from bw list items. Output was: {Output}", output);
+                return new List<VaultwardenItem>();
+            }
 
             // Apply optional organization filter
             var resolvedOrgId = await ResolveOrganizationIdAsync();
