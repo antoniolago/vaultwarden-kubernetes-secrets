@@ -27,11 +27,11 @@ replicaCount: 1
 
 resources:
   requests:
-    cpu: 10m
-    memory: 128Mi
+    cpu: 50m
+    memory: 256Mi
   limits:
-    cpu: 500m
-    memory: 512Mi
+    cpu: 1000m
+    memory: 2Gi
 
 securityContext:
   runAsNonRoot: true

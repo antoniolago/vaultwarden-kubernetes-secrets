@@ -488,6 +488,12 @@ public class VaultwardenService : IVaultwardenService
             }
 
             _logger.LogInformation("Starting 'bw list items' process...");
+            _logger.LogInformation("Command: bw {Args}", process.StartInfo.Arguments);
+            
+            // Log memory usage before starting the process
+            var gcMemoryBefore = GC.GetTotalMemory(false);
+            _logger.LogInformation("Memory before bw list items: {MemoryMB} MB", gcMemoryBefore / 1024 / 1024);
+            
             process.Start();
             _logger.LogInformation("Process started, waiting for completion...");
             // Read output and error streams asynchronously with timeout
@@ -496,13 +502,20 @@ public class VaultwardenService : IVaultwardenService
             var exitTask = process.WaitForExitAsync();
             
             // Wait for process to exit with timeout
-            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(60));
+            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(120)); // Increased timeout
             var completedTask = await Task.WhenAny(exitTask, timeoutTask);
             
             if (completedTask == timeoutTask)
             {
-                _logger.LogError("bw list items timed out after 60 seconds");
-                try { process.Kill(); } catch { }
+                _logger.LogError("bw list items timed out after 120 seconds");
+                var gcMemoryAfter = GC.GetTotalMemory(false);
+                _logger.LogError("Memory at timeout: {MemoryMB} MB", gcMemoryAfter / 1024 / 1024);
+                try { 
+                    _logger.LogWarning("Attempting to kill hung bw process...");
+                    process.Kill(); 
+                } catch (Exception ex) {
+                    _logger.LogWarning(ex, "Failed to kill bw process");
+                }
                 return new List<VaultwardenItem>();
             }
             
