@@ -12,6 +12,9 @@ public class SyncService : ISyncService
     private readonly SyncSettings _syncConfig;
     private string? _lastItemsHash;
     private readonly Dictionary<string, DateTime> _secretExistsCache = new();
+    private List<Models.VaultwardenItem>? _cachedItems;
+    private DateTime? _cacheTime;
+    private int _syncCount;
 
     public SyncService(
         ILogger<SyncService> logger,
@@ -29,7 +32,7 @@ public class SyncService : ISyncService
     {
         try
         {
-            _logger.LogInformation("Starting reconciliation");
+            _logger.LogInformation("Starting reconciliation (sync #{SyncCount})", GetSyncCount());
 
             // Get all items from Vaultwarden
             var items = await _vaultwardenService.GetItemsAsync();
@@ -43,9 +46,13 @@ public class SyncService : ISyncService
             var currentItemsHash = CalculateQuickItemsHash(items);
             if (_lastItemsHash == currentItemsHash)
             {
-                _logger.LogDebug("No changes detected in Vaultwarden items - skipping reconciliation");
+                _logger.LogInformation("No changes detected in Vaultwarden items - skipping reconciliation");
                 return true;
             }
+            
+            _logger.LogDebug("Items changed (hash: {CurrentHash} vs {LastHash}) - proceeding with reconciliation", 
+                currentItemsHash?.Substring(0, Math.Min(8, currentItemsHash?.Length ?? 0)), 
+                _lastItemsHash?.Substring(0, Math.Min(8, _lastItemsHash?.Length ?? 0)));
             _lastItemsHash = currentItemsHash;
 
             // Group items by namespace (supporting multiple namespaces per item)
@@ -86,10 +93,10 @@ public class SyncService : ISyncService
                 }
             }
 
-            // Cleanup orphaned secrets if enabled
+            // Cleanup orphaned secrets if enabled (reuse cached items)
             if (_syncConfig.DeleteOrphans && success)
             {
-                await CleanupOrphanedSecretsAsync();
+                await CleanupOrphanedSecretsAsync(items);
             }
 
             _logger.LogInformation("Reconciliation completed: success={Success}", success);
@@ -512,12 +519,16 @@ public class SyncService : ISyncService
 
     public async Task<bool> CleanupOrphanedSecretsAsync()
     {
+        // Get fresh items if called directly
+        var items = await _vaultwardenService.GetItemsAsync();
+        return await CleanupOrphanedSecretsAsync(items);
+    }
+
+    private async Task<bool> CleanupOrphanedSecretsAsync(List<Models.VaultwardenItem> items)
+    {
         try
         {
             _logger.LogInformation("Starting cleanup of orphaned secrets...");
-
-            // Get all items from Vaultwarden
-            var items = await _vaultwardenService.GetItemsAsync();
             
             // Group items by namespace (supporting multiple namespaces per item)
             var itemsByNamespace = new Dictionary<string, List<Models.VaultwardenItem>>();
@@ -774,11 +785,8 @@ public class SyncService : ISyncService
                 var itemHash = CalculateItemHash(item);
                 itemHashes.Add(itemHash);
                 
-                // Log hash calculation data only if debug logging is enabled
-                if (_logger.IsEnabled(LogLevel.Debug))
-                {
-                    LogHashCalculationData(item, _logger);
-                }
+                // Skip expensive debug logging completely in production
+                // LogHashCalculationData(item, _logger);
             }
 
             // Create a combined hash for all items
@@ -918,13 +926,18 @@ public class SyncService : ISyncService
         return exists;
     }
 
+    private int GetSyncCount()
+    {
+        return ++_syncCount;
+    }
+
     private static string CalculateQuickItemsHash(List<Models.VaultwardenItem> items)
     {
-        // Quick hash based on item count, IDs, and revision dates
-        // This is much faster than full content hashing but still catches changes
+        // Simplified hash that's more stable - just use IDs and names
+        // RevisionDate might be changing due to server differences
         var quickData = items
             .OrderBy(i => i.Id)
-            .Select(i => $"{i.Id}:{i.RevisionDate:O}")
+            .Select(i => $"{i.Id}:{i.Name}")
             .ToList();
         
         var combinedData = $"{items.Count}|{string.Join("|", quickData)}";
