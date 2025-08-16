@@ -933,17 +933,28 @@ public class SyncService : ISyncService
 
     private static string CalculateQuickItemsHash(List<Models.VaultwardenItem> items)
     {
-        // Simplified hash that's more stable - just use IDs and names
-        // RevisionDate might be changing due to server differences
+        // Include content-sensitive data to detect actual changes
+        // Use RevisionDate (should change when content changes) + key fields
         var quickData = items
             .OrderBy(i => i.Id)
-            .Select(i => $"{i.Id}:{i.Name}")
+            .Select(i => $"{i.Id}:{i.RevisionDate:O}:{i.Login?.Username}:{GetPasswordHash(i)}")
             .ToList();
         
         var combinedData = $"{items.Count}|{string.Join("|", quickData)}";
         using var sha256 = System.Security.Cryptography.SHA256.Create();
         var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(combinedData));
         return Convert.ToBase64String(hashBytes);
+    }
+
+    private static string GetPasswordHash(Models.VaultwardenItem item)
+    {
+        // Get a hash of the password without logging sensitive data
+        var password = item.Login?.Password ?? "";
+        if (string.IsNullOrEmpty(password)) return "no-password";
+        
+        using var sha256 = System.Security.Cryptography.SHA256.Create();
+        var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(password));
+        return Convert.ToBase64String(hashBytes).Substring(0, 8); // First 8 chars for compact representation
     }
 
     private static string CalculateItemHash(Models.VaultwardenItem item)
