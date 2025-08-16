@@ -296,7 +296,7 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
-            ApplyCommonEnv(process.StartInfo, includeSession: true);
+            ApplyCommonEnv(process.StartInfo);
             
             // Log what session token we're using
             if (!string.IsNullOrWhiteSpace(_sessionToken))
