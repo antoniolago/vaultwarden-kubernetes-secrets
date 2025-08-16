@@ -76,7 +76,7 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
-            ApplyCommonEnv(process.StartInfo, includeSession: false);
+            ApplyCommonEnv(process.StartInfo);
 
             process.Start();
             
@@ -130,7 +130,7 @@ public class VaultwardenService : IVaultwardenService
             StartInfo = new ProcessStartInfo
             {
                 FileName = "bw",
-                Arguments = $"login --apikey",
+                Arguments = $"login --apikey --raw",
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -138,7 +138,7 @@ public class VaultwardenService : IVaultwardenService
                 CreateNoWindow = true
             }
         };
-        ApplyCommonEnv(process.StartInfo, includeSession: false);
+        ApplyCommonEnv(process.StartInfo);
 
         process.Start();
 
@@ -192,14 +192,14 @@ public class VaultwardenService : IVaultwardenService
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "bw",
-                    Arguments = "status --raw",
+                    Arguments = $"status --raw{GetSessionArgs()}",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 }
             };
-            ApplyCommonEnv(process.StartInfo, includeSession: true);
+            ApplyCommonEnv(process.StartInfo);
 
             process.Start();
             
@@ -296,16 +296,16 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
-            ApplyCommonEnv(process.StartInfo, includeSession: false);
+            ApplyCommonEnv(process.StartInfo, includeSession: true);
             
             // Log what session token we're using
             if (!string.IsNullOrWhiteSpace(_sessionToken))
             {
-                _logger.LogInformation("Using existing session token for unlock (length: {Len})", _sessionToken.Length);
+                _logger.LogInformation("Using session token for unlock (length: {Len})", _sessionToken.Length);
             }
             else
             {
-                _logger.LogInformation("No session token yet - unlock will provide one after API key login");
+                _logger.LogWarning("No session token available for unlock - this may cause the 'You are not logged in' error");
             }
 
             process.Start();
@@ -416,14 +416,14 @@ public class VaultwardenService : IVaultwardenService
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "bw",
-                    Arguments = "status --raw",
+                    Arguments = $"status --raw{GetSessionArgs()}",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 }
             };
-            ApplyCommonEnv(process.StartInfo, includeSession: true);
+            ApplyCommonEnv(process.StartInfo);
 
             process.Start();
             var output = await process.StandardOutput.ReadToEndAsync();
@@ -454,8 +454,10 @@ public class VaultwardenService : IVaultwardenService
 
         try
         {
+            _logger.LogInformation("=== GetItemsAsync START ===");
             _logger.LogDebug("Ensuring Vaultwarden vault is synced...");
             await SyncVaultAsync();
+            _logger.LogInformation("Vault sync completed");
 
             _logger.LogInformation("Fetching items from Vaultwarden...");
             _logger.LogDebug("Session token for list items: {HasToken} (length: {Len})", 
@@ -467,21 +469,27 @@ public class VaultwardenService : IVaultwardenService
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "bw",
-                    Arguments = "list items --raw",
+                    Arguments = $"list items --raw{GetSessionArgs()}",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 }
             };
-            ApplyCommonEnv(process.StartInfo, includeSession: true);
+            ApplyCommonEnv(process.StartInfo);
 
             if (string.IsNullOrWhiteSpace(_sessionToken))
             {
-                _logger.LogWarning("BW_SESSION is not set before 'bw list items'. This may cause prompts or failures.");
+                _logger.LogWarning("No session token available for 'bw list items'. This may cause prompts or failures.");
+            }
+            else
+            {
+                _logger.LogDebug("Using --session parameter for 'bw list items'");
             }
 
+            _logger.LogInformation("Starting 'bw list items' process...");
             process.Start();
+            _logger.LogInformation("Process started, waiting for completion...");
             // Read output and error streams asynchronously with timeout
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
@@ -499,9 +507,12 @@ public class VaultwardenService : IVaultwardenService
             }
             
             await exitTask; // Ensure we get the actual exit code
+            _logger.LogInformation("'bw list items' process completed with exit code: {ExitCode}", process.ExitCode);
             
             var output = await outputTask;
             var error = await errorTask;
+            _logger.LogInformation("Got output length: {OutputLen}, error length: {ErrorLen}", 
+                output?.Length ?? 0, error?.Length ?? 0);
 
             if (process.ExitCode != 0)
             {
@@ -584,14 +595,14 @@ public class VaultwardenService : IVaultwardenService
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "bw",
-                    Arguments = "list organizations --raw",
+                    Arguments = $"list organizations --raw{GetSessionArgs()}",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 }
             };
-            ApplyCommonEnv(process.StartInfo, includeSession: true);
+            ApplyCommonEnv(process.StartInfo);
 
             process.Start();
             var outputTask = process.StandardOutput.ReadToEndAsync();
@@ -641,14 +652,14 @@ public class VaultwardenService : IVaultwardenService
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "bw",
-                    Arguments = "list folders --raw",
+                    Arguments = $"list folders --raw{GetSessionArgs()}",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 }
             };
-            ApplyCommonEnv(process.StartInfo, includeSession: true);
+            ApplyCommonEnv(process.StartInfo);
 
             process.Start();
             var outputTask = process.StandardOutput.ReadToEndAsync();
@@ -689,14 +700,14 @@ public class VaultwardenService : IVaultwardenService
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "bw",
-                    Arguments = "list collections --raw",
+                    Arguments = $"list collections --raw{GetSessionArgs()}",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 }
             };
-            ApplyCommonEnv(process.StartInfo, includeSession: true);
+            ApplyCommonEnv(process.StartInfo);
 
             process.Start();
             var outputTask = process.StandardOutput.ReadToEndAsync();
@@ -760,14 +771,14 @@ public class VaultwardenService : IVaultwardenService
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "bw",
-                    Arguments = $"get item {id} --raw",
+                    Arguments = $"get item {id} --raw{GetSessionArgs()}",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 }
             };
-            ApplyCommonEnv(process.StartInfo, includeSession: true);
+            ApplyCommonEnv(process.StartInfo);
 
             process.Start();
             
@@ -824,14 +835,14 @@ public class VaultwardenService : IVaultwardenService
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "bw",
-                    Arguments = $"get password {id} --raw",
+                    Arguments = $"get password {id} --raw{GetSessionArgs()}",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 }
             };
-            ApplyCommonEnv(process.StartInfo, includeSession: true);
+            ApplyCommonEnv(process.StartInfo);
 
             process.Start();
             
@@ -937,20 +948,22 @@ public class VaultwardenService : IVaultwardenService
     {
         try
         {
+            _logger.LogDebug("Starting vault sync...");
             var process = new Process
             {
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "bw",
-                    Arguments = "sync --raw",
+                    Arguments = $"sync --raw{GetSessionArgs()}",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 }
             };
-            ApplyCommonEnv(process.StartInfo, includeSession: true);
+            ApplyCommonEnv(process.StartInfo);
 
+            _logger.LogDebug("bw sync: session token available = {HasToken}", !string.IsNullOrWhiteSpace(_sessionToken));
             process.Start();
             
             // Read output and error streams asynchronously with timeout
@@ -989,7 +1002,7 @@ public class VaultwardenService : IVaultwardenService
         }
     }
 
-    private void ApplyCommonEnv(ProcessStartInfo startInfo, bool includeSession = true)
+    private void ApplyCommonEnv(ProcessStartInfo startInfo)
     {
         try
         {
@@ -1001,14 +1014,20 @@ public class VaultwardenService : IVaultwardenService
             {
                 startInfo.Environment["BW_CLIENTSECRET"] = _config.ClientSecret!;
             }
-            if (includeSession && !string.IsNullOrWhiteSpace(_sessionToken))
-            {
-                startInfo.Environment["BW_SESSION"] = _sessionToken!;
-            }
+            // Note: Session token is now passed via --session parameter in GetSessionArgs()
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to apply bw environment variables");
         }
+    }
+
+    private string GetSessionArgs()
+    {
+        if (!string.IsNullOrWhiteSpace(_sessionToken))
+        {
+            return $" --session {_sessionToken}";
+        }
+        return string.Empty;
     }
 } 
