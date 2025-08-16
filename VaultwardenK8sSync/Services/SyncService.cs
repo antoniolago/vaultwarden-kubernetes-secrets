@@ -337,7 +337,7 @@ public class SyncService : ISyncService
             }
         }
 
-        // Include custom fields from the item as additional secret keys
+
         if (item.Fields?.Any() == true)
         {
             foreach (var field in item.Fields)
@@ -346,9 +346,12 @@ public class SyncService : ISyncService
                     continue;
                 if (string.IsNullOrEmpty(field.Value))
                     continue;
+                
+                if (IsMetadataField(field.Name))
+                    continue;
 
                 var fieldKey = SanitizeFieldName(field.Name);
-                // Avoid overwriting previously added keys unless explicit
+
                 if (!data.ContainsKey(fieldKey))
                 {
                     data[fieldKey] = FormatMultilineValue(field.Value);
@@ -931,6 +934,23 @@ public class SyncService : ISyncService
         return ++_syncCount;
     }
 
+    private static bool IsMetadataField(string fieldName)
+    {
+        if (string.IsNullOrEmpty(fieldName)) return false;
+        
+        var metadataFields = new[]
+        {
+            Models.FieldNameConfig.NamespacesFieldName,
+            Models.FieldNameConfig.SecretNameFieldName,
+            Models.FieldNameConfig.LegacySecretKeyFieldName,
+            Models.FieldNameConfig.SecretKeyPasswordFieldName,
+            Models.FieldNameConfig.SecretKeyUsernameFieldName
+        };
+        
+        return metadataFields.Any(meta => 
+            string.Equals(fieldName, meta, StringComparison.OrdinalIgnoreCase));
+    }
+
     private static string CalculateQuickItemsHash(List<Models.VaultwardenItem> items)
     {
         // Include content-sensitive data to detect actual changes
@@ -1008,12 +1028,16 @@ public class SyncService : ISyncService
             contentParts.Add($"identity:{item.Identity.FirstName}:{item.Identity.LastName}:{item.Identity.Email}:{item.Identity.Username}");
         }
         
-        // Custom fields (these become secret keys directly)
+        // Custom fields (these become secret keys directly, EXCEPT metadata fields)
         if (item.Fields != null)
         {
             foreach (var field in item.Fields.OrderBy(f => f.Name))
             {
-                contentParts.Add($"field:{field.Name}:{field.Value}:{field.Type}");
+                // Skip metadata fields that control sync behavior but don't go into secrets
+                if (!IsMetadataField(field.Name))
+                {
+                    contentParts.Add($"field:{field.Name}:{field.Value}:{field.Type}");
+                }
             }
         }
         
@@ -1068,10 +1092,11 @@ public class SyncService : ISyncService
             }
         }
 
-        // Add custom fields if available (including tags)
+        // Add custom fields if available (excluding metadata fields)
         if (item.Fields?.Any() == true)
         {
             var sortedFields = item.Fields
+                .Where(f => !IsMetadataField(f.Name))
                 .OrderBy(f => f.Name)
                 .Select(f => $"{f.Name}:{f.Value}")
                 .ToList();
