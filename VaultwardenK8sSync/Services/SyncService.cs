@@ -937,7 +937,7 @@ public class SyncService : ISyncService
         // Use RevisionDate (should change when content changes) + key fields
         var quickData = items
             .OrderBy(i => i.Id)
-            .Select(i => $"{i.Id}:{i.RevisionDate:O}:{i.Login?.Username}:{GetPasswordHash(i)}")
+            .Select(i => $"{i.Id}:{i.RevisionDate:O}:{GetContentHash(i)}")
             .ToList();
         
         var combinedData = $"{items.Count}|{string.Join("|", quickData)}";
@@ -946,14 +946,91 @@ public class SyncService : ISyncService
         return Convert.ToBase64String(hashBytes);
     }
 
-    private static string GetPasswordHash(Models.VaultwardenItem item)
+    private static string GetContentHash(Models.VaultwardenItem item)
     {
-        // Get a hash of the password without logging sensitive data
-        var password = item.Login?.Password ?? "";
-        if (string.IsNullOrEmpty(password)) return "no-password";
+        // This should match EXACTLY what ExtractSecretDataAsync() uses to build secrets
+        // Any field that contributes to secret data must be included here
+        var contentParts = new List<string>();
         
+        // Item name and type (affects secret structure)
+        contentParts.Add($"name:{item.Name}");
+        contentParts.Add($"type:{item.Type}");
+        
+        // Top-level password field
+        if (!string.IsNullOrEmpty(item.Password))
+        {
+            contentParts.Add($"password:{item.Password}");
+        }
+        
+        // Login items (username and password)
+        if (item.Login != null)
+        {
+            contentParts.Add($"login_user:{item.Login.Username ?? ""}");
+            contentParts.Add($"login_pass:{item.Login.Password ?? ""}");
+            
+            // URIs can affect the secret (sometimes used in custom logic)
+            if (item.Login.Uris != null)
+            {
+                foreach (var uri in item.Login.Uris)
+                {
+                    contentParts.Add($"uri:{uri.Uri}");
+                }
+            }
+        }
+        
+        // Notes - this includes secure note content AND any embedded kv pairs
+        if (!string.IsNullOrEmpty(item.Notes))
+        {
+            contentParts.Add($"notes:{item.Notes}");
+        }
+        
+        // SSH keys (all parts)
+        if (item.SshKey != null)
+        {
+            contentParts.Add($"ssh_private:{item.SshKey.PrivateKey ?? ""}");
+            contentParts.Add($"ssh_public:{item.SshKey.PublicKey ?? ""}");
+            contentParts.Add($"ssh_fingerprint:{item.SshKey.Fingerprint ?? ""}");
+        }
+        
+        // Card data (all fields that could become secret keys)
+        if (item.Card != null)
+        {
+            contentParts.Add($"card_name:{item.Card.CardholderName ?? ""}");
+            contentParts.Add($"card_number:{item.Card.Number ?? ""}");
+            contentParts.Add($"card_code:{item.Card.Code ?? ""}");
+            contentParts.Add($"card_brand:{item.Card.Brand ?? ""}");
+            contentParts.Add($"card_exp:{item.Card.ExpMonth ?? ""}/{item.Card.ExpYear ?? ""}");
+        }
+        
+        // Identity data
+        if (item.Identity != null)
+        {
+            contentParts.Add($"identity:{item.Identity.FirstName}:{item.Identity.LastName}:{item.Identity.Email}:{item.Identity.Username}");
+        }
+        
+        // Custom fields (these become secret keys directly)
+        if (item.Fields != null)
+        {
+            foreach (var field in item.Fields.OrderBy(f => f.Name))
+            {
+                contentParts.Add($"field:{field.Name}:{field.Value}:{field.Type}");
+            }
+        }
+        
+        // Attachments (could affect secret if processed)
+        if (item.Attachments != null)
+        {
+            foreach (var attachment in item.Attachments.OrderBy(a => a.FileName))
+            {
+                contentParts.Add($"attachment:{attachment.FileName}:{attachment.Size}");
+            }
+        }
+        
+        if (contentParts.Count == 0) return "no-content";
+        
+        var combinedContent = string.Join("|", contentParts);
         using var sha256 = System.Security.Cryptography.SHA256.Create();
-        var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(password));
+        var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(combinedContent));
         return Convert.ToBase64String(hashBytes).Substring(0, 8); // First 8 chars for compact representation
     }
 
