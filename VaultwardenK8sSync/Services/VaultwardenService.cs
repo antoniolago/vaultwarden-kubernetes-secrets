@@ -488,7 +488,6 @@ public class VaultwardenService : IVaultwardenService
             }
 
             _logger.LogInformation("Starting 'bw list items' process...");
-            _logger.LogInformation("Command: bw {Args}", process.StartInfo.Arguments);
             
             // Log memory usage before starting the process
             var gcMemoryBefore = GC.GetTotalMemory(false);

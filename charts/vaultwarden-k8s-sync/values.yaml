@@ -8,6 +8,7 @@ image:
 
 rbac:
   create: true
+  clusterWide: true
 
 serviceAccount:
   create: true
