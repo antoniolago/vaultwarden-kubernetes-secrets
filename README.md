@@ -6,7 +6,7 @@ This software syncs Vaultwarden items to Kubernetes Secrets.
 
 ## Install (Helm)
 
-Recommended (from GHCR OCI):
+Recommended:
 
 ```bash
 # Required inputs
