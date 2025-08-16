@@ -11,6 +11,7 @@ public class VaultwardenService : IVaultwardenService
     private readonly VaultwardenSettings _config;
     private bool _isAuthenticated = false;
     private string? _sessionToken;
+    private DateTime? _lastSyncTime;
 
     public VaultwardenService(ILogger<VaultwardenService> logger, VaultwardenSettings config)
     {
@@ -961,6 +962,16 @@ public class VaultwardenService : IVaultwardenService
         try
         {
             _logger.LogDebug("Starting vault sync...");
+            
+            // Skip sync if we recently synced (cache for 5 minutes)
+            var now = DateTime.UtcNow;
+            // if (_lastSyncTime.HasValue && (now - _lastSyncTime.Value).TotalMinutes < 5)
+            // {
+            //     _logger.LogDebug("Skipping vault sync - last sync was {Minutes:F1} minutes ago", 
+            //         (now - _lastSyncTime.Value).TotalMinutes);
+            //     return;
+            // }
+            
             var process = new Process
             {
                 StartInfo = new ProcessStartInfo
@@ -1005,6 +1016,7 @@ public class VaultwardenService : IVaultwardenService
             }
             else
             {
+                _lastSyncTime = DateTime.UtcNow;
                 _logger.LogDebug("Vault synced");
             }
         }

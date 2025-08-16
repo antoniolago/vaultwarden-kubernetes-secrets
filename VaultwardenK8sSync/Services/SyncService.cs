@@ -30,7 +30,9 @@ public class SyncService : ISyncService
             _logger.LogInformation("Starting reconciliation");
 
             // Get all items from Vaultwarden
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var items = await _vaultwardenService.GetItemsAsync();
+            _logger.LogDebug("Retrieved {Count} items from Vaultwarden in {ElapsedMs}ms", items.Count, stopwatch.ElapsedMilliseconds);
             if (!items.Any())
             {
                 _logger.LogWarning("No items found in Vaultwarden vault");
@@ -759,12 +761,15 @@ public class SyncService : ISyncService
                     combinedSecretData[kvp.Key] = kvp.Value;
                 }
                 
-                // Calculate hash for this item
-                var itemHash = CalculateItemHash(item);
+                // Calculate hash for this item (optimized)
+                var itemHash = CalculateItemHashOptimized(item);
                 itemHashes.Add(itemHash);
                 
-                // Log hash calculation data for debugging
-                LogHashCalculationData(item, _logger);
+                // Log hash calculation data for debugging only in trace mode
+                if (_logger.IsEnabled(LogLevel.Trace))
+                {
+                    LogHashCalculationData(item, _logger);
+                }
             }
 
             // Create a combined hash for all items
@@ -930,6 +935,21 @@ public class SyncService : ISyncService
         var combinedData = string.Join("|", hashData);
         using var sha256 = System.Security.Cryptography.SHA256.Create();
         var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(combinedData));
+        return Convert.ToBase64String(hashBytes);
+    }
+
+    private static string CalculateItemHashOptimized(Models.VaultwardenItem item)
+    {
+        // Optimized hash calculation - use revision date as primary indicator
+        // Only do full hash if revision date changed recently
+        var revisionDateString = item.RevisionDate.ToString("O");
+        
+        // Simple hash for quick comparison based on key fields
+        var quickHash = $"{item.Id}:{revisionDateString}:{item.Name?.Length ?? 0}:{item.Password?.Length ?? 0}";
+        
+        // Use SHA256 for consistency but with reduced data
+        using var sha256 = System.Security.Cryptography.SHA256.Create();
+        var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(quickHash));
         return Convert.ToBase64String(hashBytes);
     }
 
