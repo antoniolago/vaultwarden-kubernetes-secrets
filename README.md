@@ -1,5 +1,7 @@
 # Vaultwarden Kubernetes Secrets Sync
 
+⚠️ **WARNING: This application is not production-ready and have been tested only for my use cases.
+
 This software syncs Vaultwarden items to Kubernetes Secrets.
 
 ## Install (Helm)

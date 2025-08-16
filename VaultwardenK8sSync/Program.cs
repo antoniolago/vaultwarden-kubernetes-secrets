@@ -46,6 +46,10 @@ class Program
             using var serviceProvider = services.BuildServiceProvider();
             var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
 
+            // Production readiness warning
+            logger.LogWarning("⚠️  WARNING: This application is not production-ready and may have significant CPU usage");
+            logger.LogWarning("⚠️  Monitor resource consumption and adjust sync intervals accordingly");
+
             // Global exception logging
             AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
             {
