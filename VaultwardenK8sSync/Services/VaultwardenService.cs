@@ -11,7 +11,6 @@ public class VaultwardenService : IVaultwardenService
     private readonly VaultwardenSettings _config;
     private bool _isAuthenticated = false;
     private string? _sessionToken;
-    private DateTime? _lastSyncTime;
 
     public VaultwardenService(ILogger<VaultwardenService> logger, VaultwardenSettings config)
     {
@@ -464,6 +463,8 @@ public class VaultwardenService : IVaultwardenService
             _logger.LogDebug("Session token for list items: {HasToken} (length: {Len})", 
                 !string.IsNullOrWhiteSpace(_sessionToken), 
                 string.IsNullOrWhiteSpace(_sessionToken) ? 0 : _sessionToken!.Length);
+            
+
 
             var process = new Process
             {
@@ -489,10 +490,6 @@ public class VaultwardenService : IVaultwardenService
             }
 
             _logger.LogInformation("Starting 'bw list items' process...");
-            
-            // Log memory usage before starting the process
-            var gcMemoryBefore = GC.GetTotalMemory(false);
-            _logger.LogInformation("Memory before bw list items: {MemoryMB} MB", gcMemoryBefore / 1024 / 1024);
             
             process.Start();
             _logger.LogInformation("Process started, waiting for completion...");
@@ -963,15 +960,6 @@ public class VaultwardenService : IVaultwardenService
         {
             _logger.LogDebug("Starting vault sync...");
             
-            // Skip sync if we recently synced (cache for 5 minutes)
-            var now = DateTime.UtcNow;
-            // if (_lastSyncTime.HasValue && (now - _lastSyncTime.Value).TotalMinutes < 5)
-            // {
-            //     _logger.LogDebug("Skipping vault sync - last sync was {Minutes:F1} minutes ago", 
-            //         (now - _lastSyncTime.Value).TotalMinutes);
-            //     return;
-            // }
-            
             var process = new Process
             {
                 StartInfo = new ProcessStartInfo
@@ -1016,7 +1004,6 @@ public class VaultwardenService : IVaultwardenService
             }
             else
             {
-                _lastSyncTime = DateTime.UtcNow;
                 _logger.LogDebug("Vault synced");
             }
         }

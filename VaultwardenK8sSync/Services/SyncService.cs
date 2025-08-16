@@ -10,6 +10,8 @@ public class SyncService : ISyncService
     private readonly IVaultwardenService _vaultwardenService;
     private readonly IKubernetesService _kubernetesService;
     private readonly SyncSettings _syncConfig;
+    private string? _lastItemsHash;
+    private readonly Dictionary<string, DateTime> _secretExistsCache = new();
 
     public SyncService(
         ILogger<SyncService> logger,
@@ -30,14 +32,21 @@ public class SyncService : ISyncService
             _logger.LogInformation("Starting reconciliation");
 
             // Get all items from Vaultwarden
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var items = await _vaultwardenService.GetItemsAsync();
-            _logger.LogDebug("Retrieved {Count} items from Vaultwarden in {ElapsedMs}ms", items.Count, stopwatch.ElapsedMilliseconds);
             if (!items.Any())
             {
                 _logger.LogWarning("No items found in Vaultwarden vault");
                 return true;
             }
+
+            // Quick change detection - avoid expensive processing if nothing changed
+            var currentItemsHash = CalculateQuickItemsHash(items);
+            if (_lastItemsHash == currentItemsHash)
+            {
+                _logger.LogDebug("No changes detected in Vaultwarden items - skipping reconciliation");
+                return true;
+            }
+            _lastItemsHash = currentItemsHash;
 
             // Group items by namespace (supporting multiple namespaces per item)
             var itemsByNamespace = new Dictionary<string, List<Models.VaultwardenItem>>();
@@ -761,12 +770,12 @@ public class SyncService : ISyncService
                     combinedSecretData[kvp.Key] = kvp.Value;
                 }
                 
-                // Calculate hash for this item (optimized)
-                var itemHash = CalculateItemHashOptimized(item);
+                // Calculate hash for this item
+                var itemHash = CalculateItemHash(item);
                 itemHashes.Add(itemHash);
                 
-                // Log hash calculation data for debugging only in trace mode
-                if (_logger.IsEnabled(LogLevel.Trace))
+                // Log hash calculation data only if debug logging is enabled
+                if (_logger.IsEnabled(LogLevel.Debug))
                 {
                     LogHashCalculationData(item, _logger);
                 }
@@ -785,8 +794,8 @@ public class SyncService : ISyncService
 
             // Check if there's an existing secret with the old name (based on item name)
             var oldSecretName = SanitizeSecretName(items.First().Name);
-            var oldSecretExists = await _kubernetesService.SecretExistsAsync(namespaceName, oldSecretName);
-            var newSecretExists = await _kubernetesService.SecretExistsAsync(namespaceName, secretName);
+            var oldSecretExists = await SecretExistsCachedAsync(namespaceName, oldSecretName);
+            var newSecretExists = await SecretExistsCachedAsync(namespaceName, secretName);
 
             bool success = true;
             bool didCreate = false;
@@ -884,6 +893,46 @@ public class SyncService : ISyncService
         }
     }
 
+    private async Task<bool> SecretExistsCachedAsync(string namespaceName, string secretName)
+    {
+        var cacheKey = $"{namespaceName}/{secretName}";
+        var now = DateTime.UtcNow;
+        
+        // Cache secret existence checks for 30 seconds to reduce Kubernetes API calls
+        if (_secretExistsCache.TryGetValue(cacheKey, out var cachedTime) && 
+            (now - cachedTime).TotalSeconds < 30)
+        {
+            return true; // If cached, assume it still exists
+        }
+        
+        var exists = await _kubernetesService.SecretExistsAsync(namespaceName, secretName);
+        if (exists)
+        {
+            _secretExistsCache[cacheKey] = now;
+        }
+        else
+        {
+            _secretExistsCache.Remove(cacheKey); // Remove from cache if doesn't exist
+        }
+        
+        return exists;
+    }
+
+    private static string CalculateQuickItemsHash(List<Models.VaultwardenItem> items)
+    {
+        // Quick hash based on item count, IDs, and revision dates
+        // This is much faster than full content hashing but still catches changes
+        var quickData = items
+            .OrderBy(i => i.Id)
+            .Select(i => $"{i.Id}:{i.RevisionDate:O}")
+            .ToList();
+        
+        var combinedData = $"{items.Count}|{string.Join("|", quickData)}";
+        using var sha256 = System.Security.Cryptography.SHA256.Create();
+        var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(combinedData));
+        return Convert.ToBase64String(hashBytes);
+    }
+
     private static string CalculateItemHash(Models.VaultwardenItem item)
     {
         // Create a hash based on all relevant fields that could affect the secret
@@ -938,20 +987,7 @@ public class SyncService : ISyncService
         return Convert.ToBase64String(hashBytes);
     }
 
-    private static string CalculateItemHashOptimized(Models.VaultwardenItem item)
-    {
-        // Optimized hash calculation - use revision date as primary indicator
-        // Only do full hash if revision date changed recently
-        var revisionDateString = item.RevisionDate.ToString("O");
-        
-        // Simple hash for quick comparison based on key fields
-        var quickHash = $"{item.Id}:{revisionDateString}:{item.Name?.Length ?? 0}:{item.Password?.Length ?? 0}";
-        
-        // Use SHA256 for consistency but with reduced data
-        using var sha256 = System.Security.Cryptography.SHA256.Create();
-        var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(quickHash));
-        return Convert.ToBase64String(hashBytes);
-    }
+
 
     /// <summary>
     /// Debug method to log the hash calculation data for troubleshooting
