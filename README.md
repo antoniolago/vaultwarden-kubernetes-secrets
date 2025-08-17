@@ -37,11 +37,6 @@ Notes:
 - Set optional filters (Org/Folder/Collection) via `--set env.config.VAULTWARDEN__ORGANIZATIONID=...` etc.
 - Default image repository is `ghcr.io/antoniolago/vaultwarden-k8s-sync`. Override with `--set image.repository=...` if using a fork.
 
-
-## Install (kubectl)
-
-As an alternative, you can use the raw manifests. See `deploy/README.md` for step-by-step kubectl apply instructions.
-
 ## How to use it
 
 - Create an item in Vaultwarden: Login, Secure Note, or SSH Key
@@ -58,14 +53,6 @@ As an alternative, you can use the raw manifests. See `deploy/README.md` for ste
   - Defaults: password key = sanitized item name; username key = `<sanitized_item_name>_username`
 - Optional: add extra entries from notes
   - Inline KV: `#kv:API_URL=https://api.example.com`
-  - Multiline block:
-    ```
-    ```secret:private_key
-    -----BEGIN PRIVATE KEY-----
-    ...
-    -----END PRIVATE KEY-----
-    ```
-    ```
 
 - Optional:
   - All the custom fields you add (that are not the ones mentioned before) will also be synced to the secret
