@@ -36,7 +36,6 @@ helm upgrade -i vaultwarden-sync oci://harbor.lag0.com.br/charts/vaultwarden-k8s
 Notes:
 - The chart references Secret `vaultwarden-sync-secrets` for sensitive values; the commands above create it.
 - Set optional filters (Org/Folder/Collection) via `--set env.config.VAULTWARDEN__ORGANIZATIONID=...` etc.
-- Default image repository is `ghcr.io/antoniolago/vaultwarden-k8s-sync`. Override with `--set image.repository=...` if using a fork.
 
 ## How to use it
 
