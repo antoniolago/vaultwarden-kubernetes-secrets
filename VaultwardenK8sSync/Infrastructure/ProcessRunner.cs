@@ -99,3 +99,4 @@ public class ProcessResult
     public string Error { get; set; } = string.Empty;
     public bool Success { get; set; }
 }
+

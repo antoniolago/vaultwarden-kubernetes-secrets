@@ -260,7 +260,14 @@ public class SyncService : ISyncService
         var data = new Dictionary<string, string>();
 
         // Hydrate SSH Key payload for SSH items if missing from list output
-        if ((item.SshKey == null || string.IsNullOrWhiteSpace(item.SshKey.PrivateKey)) && item.Type == 5)
+        var isSshKeyItem = item.Type == 5;
+        var hasMissingSshKeyData = item.SshKey == null || 
+            string.IsNullOrWhiteSpace(item.SshKey.PrivateKey) ||
+            string.IsNullOrWhiteSpace(item.SshKey.PublicKey) ||
+            string.IsNullOrWhiteSpace(item.SshKey.Fingerprint);
+        var needsSshKeyHydration = isSshKeyItem && hasMissingSshKeyData;
+        
+        if (needsSshKeyHydration)
         {
             try
             {

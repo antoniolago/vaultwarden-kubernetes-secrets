@@ -19,3 +19,4 @@ public static class LogLevelParser
         return LogLevel.Information;
     }
 }
+
