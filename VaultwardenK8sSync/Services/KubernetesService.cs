@@ -2,6 +2,7 @@ using k8s;
 using k8s.Models;
 using Microsoft.Extensions.Logging;
 using VaultwardenK8sSync.Models;
+using VaultwardenK8sSync.Configuration;
 
 namespace VaultwardenK8sSync.Services;
 
@@ -106,8 +107,8 @@ public class KubernetesService : IKubernetesService
                 // Check if the secret has our management labels
                 if (secret.Metadata?.Labels != null)
                 {
-                    if (secret.Metadata.Labels.ContainsKey("app.kubernetes.io/managed-by") &&
-                        secret.Metadata.Labels["app.kubernetes.io/managed-by"] == "vaultwarden-k8s-sync")
+                    if (secret.Metadata.Labels.ContainsKey(Constants.Kubernetes.ManagedByLabel) &&
+                        secret.Metadata.Labels[Constants.Kubernetes.ManagedByLabel] == Constants.Kubernetes.ManagedByValue)
                     {
                         managedSecrets.Add(secret.Metadata.Name);
                     }
@@ -142,11 +143,11 @@ public class KubernetesService : IKubernetesService
                     NamespaceProperty = namespaceName,
                     Labels = new Dictionary<string, string>
                     {
-                        { "app.kubernetes.io/managed-by", "vaultwarden-k8s-sync" },
-                        { "app.kubernetes.io/created-by", "vaultwarden-k8s-sync" }
+                        { Constants.Kubernetes.ManagedByLabel, Constants.Kubernetes.ManagedByValue },
+                        { Constants.Kubernetes.CreatedByLabel, Constants.Kubernetes.ManagedByValue }
                     }
                 },
-                Type = "Opaque",
+                Type = Constants.Kubernetes.SecretType,
                 Data = data.ToDictionary(kvp => kvp.Key, kvp => System.Text.Encoding.UTF8.GetBytes(kvp.Value))
             };
 
@@ -187,11 +188,11 @@ public class KubernetesService : IKubernetesService
                     NamespaceProperty = namespaceName,
                     Labels = new Dictionary<string, string>
                     {
-                        { "app.kubernetes.io/managed-by", "vaultwarden-k8s-sync" },
-                        { "app.kubernetes.io/created-by", "vaultwarden-k8s-sync" }
+                        { Constants.Kubernetes.ManagedByLabel, Constants.Kubernetes.ManagedByValue },
+                        { Constants.Kubernetes.CreatedByLabel, Constants.Kubernetes.ManagedByValue }
                     }
                 },
-                Type = "Opaque",
+                Type = Constants.Kubernetes.SecretType,
                 Data = data.ToDictionary(kvp => kvp.Key, kvp => System.Text.Encoding.UTF8.GetBytes(kvp.Value))
             };
 

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using System.Text.RegularExpressions;
 using VaultwardenK8sSync.Models;
+using VaultwardenK8sSync.Configuration;
 
 namespace VaultwardenK8sSync.Services;
 
@@ -794,7 +795,7 @@ public class SyncService : ISyncService
 
             // Create a combined hash for all items
             var combinedHash = string.Join("|", itemHashes.OrderBy(h => h));
-            var hashKey = "vaultwarden-sync-hash";
+            var hashKey = Constants.Kubernetes.HashKeyName;
 
             if (_syncConfig.DryRun)
             {
@@ -909,9 +910,9 @@ public class SyncService : ISyncService
         var cacheKey = $"{namespaceName}/{secretName}";
         var now = DateTime.UtcNow;
         
-        // Cache secret existence checks for 30 seconds to reduce Kubernetes API calls
+        // Cache secret existence checks to reduce Kubernetes API calls
         if (_secretExistsCache.TryGetValue(cacheKey, out var cachedTime) && 
-            (now - cachedTime).TotalSeconds < 30)
+            (now - cachedTime).TotalSeconds < Constants.Cache.SecretExistsCacheTimeoutSeconds)
         {
             return true; // If cached, assume it still exists
         }
