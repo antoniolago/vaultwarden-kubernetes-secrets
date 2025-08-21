@@ -1,3 +1,4 @@
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/vaultwarden-kubernetes-secrets)](https://artifacthub.io/packages/search?repo=vaultwarden-kubernetes-secrets) [![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/antoniolago/vaultwarden-kubernetes-secrets)
 # Vaultwarden Kubernetes Secrets Sync
 
 ⚠️ **WARNING: This application is not production-ready and have been tested only for my use cases.
@@ -43,6 +44,7 @@ Notes:
 - Add target namespaces (required)
   - Notes: `#namespaces: staging,production`
   - or custom field: name `namespaces`, value `staging,production`
+
 - Optional: set the Kubernetes Secret name
   - Notes: `#secret-name: my-secret`
   - or custom field: name `secret-name`, value `my-secret`
@@ -62,23 +64,25 @@ Notes:
   - Merge multiple items pointing to the same `secret-name` into one Secret (last writer wins on key conflicts)
   - For SSH Key items, store the private key under the password key; if present, also add `<item>_public_key` and `<item>_fingerprint`
 
-Quick examples
+## Quick examples
 
-- Login item (username/password):
-  ```
-  #namespaces: production
-  #secret-name: oracle-secrets
-  #secret-key-password: db_password
-  #secret-key-username: db_user
-  ```
-- Secure Note with extra key:
-  ```
-  API token for X
-  #namespaces: staging
-  #secret-name: service-x
-  #kv:API_URL=https://api.example.com
-  ```
+### Example 1 - default fields
+Item:
+ 
+<img width="406" height="454" alt="image" src="https://github.com/user-attachments/assets/26fa4b39-3a82-435e-bd62-14c9cbd6ee0f" />
 
+Will result in:
+
+<img width="1096" height="69" alt="image" src="https://github.com/user-attachments/assets/7ee6b003-0bab-47ef-8dbc-9b9c32e6a875" />
+
+### Example 2 - custom fields
+Item:
+
+<img width="578" height="622" alt="image" src="https://github.com/user-attachments/assets/3da6e6ba-b169-4910-acbf-31c114a52796" />
+
+Will result in:
+
+<img width="1209" height="85" alt="image" src="https://github.com/user-attachments/assets/166a7f0e-b424-46bf-8fde-41335cdf2bcd" />
 
 ## More docs
 
