@@ -260,6 +260,13 @@ Namespace Tagging:
   To sync a Vaultwarden item to a Kubernetes namespace, add the following to the item's description:
   #namespaces:your-namespace-name
 
+Field Control:
+  To exclude specific fields from being synced to Kubernetes secrets, add a custom field named 
+  'ignore-field' containing a comma-separated list of field names to ignore:
+  ignore-field: password,sensitive_key,temp_data
+  
+  The ignore-field itself will never be synced to prevent sensitive configuration exposure.
+
 Examples:
   VaultwardenK8sSync config                  # Validate configuration
   VaultwardenK8sSync sync                    # Perform full sync

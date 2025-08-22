@@ -12,7 +12,6 @@ public class VaultwardenItem
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
 
-
     [JsonPropertyName("password")]
     public string Password { get; set; } = string.Empty;
 
@@ -48,6 +47,7 @@ public class VaultwardenItem
 
     [JsonPropertyName("sshKey")]
     public SshKeyInfo? SshKey { get; set; }
+    
 
     [JsonPropertyName("fields")]
     public List<FieldInfo>? Fields { get; set; }
@@ -368,12 +368,69 @@ public class VaultwardenItem
         }
         return null;
     }
+
+    /// <summary>
+    /// Extract the list of field names that should be ignored during synchronization.
+    /// The ignore-field can contain a comma-separated list of field names.
+    /// </summary>
+    public HashSet<string> ExtractIgnoredFields()
+    {
+        var ignoredFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        
+        // Get the ignore-field value from custom fields
+        var ignoreFieldValue = GetCustomFieldValue(FieldNameConfig.IgnoreFieldName);
+        if (!string.IsNullOrWhiteSpace(ignoreFieldValue))
+        {
+            // Split by comma and trim each field name
+            var fieldNames = ignoreFieldValue.Split(',', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var fieldName in fieldNames)
+            {
+                var trimmedName = fieldName.Trim();
+                if (!string.IsNullOrEmpty(trimmedName))
+                {
+                    ignoredFields.Add(trimmedName);
+                }
+            }
+        }
+        
+        // Also check notes for ignore-field tag (fallback)
+        if (string.IsNullOrEmpty(ignoreFieldValue) && !string.IsNullOrEmpty(Notes))
+        {
+            var lines = Notes.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var line in lines)
+            {
+                var trimmedLine = line.Trim();
+                if (trimmedLine.StartsWith($"#{FieldNameConfig.IgnoreFieldName}:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var ignoreValue = trimmedLine.Substring($"#{FieldNameConfig.IgnoreFieldName}:".Length).Trim();
+                    if (!string.IsNullOrEmpty(ignoreValue))
+                    {
+                        var fieldNames = ignoreValue.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                        foreach (var fieldName in fieldNames)
+                        {
+                            var trimmedName = fieldName.Trim();
+                            if (!string.IsNullOrEmpty(trimmedName))
+                            {
+                                ignoredFields.Add(trimmedName);
+                            }
+                        }
+                        break; // Only process the first ignore-field tag found
+                    }
+                }
+            }
+        }
+        
+        // Always add the ignore-field itself to the ignored list to prevent it from being synced
+        ignoredFields.Add(FieldNameConfig.IgnoreFieldName);
+        
+        return ignoredFields;
+    }
 }
 
 internal static class FieldNameConfig
 {
     // These can be overridden via environment variables
-    // SYNC__FIELD__NAMESPACES, SYNC__FIELD__SECRETNAME, SYNC__FIELD__SECRETKEYPASSWORD, SYNC__FIELD__SECRETKEYUSERNAME, SYNC__FIELD__SECRETKEY
+    // SYNC__FIELD__NAMESPACES, SYNC__FIELD__SECRETNAME, SYNC__FIELD__SECRETKEYPASSWORD, SYNC__FIELD__SECRETKEYUSERNAME, SYNC__FIELD__SECRETKEY, SYNC__FIELD__IGNOREFIELD
     public static readonly string NamespacesFieldName =
         Environment.GetEnvironmentVariable("SYNC__FIELD__NAMESPACES")?.Trim() ?? "namespaces";
     public static readonly string SecretNameFieldName =
@@ -384,6 +441,8 @@ internal static class FieldNameConfig
         Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETKEYUSERNAME")?.Trim() ?? "secret-key-username";
     public static readonly string LegacySecretKeyFieldName =
         Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETKEY")?.Trim() ?? "secret-key";
+    public static readonly string IgnoreFieldName =
+        Environment.GetEnvironmentVariable("SYNC__FIELD__IGNOREFIELD")?.Trim() ?? "ignore-field";
 
     // Additional configurable tag prefixes for notes parsing
     // SYNC__FIELD__INLINEKVPREFIX controls the inline kv tag (default "kv") → recognized as #kv:
@@ -510,7 +569,7 @@ public class SshKeyInfo
     [JsonPropertyName("publicKey")]
     public string? PublicKey { get; set; }
 
-    [JsonPropertyName("fingerprint")]
+    [JsonPropertyName("keyFingerprint")]
     public string? Fingerprint { get; set; }
 }
 

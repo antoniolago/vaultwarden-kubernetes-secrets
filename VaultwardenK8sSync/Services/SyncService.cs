@@ -346,6 +346,9 @@ public class SyncService : ISyncService
         }
 
 
+        // Get the list of fields that should be ignored for this item
+        var ignoredFields = item.ExtractIgnoredFields();
+
         if (item.Fields?.Any() == true)
         {
             foreach (var field in item.Fields)
@@ -356,6 +359,10 @@ public class SyncService : ISyncService
                     continue;
                 
                 if (IsMetadataField(field.Name))
+                    continue;
+
+                // Skip this field if it's in the ignore list
+                if (ignoredFields.Contains(field.Name))
                     continue;
 
                 var fieldKey = SanitizeFieldName(field.Name);
@@ -373,6 +380,10 @@ public class SyncService : ISyncService
         {
             foreach (var kvp in extraFromNotes)
             {
+                // Skip this key if it's in the ignore list
+                if (ignoredFields.Contains(kvp.Key))
+                    continue;
+
                 var noteKey = SanitizeFieldName(kvp.Key);
                 data[noteKey] = FormatMultilineValue(kvp.Value);
             }
@@ -419,6 +430,7 @@ public class SyncService : ISyncService
                 trimmed.StartsWith($"#{Models.FieldNameConfig.LegacySecretKeyFieldName}:", StringComparison.OrdinalIgnoreCase) ||
                 trimmed.StartsWith($"#{Models.FieldNameConfig.SecretKeyPasswordFieldName}:", StringComparison.OrdinalIgnoreCase) ||
                 trimmed.StartsWith($"#{Models.FieldNameConfig.SecretKeyUsernameFieldName}:", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith($"#{Models.FieldNameConfig.IgnoreFieldName}:", StringComparison.OrdinalIgnoreCase) ||
                 trimmed.StartsWith($"#{Models.FieldNameConfig.InlineKvTagPrefix}:", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
@@ -952,7 +964,8 @@ public class SyncService : ISyncService
             Models.FieldNameConfig.SecretNameFieldName,
             Models.FieldNameConfig.LegacySecretKeyFieldName,
             Models.FieldNameConfig.SecretKeyPasswordFieldName,
-            Models.FieldNameConfig.SecretKeyUsernameFieldName
+            Models.FieldNameConfig.SecretKeyUsernameFieldName,
+            Models.FieldNameConfig.IgnoreFieldName
         };
         
         return metadataFields.Any(meta => 
