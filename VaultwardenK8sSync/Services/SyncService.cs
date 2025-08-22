@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using System.Text.RegularExpressions;
 using VaultwardenK8sSync.Models;
+using VaultwardenK8sSync.Configuration;
 
 namespace VaultwardenK8sSync.Services;
 
@@ -259,7 +260,14 @@ public class SyncService : ISyncService
         var data = new Dictionary<string, string>();
 
         // Hydrate SSH Key payload for SSH items if missing from list output
-        if ((item.SshKey == null || string.IsNullOrWhiteSpace(item.SshKey.PrivateKey)) && item.Type == 5)
+        var isSshKeyItem = item.Type == 5;
+        var hasMissingSshKeyData = item.SshKey == null || 
+            string.IsNullOrWhiteSpace(item.SshKey.PrivateKey) ||
+            string.IsNullOrWhiteSpace(item.SshKey.PublicKey) ||
+            string.IsNullOrWhiteSpace(item.SshKey.Fingerprint);
+        var needsSshKeyHydration = isSshKeyItem && hasMissingSshKeyData;
+        
+        if (needsSshKeyHydration)
         {
             try
             {
@@ -338,6 +346,9 @@ public class SyncService : ISyncService
         }
 
 
+        // Get the list of fields that should be ignored for this item
+        var ignoredFields = item.ExtractIgnoredFields();
+
         if (item.Fields?.Any() == true)
         {
             foreach (var field in item.Fields)
@@ -348,6 +359,10 @@ public class SyncService : ISyncService
                     continue;
                 
                 if (IsMetadataField(field.Name))
+                    continue;
+
+                // Skip this field if it's in the ignore list
+                if (ignoredFields.Contains(field.Name))
                     continue;
 
                 var fieldKey = SanitizeFieldName(field.Name);
@@ -365,6 +380,10 @@ public class SyncService : ISyncService
         {
             foreach (var kvp in extraFromNotes)
             {
+                // Skip this key if it's in the ignore list
+                if (ignoredFields.Contains(kvp.Key))
+                    continue;
+
                 var noteKey = SanitizeFieldName(kvp.Key);
                 data[noteKey] = FormatMultilineValue(kvp.Value);
             }
@@ -411,6 +430,7 @@ public class SyncService : ISyncService
                 trimmed.StartsWith($"#{Models.FieldNameConfig.LegacySecretKeyFieldName}:", StringComparison.OrdinalIgnoreCase) ||
                 trimmed.StartsWith($"#{Models.FieldNameConfig.SecretKeyPasswordFieldName}:", StringComparison.OrdinalIgnoreCase) ||
                 trimmed.StartsWith($"#{Models.FieldNameConfig.SecretKeyUsernameFieldName}:", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith($"#{Models.FieldNameConfig.IgnoreFieldName}:", StringComparison.OrdinalIgnoreCase) ||
                 trimmed.StartsWith($"#{Models.FieldNameConfig.InlineKvTagPrefix}:", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
@@ -794,7 +814,7 @@ public class SyncService : ISyncService
 
             // Create a combined hash for all items
             var combinedHash = string.Join("|", itemHashes.OrderBy(h => h));
-            var hashKey = "vaultwarden-sync-hash";
+            var hashKey = Constants.Kubernetes.HashKeyName;
 
             if (_syncConfig.DryRun)
             {
@@ -909,9 +929,9 @@ public class SyncService : ISyncService
         var cacheKey = $"{namespaceName}/{secretName}";
         var now = DateTime.UtcNow;
         
-        // Cache secret existence checks for 30 seconds to reduce Kubernetes API calls
+        // Cache secret existence checks to reduce Kubernetes API calls
         if (_secretExistsCache.TryGetValue(cacheKey, out var cachedTime) && 
-            (now - cachedTime).TotalSeconds < 30)
+            (now - cachedTime).TotalSeconds < Constants.Cache.SecretExistsCacheTimeoutSeconds)
         {
             return true; // If cached, assume it still exists
         }
@@ -944,7 +964,8 @@ public class SyncService : ISyncService
             Models.FieldNameConfig.SecretNameFieldName,
             Models.FieldNameConfig.LegacySecretKeyFieldName,
             Models.FieldNameConfig.SecretKeyPasswordFieldName,
-            Models.FieldNameConfig.SecretKeyUsernameFieldName
+            Models.FieldNameConfig.SecretKeyUsernameFieldName,
+            Models.FieldNameConfig.IgnoreFieldName
         };
         
         return metadataFields.Any(meta => 

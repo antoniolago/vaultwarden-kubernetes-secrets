@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using VaultwardenK8sSync.Models;
+using VaultwardenK8sSync.Infrastructure;
+using VaultwardenK8sSync.Configuration;
 
 namespace VaultwardenK8sSync.Services;
 
@@ -9,13 +11,21 @@ public class VaultwardenService : IVaultwardenService
 {
     private readonly ILogger<VaultwardenService> _logger;
     private readonly VaultwardenSettings _config;
+    private readonly IProcessFactory _processFactory;
+    private readonly IProcessRunner _processRunner;
     private bool _isAuthenticated = false;
     private string? _sessionToken;
 
-    public VaultwardenService(ILogger<VaultwardenService> logger, VaultwardenSettings config)
+    public VaultwardenService(
+        ILogger<VaultwardenService> logger, 
+        VaultwardenSettings config,
+        IProcessFactory processFactory,
+        IProcessRunner processRunner)
     {
         _logger = logger;
         _config = config;
+        _processFactory = processFactory;
+        _processRunner = processRunner;
     }
 
     public async Task<bool> AuthenticateAsync()
@@ -30,7 +40,7 @@ public class VaultwardenService : IVaultwardenService
             await LogoutAsync();
             
             // Give the CLI time to write state changes to disk
-            await Task.Delay(1000);
+            await Task.Delay(Constants.Delays.PostCommandDelayMs);
 
             // Set the server URL first
             if (!string.IsNullOrEmpty(_config.ServerUrl))
@@ -43,7 +53,7 @@ public class VaultwardenService : IVaultwardenService
                 }
                 
                 // Give the CLI time to write server config to disk
-                await Task.Delay(1000);
+                await Task.Delay(Constants.Delays.PostCommandDelayMs);
                 await LogBwStatusAsync("post-server-config");
             }
 
@@ -64,50 +74,18 @@ public class VaultwardenService : IVaultwardenService
         {
             _logger.LogInformation("Configuring server: {ServerUrl}", _config.ServerUrl);
 
-            var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "bw",
-                    Arguments = $"config server {_config.ServerUrl}",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
+            var process = _processFactory.CreateBwProcess($"config server {_config.ServerUrl}");
             ApplyCommonEnv(process.StartInfo);
 
-            process.Start();
-            
-            // Read output and error streams asynchronously with timeout
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-            var exitTask = process.WaitForExitAsync();
-            
-            // Wait for process to exit with timeout
-            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
-            var completedTask = await Task.WhenAny(exitTask, timeoutTask);
-            
-            if (completedTask == timeoutTask)
-            {
-                _logger.LogError("bw config server timed out after 30 seconds");
-                try { process.Kill(); } catch { }
-                return false;
-            }
-            
-            await exitTask; // Ensure we get the actual exit code
-            
-            var output = await outputTask;
-            var error = await errorTask;
+            var result = await _processRunner.RunAsync(process, Constants.Timeouts.DefaultCommandTimeoutSeconds);
 
-            if (process.ExitCode == 0)
+            if (result.Success)
             {
                 _logger.LogDebug("Server URL set");
                 return true;
             }
 
-            _logger.LogError("Failed to set server URL: {Error}", error);
+            _logger.LogError("Failed to set server URL: {Error}", result.Error);
             return false;
         }
         catch (Exception ex)
@@ -167,7 +145,7 @@ public class VaultwardenService : IVaultwardenService
             _isAuthenticated = true;
             
             // Give the CLI time to write authentication state to disk
-            await Task.Delay(1500);
+            await Task.Delay(Constants.Delays.PostUnlockDelayMs);
             await LogBwStatusAsync("post-api-login");
             
             // For API key authentication, always check vault status and unlock if needed
