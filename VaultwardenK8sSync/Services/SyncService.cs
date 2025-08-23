@@ -303,12 +303,7 @@ public class SyncService : ISyncService
         var passwordKeyResolved = item.ExtractSecretKeyPassword();
         if (string.IsNullOrEmpty(passwordKeyResolved))
         {
-            // Fall back to the old secret-key tag for backward compatibility
-            passwordKeyResolved = item.ExtractSecretKey();
-            if (string.IsNullOrEmpty(passwordKeyResolved))
-            {
-                passwordKeyResolved = SanitizeFieldName(item.Name);
-            }
+            passwordKeyResolved = SanitizeFieldName(item.Name);
         }
 
         if (!string.IsNullOrEmpty(password))
@@ -374,20 +369,7 @@ public class SyncService : ISyncService
             }
         }
 
-        // Include extra key/values extracted from notes (supports multiline blocks)
-        var extraFromNotes = item.ExtractSecretDataFromNotes();
-        if (extraFromNotes.Count > 0)
-        {
-            foreach (var kvp in extraFromNotes)
-            {
-                // Skip this key if it's in the ignore list
-                if (ignoredFields.Contains(kvp.Key))
-                    continue;
 
-                var noteKey = SanitizeFieldName(kvp.Key);
-                data[noteKey] = FormatMultilineValue(kvp.Value);
-            }
-        }
 
         return data;
     }
@@ -398,52 +380,13 @@ public class SyncService : ISyncService
             return string.Empty;
 
         var normalized = notes.Replace("\r\n", "\n").Replace("\r", "\n");
-        var lines = normalized.Split('\n');
-
-        var output = new List<string>();
-        bool inSecretBlock = false;
-        foreach (var raw in lines)
-        {
-            var line = raw;
-            var trimmed = line.Trim();
-
-            // Track fenced secret blocks so we don't include them by default in the body
-            if (trimmed.StartsWith("```secret:", StringComparison.OrdinalIgnoreCase))
-            {
-                inSecretBlock = true;
-                continue;
-            }
-            if (inSecretBlock && trimmed.StartsWith("```"))
-            {
-                inSecretBlock = false;
-                continue;
-            }
-            if (inSecretBlock)
-            {
-                // skip lines inside secret block for default note body
-                continue;
-            }
-
-            // Skip metadata and kv lines
-            if (trimmed.StartsWith($"#{Models.FieldNameConfig.NamespacesFieldName}:", StringComparison.OrdinalIgnoreCase) ||
-                trimmed.StartsWith($"#{Models.FieldNameConfig.SecretNameFieldName}:", StringComparison.OrdinalIgnoreCase) ||
-                trimmed.StartsWith($"#{Models.FieldNameConfig.LegacySecretKeyFieldName}:", StringComparison.OrdinalIgnoreCase) ||
-                trimmed.StartsWith($"#{Models.FieldNameConfig.SecretKeyPasswordFieldName}:", StringComparison.OrdinalIgnoreCase) ||
-                trimmed.StartsWith($"#{Models.FieldNameConfig.SecretKeyUsernameFieldName}:", StringComparison.OrdinalIgnoreCase) ||
-                trimmed.StartsWith($"#{Models.FieldNameConfig.IgnoreFieldName}:", StringComparison.OrdinalIgnoreCase) ||
-                trimmed.StartsWith($"#{Models.FieldNameConfig.InlineKvTagPrefix}:", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            output.Add(line);
-        }
-
+        
         // Trim leading/trailing blank lines
-        while (output.Count > 0 && string.IsNullOrWhiteSpace(output[0])) output.RemoveAt(0);
-        while (output.Count > 0 && string.IsNullOrWhiteSpace(output[^1])) output.RemoveAt(output.Count - 1);
+        var lines = normalized.Split('\n').ToList();
+        while (lines.Count > 0 && string.IsNullOrWhiteSpace(lines[0])) lines.RemoveAt(0);
+        while (lines.Count > 0 && string.IsNullOrWhiteSpace(lines[^1])) lines.RemoveAt(lines.Count - 1);
 
-        return string.Join("\n", output);
+        return string.Join("\n", lines);
     }
 
     private static string GetPasswordOrSshKey(Models.VaultwardenItem item)
@@ -471,40 +414,7 @@ public class SyncService : ISyncService
                 return sshKeyField.Value;
         }
 
-        // Check for SSH key in notes (common pattern)
-        if (!string.IsNullOrEmpty(item.Notes))
-        {
-            var lines = item.Notes.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            bool inSshKeyBlock = false;
-            var sshKeyLines = new List<string>();
 
-            foreach (var line in lines)
-            {
-                var trimmedLine = line.Trim();
-                
-                // Check for SSH key markers
-                if (trimmedLine.StartsWith("-----BEGIN") && trimmedLine.Contains("PRIVATE KEY"))
-                {
-                    inSshKeyBlock = true;
-                    sshKeyLines.Add(line);
-                }
-                else if (trimmedLine.StartsWith("-----END") && trimmedLine.Contains("PRIVATE KEY"))
-                {
-                    inSshKeyBlock = false;
-                    sshKeyLines.Add(line);
-                    break;
-                }
-                else if (inSshKeyBlock)
-                {
-                    sshKeyLines.Add(line);
-                }
-            }
-
-            if (sshKeyLines.Any())
-            {
-                return string.Join("\n", sshKeyLines);
-            }
-        }
 
         return string.Empty;
     }
@@ -962,7 +872,6 @@ public class SyncService : ISyncService
         {
             Models.FieldNameConfig.NamespacesFieldName,
             Models.FieldNameConfig.SecretNameFieldName,
-            Models.FieldNameConfig.LegacySecretKeyFieldName,
             Models.FieldNameConfig.SecretKeyPasswordFieldName,
             Models.FieldNameConfig.SecretKeyUsernameFieldName,
             Models.FieldNameConfig.IgnoreFieldName
@@ -1088,7 +997,7 @@ public class SyncService : ISyncService
             ExtractPureNoteBody(item.Notes ?? string.Empty),
             item.Password ?? "",
             item.ExtractSecretName() ?? "",
-            item.ExtractSecretKey() ?? "",
+
             item.ExtractSecretKeyPassword() ?? "",
             item.ExtractSecretKeyUsername() ?? "",
             string.Join(",", item.ExtractNamespaces().OrderBy(ns => ns))
@@ -1147,7 +1056,7 @@ public class SyncService : ISyncService
             $"NoteBody: {ExtractPureNoteBody(item.Notes ?? string.Empty)}",
             $"Password: {(string.IsNullOrEmpty(item.Password) ? "<empty>" : "<set>")}",
             $"ExtractSecretName: {item.ExtractSecretName()}",
-            $"ExtractSecretKey: {item.ExtractSecretKey()}",
+
             $"ExtractSecretKeyPassword: {item.ExtractSecretKeyPassword()}",
             $"ExtractSecretKeyUsername: {item.ExtractSecretKeyUsername()}",
             $"Namespaces: {string.Join(",", item.ExtractNamespaces().OrderBy(ns => ns))}",

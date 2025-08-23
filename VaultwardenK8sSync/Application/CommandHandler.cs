@@ -256,9 +256,10 @@ Configuration:
 
   Create a .env file from env.example for secure configuration.
 
-Namespace Tagging:
-  To sync a Vaultwarden item to a Kubernetes namespace, add the following to the item's description:
-  #namespaces:your-namespace-name
+Namespace Configuration:
+  To sync a Vaultwarden item to a Kubernetes namespace, add the following custom field:
+  Field name: namespaces
+  Field value: your-namespace-name
 
 Field Control:
   To exclude specific fields from being synced to Kubernetes secrets, add a custom field named 
