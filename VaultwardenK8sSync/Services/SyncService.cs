@@ -77,6 +77,7 @@ public class SyncService : ISyncService
 
             // Sync each namespace
             var success = true;
+            var failedNamespaces = new List<string>();
             foreach (var (namespaceName, namespaceItems) in itemsByNamespace)
             {
                 try
@@ -84,20 +85,38 @@ public class SyncService : ISyncService
                     var namespaceSuccess = await SyncNamespaceAsync(namespaceName, namespaceItems);
                     if (!namespaceSuccess)
                     {
-                        success = false;
+                        failedNamespaces.Add(namespaceName);
+                        // Don't set overall success to false for namespace errors - continue processing
+                        _logger.LogWarning("Namespace {Namespace} sync failed, but continuing with other namespaces", namespaceName);
                     }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Failed to sync namespace {Namespace}", namespaceName);
-                    success = false;
+                    failedNamespaces.Add(namespaceName);
+                    // Don't set overall success to false for namespace errors - continue processing
+                    _logger.LogWarning("Namespace {Namespace} sync failed with exception, but continuing with other namespaces", namespaceName);
                 }
             }
 
-            // Cleanup orphaned secrets if enabled (reuse cached items)
-            if (_syncConfig.DeleteOrphans && success)
+            // Log summary of failed namespaces
+            if (failedNamespaces.Any())
             {
-                await CleanupOrphanedSecretsAsync(items);
+                _logger.LogWarning("Sync completed with {FailedCount} failed namespaces: {FailedNamespaces}", 
+                    failedNamespaces.Count, string.Join(", ", failedNamespaces));
+            }
+
+            // Cleanup orphaned secrets if enabled (reuse cached items)
+            if (_syncConfig.DeleteOrphans)
+            {
+                try
+                {
+                    await CleanupOrphanedSecretsAsync(items);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to cleanup orphaned secrets, but sync completed");
+                }
             }
 
             _logger.LogInformation("Reconciliation completed: success={Success}", success);
