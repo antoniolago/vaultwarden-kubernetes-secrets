@@ -49,7 +49,7 @@ Notes:
   - or custom field: name `secret-name`, value `my-secret`
   - Default when omitted: sanitized item name
 - Optional: choose keys for values written to the Secret
-  - Password/content key: `#secret-key-password: db_password` (legacy: `#secret-key: db_password`)
+  - Password/content key: `#secret-key-password: db_password`
   - Username key: `#secret-key-username: db_user`
   - Defaults: password key = sanitized item name; username key = `<sanitized_item_name>_username`
 - Optional: add extra entries from notes
