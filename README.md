@@ -67,7 +67,7 @@ Item:
 
 Will result in:
 
-<img width="1096" height="69" alt="image" src="https://github.com/user-attachments/assets/7ee6b003-0bab-47ef-8dbc-9b9c32e6a875" />
+<img width="1126" height="76" alt="image" src="https://github.com/user-attachments/assets/bf331363-8a61-4deb-b4e7-363bb0d1f599" />
 
 ### Example 2 - custom fields
 Item:
@@ -76,7 +76,7 @@ Item:
 
 Will result in:
 
-<img width="1209" height="85" alt="image" src="https://github.com/user-attachments/assets/166a7f0e-b424-46bf-8fde-41335cdf2bcd" />
+<img width="1179" height="69" alt="image" src="https://github.com/user-attachments/assets/5aef594c-5308-4e9f-8a8e-4075165daaa8" />
 
 ## More docs
 
