@@ -42,7 +42,6 @@ Notes:
 - Create an item in Vaultwarden: Login, Secure Note, or SSH Key
 - Add target namespaces (required) via custom field:
   - Custom field: name `namespaces`, value `staging,production`
-
 - Optional: set the Kubernetes Secret name via custom field:
   - Custom field: name `secret-name`, value `my-secret`
   - Default when omitted: sanitized item name
@@ -52,8 +51,7 @@ Notes:
   - Defaults: password key = sanitized item name; username key = `<sanitized_item_name>_username`
 
 - Optional:
-  - All the custom fields you add (that are not the ones mentioned before) will also be synced to the secret
-  - By default all fields in an item are synced (eg for ssh keys: pubkey+privkey+fingerprint), if you want a field to not be synced, use custom field "ignore-field" with the fields you want to ignore as values separated by comma.
+  - All the custom fields you add (that are not the ones used by this app for configuration) will also be synced to the secret, if you want a field to not be synced, use custom field "ignore-field" with the fields you want to ignore as values separated by comma.
 - Save the item. The sync job will:
   - Create/update one Secret per target namespace
   - Purge old secrets (only the ones created by the sync app)

@@ -253,22 +253,27 @@ public class CommandHandler : ICommandHandler
         var prefix = runNumber.HasValue ? $"Sync #{runNumber} " : "Sync ";
         var duration = $"({summary.Duration.TotalSeconds:F1}s)";
         
-        if (!summary.OverallSuccess)
-        {
-            return $"❌ {prefix}completed with errors {duration}";
-        }
-        
+        // First, check if no changes were detected (regardless of success/failure)
         if (!summary.HasChanges)
         {
             return $"⭕ {prefix}completed - no changes detected {duration}";
         }
         
+        // If changes were detected, check if sync failed
+        if (!summary.OverallSuccess)
+        {
+            var failedCount = summary.TotalSecretsFailed;
+            return $"❌ {prefix}completed with errors - {failedCount} secrets failed {duration}";
+        }
+        
+        // If changes detected and sync succeeded
         if (summary.TotalSecretsCreated > 0 || summary.TotalSecretsUpdated > 0)
         {
             var changed = summary.TotalSecretsCreated + summary.TotalSecretsUpdated;
             return $"✅ {prefix}completed successfully - {changed} secrets processed {duration}";
         }
         
+        // Fallback (shouldn't normally reach here if logic is correct)
         return $"✅ {prefix}completed {duration}";
     }
 
