@@ -25,8 +25,12 @@ public static class ConfigurationExtensions
         services.AddLogging(builder =>
         {
             builder.ClearProviders();
-            builder.AddConsole();
-            builder.AddDebug();
+            builder.AddConsole(options =>
+            {
+                options.IncludeScopes = false;
+                options.TimestampFormat = "HH:mm:ss ";
+                options.DisableColors = false;
+            });
             builder.SetMinimumLevel(LogLevelParser.Parse(loggingSettings.DefaultLevel));
             builder.AddFilter("Microsoft", LogLevelParser.Parse(loggingSettings.MicrosoftLevel));
             builder.AddFilter("Microsoft.Hosting.Lifetime", LogLevelParser.Parse(loggingSettings.MicrosoftHostingLifetimeLevel));

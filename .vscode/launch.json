@@ -4,17 +4,16 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-
         {
             "name": ".NET Core Launch (console)",
             "type": "coreclr",
             "request": "launch",
-            "preLaunchTask": "build",
             "program": "${workspaceFolder}/VaultwardenK8sSync/bin/Debug/net9.0/VaultwardenK8sSync.dll",
             "args": [],
             "cwd": "${workspaceFolder}/VaultwardenK8sSync",
             "console": "internalConsole",
-            "stopAtEntry": false
+            "stopAtEntry": false,
+            "preLaunchTask": "build-project"
         }
     ]
 }

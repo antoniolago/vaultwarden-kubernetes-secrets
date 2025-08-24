@@ -40,24 +40,18 @@ Notes:
 ## How to use it
 
 - Create an item in Vaultwarden: Login, Secure Note, or SSH Key
-- Add target namespaces (required)
-  - Notes: `#namespaces: staging,production`
-  - or custom field: name `namespaces`, value `staging,production`
-
-- Optional: set the Kubernetes Secret name
-  - Notes: `#secret-name: my-secret`
-  - or custom field: name `secret-name`, value `my-secret`
+- Add target namespaces (required) via custom field:
+  - Custom field: name `namespaces`, value `staging,production`
+- Optional: set the Kubernetes Secret name via custom field:
+  - Custom field: name `secret-name`, value `my-secret`
   - Default when omitted: sanitized item name
-- Optional: choose keys for values written to the Secret
-  - Password/content key: `#secret-key-password: db_password`
-  - Username key: `#secret-key-username: db_user`
+- Optional: choose keys for values written to the Secret via custom fields:
+  - Password/content key: custom field name `secret-key-password`, value `db_password`
+  - Username key: custom field name `secret-key-username`, value `db_user`
   - Defaults: password key = sanitized item name; username key = `<sanitized_item_name>_username`
-- Optional: add extra entries from notes
-  - Inline KV: `#kv:API_URL=https://api.example.com`
 
 - Optional:
-  - All the custom fields you add (that are not the ones mentioned before) will also be synced to the secret
-  - By default all fields in an item are synced (eg for ssh keys: pubkey+privkey+fingerprint), if you want a field to not be synced, use custom field "ignore-field" with the fields you want to ignore as values separated by comma.
+  - All the custom fields you add (that are not the ones used by this app for configuration) will also be synced to the secret, if you want a field to not be synced, use custom field "ignore-field" with the fields you want to ignore as values separated by comma.
 - Save the item. The sync job will:
   - Create/update one Secret per target namespace
   - Purge old secrets (only the ones created by the sync app)
@@ -90,11 +84,11 @@ For detailed app configuration and usage, see `VaultwardenK8sSync/README.md`.
 
 ## Limitations
 
-- **Multiline support**: Multiline values are reliably supported when the item type is a Secure Note. For Login/Card/Identity items, custom fields are single-line only and fenced multiline blocks in notes may not be parsed consistently. If you need multiline content, use a Note item.
+- **Multiline support**: Multiline values are reliably supported when the item type is a Secure Note. For Login/Card/Identity items, custom fields are single-line only. If you need multiline content, use a Note item.
 - **Organization API Key**: Bitwarden CLI (`bw`) does not support logging in with an Organization API Key. Only user API keys (`BW_CLIENTID`/`BW_CLIENTSECRET`) are supported. Ensure that user has the required access to the organization/collections.
-- **Attachments**: File attachments are not synchronized. Only text-based fields (passwords, usernames, notes, custom fields, and note-defined KVs/blocks) are processed.
+- **Attachments**: File attachments are not synchronized. Only text-based fields (passwords, usernames, notes, custom fields) are processed.
 - **Secret type**: Only `Opaque` Kubernetes Secrets are produced. TLS or other special secret types are not generated.
 - **Key sanitization and collisions**: Secret keys are sanitized (lowercased and normalized). Different source keys may collide after sanitization; in collisions, the last writer wins.
 - **Kubernetes size limits**: A single Secret must remain under the Kubernetes object size limit (~1 MiB). Very large note content or many combined keys under the same secret may cause an update failure.
 - **Name-based filters**: When filtering by organization/folder/collection names, the first matching name is used. Prefer IDs to avoid ambiguity.
-- **Namespace tags required**: Items without an explicit namespace tag/field (default `namespaces`) are skipped. Ensure the target namespaces exist or enable namespace creation in the Helm chart.
+- **Namespace custom field required**: Items without an explicit namespace custom field (default `namespaces`) are skipped. Ensure the target namespaces exist or enable namespace creation in the Helm chart.

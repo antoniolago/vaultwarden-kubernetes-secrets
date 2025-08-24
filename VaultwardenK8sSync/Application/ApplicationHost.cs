@@ -116,16 +116,14 @@ public class ApplicationHost
         _logger.LogWarning("⚠️  WARNING: This application is not production-ready and may have significant CPU usage");
         _logger.LogWarning("⚠️  Monitor resource consumption and adjust sync intervals accordingly");
 
-        _logger.LogInformation("Vaultwarden Kubernetes Secrets Sync Tool");
-        _logger.LogInformation("========================================");
-        _logger.LogInformation(
+        _logger.LogDebug(
             "Log levels -> Default: {Default}, Microsoft: {Ms}, Microsoft.Hosting.Lifetime: {MsLifetime}",
             _appSettings.Logging.DefaultLevel,
             _appSettings.Logging.MicrosoftLevel,
             _appSettings.Logging.MicrosoftHostingLifetimeLevel);
 
         // Log presence (not values) of critical env vars
-        _logger.LogInformation(
+        _logger.LogDebug(
             "Config: ServerUrl set={ServerSet}, InCluster={InCluster}, DefaultNamespace={Ns}, BW_CLIENTID set={HasId}, BW_CLIENTSECRET set={HasSecret}, MASTERPASSWORD set={HasPw}",
             !string.IsNullOrWhiteSpace(_appSettings.Vaultwarden.ServerUrl),
             _appSettings.Kubernetes.InCluster,
@@ -154,7 +152,7 @@ public class ApplicationHost
     private async Task<bool> InitializeServicesAsync()
     {
         // Initialize Kubernetes client
-        _logger.LogInformation("Initializing Kubernetes client...");
+        _logger.LogDebug("Initializing Kubernetes client...");
         var kubernetesService = _serviceProvider.GetRequiredService<IKubernetesService>();
         if (!await kubernetesService.InitializeAsync())
         {
@@ -162,13 +160,22 @@ public class ApplicationHost
             return false;
         }
 
-        // Authenticate with Vaultwarden
-        _logger.LogInformation("Authenticating with Vaultwarden...");
-        var vaultwardenService = _serviceProvider.GetRequiredService<IVaultwardenService>();
-        if (!await vaultwardenService.AuthenticateAsync())
+        // Authenticate with Vaultwarden with simple progress display
+        using (var progress = new Services.StaticProgressDisplay())
         {
-            _logger.LogError("Failed to authenticate with Vaultwarden");
-            return false;
+            progress.Start("Authenticating with Vaultwarden...");
+            
+            var vaultwardenService = _serviceProvider.GetRequiredService<IVaultwardenService>();
+            var authSuccess = await vaultwardenService.AuthenticateAsync();
+            
+            if (!authSuccess)
+            {
+                progress.Complete("❌ Failed to authenticate with Vaultwarden");
+                _logger.LogError("Failed to authenticate with Vaultwarden");
+                return false;
+            }
+            
+            progress.Complete("✅ Successfully authenticated with Vaultwarden");
         }
 
         return true;

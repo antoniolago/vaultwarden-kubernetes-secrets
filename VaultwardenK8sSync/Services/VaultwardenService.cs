@@ -17,7 +17,7 @@ public class VaultwardenService : IVaultwardenService
     private string? _sessionToken;
 
     public VaultwardenService(
-        ILogger<VaultwardenService> logger, 
+        ILogger<VaultwardenService> logger,
         VaultwardenSettings config,
         IProcessFactory processFactory,
         IProcessRunner processRunner)
@@ -32,26 +32,26 @@ public class VaultwardenService : IVaultwardenService
     {
         try
         {
-            _logger.LogInformation("Authenticating with Vaultwarden (API key)...");
+            _logger.LogDebug("Authenticating with Vaultwarden (API key)...");
             await LogBwVersionAsync();
             await LogBwStatusAsync("pre-login");
 
             // Logout first to ensure clean state
             await LogoutAsync();
-            
+
             // Give the CLI time to write state changes to disk
             await Task.Delay(Constants.Delays.PostCommandDelayMs);
 
             // Set the server URL first
             if (!string.IsNullOrEmpty(_config.ServerUrl))
-            {   
+            {
                 var setServerResult = await SetServerUrlAsync();
                 if (!setServerResult)
                 {
                     _logger.LogError("Failed to set server URL: {ServerUrl}", _config.ServerUrl);
                     return false;
                 }
-                
+
                 // Give the CLI time to write server config to disk
                 await Task.Delay(Constants.Delays.PostCommandDelayMs);
                 await LogBwStatusAsync("post-server-config");
@@ -72,7 +72,7 @@ public class VaultwardenService : IVaultwardenService
     {
         try
         {
-            _logger.LogInformation("Configuring server: {ServerUrl}", _config.ServerUrl);
+            _logger.LogDebug("Configuring server: {ServerUrl}", _config.ServerUrl);
 
             var process = _processFactory.CreateBwProcess($"config server {_config.ServerUrl}");
             ApplyCommonEnv(process.StartInfo);
@@ -103,7 +103,7 @@ public class VaultwardenService : IVaultwardenService
             return false;
         }
 
-            var process = new Process
+        var process = new Process
         {
             StartInfo = new ProcessStartInfo
             {
@@ -139,17 +139,17 @@ public class VaultwardenService : IVaultwardenService
         if (process.ExitCode == 0)
         {
             // Log exactly what the login command returned
-            _logger.LogInformation("bw login stdout: '{Stdout}'", stdout ?? "null");
-            _logger.LogInformation("bw login stderr: '{Stderr}'", stderr ?? "null");
-            
+            _logger.LogDebug("bw login stdout: '{Stdout}'", stdout ?? "null");
+            _logger.LogDebug("bw login stderr: '{Stderr}'", stderr ?? "null");
+
             _isAuthenticated = true;
-            
+
             // Give the CLI time to write authentication state to disk
             await Task.Delay(Constants.Delays.PostUnlockDelayMs);
             await LogBwStatusAsync("post-api-login");
-            
+
             // For API key authentication, always check vault status and unlock if needed
-            _logger.LogInformation("API key login succeeded - checking vault status");
+            _logger.LogDebug("API key login succeeded - checking vault status");
             return await TestVaultAccessAsync();
         }
 
@@ -163,8 +163,8 @@ public class VaultwardenService : IVaultwardenService
     {
         try
         {
-            _logger.LogInformation("Testing vault access without unlock...");
-            
+            _logger.LogDebug("Testing vault access without unlock...");
+
             var process = new Process
             {
                 StartInfo = new ProcessStartInfo
@@ -180,65 +180,65 @@ public class VaultwardenService : IVaultwardenService
             ApplyCommonEnv(process.StartInfo);
 
             process.Start();
-            
+
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
             var exitTask = process.WaitForExitAsync();
             var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
             var completedTask = await Task.WhenAny(exitTask, timeoutTask);
-            
+
             if (completedTask == timeoutTask)
             {
                 _logger.LogWarning("bw status timed out after 30 seconds");
                 try { process.Kill(); } catch { }
                 return false;
             }
-            
+
             await exitTask;
             var output = await outputTask;
             var error = await errorTask;
 
-                         _logger.LogInformation("Vault status: {Status}", output?.Trim());
-             
-             if (process.ExitCode == 0)
-             {
-                 // Parse the JSON status to see if we need to unlock
-                 var statusText = output?.Trim();
-                 var vaultStatus = "unknown";
-                 
-                 try
-                 {
-                     if (!string.IsNullOrEmpty(statusText))
-                     {
-                         var statusJson = System.Text.Json.JsonDocument.Parse(statusText);
-                         if (statusJson.RootElement.TryGetProperty("status", out var statusProperty))
-                         {
-                             vaultStatus = statusProperty.GetString()?.ToLowerInvariant() ?? "unknown";
-                         }
-                     }
-                 }
-                 catch (Exception ex)
-                 {
-                     _logger.LogDebug(ex, "Failed to parse status JSON, treating as text: {Status}", statusText);
-                     vaultStatus = statusText?.ToLowerInvariant() ?? "unknown";
-                 }
-                 
-                 if (vaultStatus == "unlocked")
-                 {
-                     _logger.LogInformation("Vault is already unlocked - API key authentication complete");
-                     return true;
-                 }
-                 else if (vaultStatus == "locked")
-                 {
-                     _logger.LogInformation("Vault is locked - attempting unlock");
-                     return await UnlockVaultAsync();
-                 }
-                 else
-                 {
-                     _logger.LogWarning("Unknown vault status: {Status} - attempting unlock anyway", vaultStatus);
-                     return await UnlockVaultAsync();
-                 }
-             }
+            _logger.LogDebug("Vault status: {Status}", output?.Trim());
+
+            if (process.ExitCode == 0)
+            {
+                // Parse the JSON status to see if we need to unlock
+                var statusText = output?.Trim();
+                var vaultStatus = "unknown";
+
+                try
+                {
+                    if (!string.IsNullOrEmpty(statusText))
+                    {
+                        var statusJson = System.Text.Json.JsonDocument.Parse(statusText);
+                        if (statusJson.RootElement.TryGetProperty("status", out var statusProperty))
+                        {
+                            vaultStatus = statusProperty.GetString()?.ToLowerInvariant() ?? "unknown";
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to parse status JSON, treating as text: {Status}", statusText);
+                    vaultStatus = statusText?.ToLowerInvariant() ?? "unknown";
+                }
+
+                if (vaultStatus == "unlocked")
+                {
+                    _logger.LogInformation("Vault is already unlocked - API key authentication complete");
+                    return true;
+                }
+                else if (vaultStatus == "locked")
+                {
+                    _logger.LogInformation("Vault is locked - attempting unlock");
+                    return await UnlockVaultAsync();
+                }
+                else
+                {
+                    _logger.LogWarning("Unknown vault status: {Status} - attempting unlock anyway", vaultStatus);
+                    return await UnlockVaultAsync();
+                }
+            }
             else
             {
                 _logger.LogWarning("Failed to get vault status (exit {Code}): {Error} - attempting unlock", process.ExitCode, error);
@@ -257,7 +257,7 @@ public class VaultwardenService : IVaultwardenService
         try
         {
             _logger.LogInformation("Unlocking vault...");
-            
+
             // Verify we're in the correct state before attempting unlock
             await LogBwStatusAsync("pre-unlock");
 
@@ -275,16 +275,16 @@ public class VaultwardenService : IVaultwardenService
                 }
             };
             ApplyCommonEnv(process.StartInfo);
-            
+
             // Log what session token we're using
             if (!string.IsNullOrWhiteSpace(_sessionToken))
             {
                 _logger.LogInformation("Using session token for unlock (length: {Len})", _sessionToken.Length);
             }
-            else
-            {
-                _logger.LogWarning("No session token available for unlock - this may cause the 'You are not logged in' error");
-            }
+            // else
+            // {
+            //     // _logger.LogWarning("No session token available for unlock - this may cause the 'You are not logged in' error");
+            // }
 
             process.Start();
             try
@@ -324,7 +324,7 @@ public class VaultwardenService : IVaultwardenService
             {
                 var token = (stdOut ?? string.Empty).Trim();
                 var len = string.IsNullOrEmpty(token) ? 0 : token.Length;
-                
+
                 if (!string.IsNullOrEmpty(token))
                 {
                     _sessionToken = token;
@@ -334,7 +334,7 @@ public class VaultwardenService : IVaultwardenService
                 {
                     _logger.LogInformation("Vault unlocked successfully - no session token in output, will use existing authentication");
                 }
-                
+
                 await LogBwStatusAsync("post-unlock");
                 return true;
             }
@@ -372,7 +372,7 @@ public class VaultwardenService : IVaultwardenService
             await process.WaitForExitAsync();
             if (process.ExitCode == 0)
             {
-                _logger.LogInformation("bw version: {Version}", output.Trim());
+                _logger.LogDebug("bw version: {Version}", output.Trim());
             }
             else
             {
@@ -432,16 +432,16 @@ public class VaultwardenService : IVaultwardenService
 
         try
         {
-            _logger.LogInformation("=== GetItemsAsync START ===");
+            _logger.LogDebug("=== GetItemsAsync START ===");
             _logger.LogDebug("Ensuring Vaultwarden vault is synced...");
             await SyncVaultAsync();
-            _logger.LogInformation("Vault sync completed");
+            _logger.LogDebug("Vault sync completed");
 
-            _logger.LogInformation("Fetching items from Vaultwarden...");
-            _logger.LogDebug("Session token for list items: {HasToken} (length: {Len})", 
-                !string.IsNullOrWhiteSpace(_sessionToken), 
+            _logger.LogDebug("Fetching items from Vaultwarden...");
+            _logger.LogDebug("Session token for list items: {HasToken} (length: {Len})",
+                !string.IsNullOrWhiteSpace(_sessionToken),
                 string.IsNullOrWhiteSpace(_sessionToken) ? 0 : _sessionToken!.Length);
-            
+
 
 
             var process = new Process
@@ -460,51 +460,54 @@ public class VaultwardenService : IVaultwardenService
 
             if (string.IsNullOrWhiteSpace(_sessionToken))
             {
-                _logger.LogWarning("No session token available for 'bw list items'. This may cause prompts or failures.");
+                _logger.LogDebug("No session token available for 'bw list items'. This may cause prompts or failures.");
             }
             else
             {
                 _logger.LogDebug("Using --session parameter for 'bw list items'");
             }
 
-            _logger.LogInformation("Starting 'bw list items' process...");
-            
+            _logger.LogDebug("Starting 'bw list items' process...");
+
             process.Start();
-            _logger.LogInformation("Process started, waiting for completion...");
+            _logger.LogDebug("Process started, waiting for completion...");
             // Read output and error streams asynchronously with timeout
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
             var exitTask = process.WaitForExitAsync();
-            
+
             // Wait for process to exit with timeout
             var timeoutTask = Task.Delay(TimeSpan.FromSeconds(120)); // Increased timeout
             var completedTask = await Task.WhenAny(exitTask, timeoutTask);
-            
+
             if (completedTask == timeoutTask)
             {
                 _logger.LogError("bw list items timed out after 120 seconds");
                 var gcMemoryAfter = GC.GetTotalMemory(false);
                 _logger.LogError("Memory at timeout: {MemoryMB} MB", gcMemoryAfter / 1024 / 1024);
-                try { 
+                try
+                {
                     _logger.LogWarning("Attempting to kill hung bw process...");
-                    process.Kill(); 
-                } catch (Exception ex) {
+                    process.Kill();
+                }
+                catch (Exception ex)
+                {
                     _logger.LogWarning(ex, "Failed to kill bw process");
                 }
                 return new List<VaultwardenItem>();
             }
-            
+
             await exitTask; // Ensure we get the actual exit code
-            _logger.LogInformation("'bw list items' process completed with exit code: {ExitCode}", process.ExitCode);
-            
+            _logger.LogDebug("'bw list items' process completed with exit code: {ExitCode}", process.ExitCode);
+
             var output = await outputTask;
             var error = await errorTask;
-            _logger.LogInformation("Got output length: {OutputLen}, error length: {ErrorLen}", 
+            _logger.LogDebug("Got output length: {OutputLen}, error length: {ErrorLen}",
                 output?.Length ?? 0, error?.Length ?? 0);
 
             if (process.ExitCode != 0)
             {
-                _logger.LogError("Failed to retrieve items (exit {Code}). stderr: {Stderr} | stdout: {Stdout}", 
+                _logger.LogError("Failed to retrieve items (exit {Code}). stderr: {Stderr} | stdout: {Stdout}",
                     process.ExitCode, error, output);
                 return new List<VaultwardenItem>();
             }
@@ -522,7 +525,7 @@ public class VaultwardenService : IVaultwardenService
                 {
                     PropertyNameCaseInsensitive = true
                 }) ?? new List<VaultwardenItem>();
-                
+
                 _logger.LogDebug("Successfully parsed {Count} items from Vaultwarden", items.Count);
             }
             catch (Exception ex)
@@ -536,7 +539,7 @@ public class VaultwardenService : IVaultwardenService
             if (!string.IsNullOrWhiteSpace(resolvedOrgId))
             {
                 items = items.Where(i => string.Equals(i.OrganizationId, resolvedOrgId, StringComparison.OrdinalIgnoreCase)).ToList();
-                _logger.LogInformation("Retrieved {Count} items from Vaultwarden (filtered to organization {OrgId})", items.Count, resolvedOrgId);
+                _logger.LogDebug("Retrieved {Count} items from Vaultwarden (filtered to organization {OrgId})", items.Count, resolvedOrgId);
             }
 
             // Apply optional folder filter
@@ -544,7 +547,7 @@ public class VaultwardenService : IVaultwardenService
             if (!string.IsNullOrWhiteSpace(resolvedFolderId))
             {
                 items = items.Where(i => string.Equals(i.FolderId, resolvedFolderId, StringComparison.OrdinalIgnoreCase)).ToList();
-                _logger.LogInformation("Filtered to folder {FolderId}: {Count} items remain", resolvedFolderId, items.Count);
+                _logger.LogDebug("Filtered to folder {FolderId}: {Count} items remain", resolvedFolderId, items.Count);
             }
 
             // Apply optional collection filter (item.CollectionIds contains zero or more collections)
@@ -552,10 +555,10 @@ public class VaultwardenService : IVaultwardenService
             if (!string.IsNullOrWhiteSpace(resolvedCollectionId))
             {
                 items = items.Where(i => i.CollectionIds != null && i.CollectionIds.Contains(resolvedCollectionId, StringComparer.OrdinalIgnoreCase)).ToList();
-                _logger.LogInformation("Filtered to collection {CollectionId}: {Count} items remain", resolvedCollectionId, items.Count);
+                _logger.LogDebug("Filtered to collection {CollectionId}: {Count} items remain", resolvedCollectionId, items.Count);
             }
 
-            _logger.LogInformation("Retrieved {Count} items from Vaultwarden after all filters", items.Count);
+            _logger.LogDebug("Retrieved {Count} items from Vaultwarden after all filters", items.Count);
             return items;
         }
         catch (Exception ex)
@@ -790,25 +793,25 @@ public class VaultwardenService : IVaultwardenService
             ApplyCommonEnv(process.StartInfo);
 
             process.Start();
-            
+
             // Read output and error streams asynchronously with timeout
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
             var exitTask = process.WaitForExitAsync();
-            
+
             // Wait for process to exit with timeout
             var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
             var completedTask = await Task.WhenAny(exitTask, timeoutTask);
-            
+
             if (completedTask == timeoutTask)
             {
                 _logger.LogError("Process timed out after 30 seconds for item {Id}", id);
                 try { process.Kill(); } catch { }
                 return null;
             }
-            
+
             await exitTask; // Ensure we get the actual exit code
-            
+
             var output = await outputTask;
             var error = await errorTask;
 
@@ -854,25 +857,25 @@ public class VaultwardenService : IVaultwardenService
             ApplyCommonEnv(process.StartInfo);
 
             process.Start();
-            
+
             // Read output and error streams asynchronously with timeout
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
             var exitTask = process.WaitForExitAsync();
-            
+
             // Wait for process to exit with timeout
             var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
             var completedTask = await Task.WhenAny(exitTask, timeoutTask);
-            
+
             if (completedTask == timeoutTask)
             {
                 _logger.LogError("bw get password timed out after 30 seconds for item {Id}", id);
                 try { process.Kill(); } catch { }
                 return string.Empty;
             }
-            
+
             await exitTask; // Ensure we get the actual exit code
-            
+
             var output = await outputTask;
             var error = await errorTask;
 
@@ -914,16 +917,16 @@ public class VaultwardenService : IVaultwardenService
             };
 
             process.Start();
-            
+
             // Read output and error streams asynchronously with timeout
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
             var exitTask = process.WaitForExitAsync();
-            
+
             // Wait for process to exit with timeout
             var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
             var completedTask = await Task.WhenAny(exitTask, timeoutTask);
-            
+
             if (completedTask == timeoutTask)
             {
                 _logger.LogWarning("bw logout timed out after 30 seconds");
@@ -934,11 +937,11 @@ public class VaultwardenService : IVaultwardenService
                 await exitTask; // Ensure we get the actual exit code
                 var output = await outputTask;
                 var error = await errorTask;
-                
-                if (process.ExitCode != 0)
-                {
-                    _logger.LogWarning("bw logout returned non-zero exit code {Code}: {Error}", process.ExitCode, error);
-                }
+
+                // if (process.ExitCode != 0)
+                // {
+                //     _logger.LogWarning("bw logout returned non-zero exit code {Code}: {Error}", process.ExitCode, error);
+                // }
             }
 
             _isAuthenticated = false;
@@ -958,7 +961,7 @@ public class VaultwardenService : IVaultwardenService
         try
         {
             _logger.LogDebug("Starting vault sync...");
-            
+
             var process = new Process
             {
                 StartInfo = new ProcessStartInfo
@@ -975,25 +978,25 @@ public class VaultwardenService : IVaultwardenService
 
             _logger.LogDebug("bw sync: session token available = {HasToken}", !string.IsNullOrWhiteSpace(_sessionToken));
             process.Start();
-            
+
             // Read output and error streams asynchronously with timeout
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
             var exitTask = process.WaitForExitAsync();
-            
+
             // Wait for process to exit with timeout
             var timeoutTask = Task.Delay(TimeSpan.FromSeconds(60));
             var completedTask = await Task.WhenAny(exitTask, timeoutTask);
-            
+
             if (completedTask == timeoutTask)
             {
                 _logger.LogWarning("bw sync timed out after 60 seconds");
                 try { process.Kill(); } catch { }
                 return;
             }
-            
+
             await exitTask; // Ensure we get the actual exit code
-            
+
             var output = await outputTask;
             var error = await errorTask;
 
@@ -1040,4 +1043,4 @@ public class VaultwardenService : IVaultwardenService
         }
         return string.Empty;
     }
-} 
+}

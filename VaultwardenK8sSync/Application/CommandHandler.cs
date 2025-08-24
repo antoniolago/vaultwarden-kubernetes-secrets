@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using VaultwardenK8sSync.Services;
+using VaultwardenK8sSync.Models;
 
 namespace VaultwardenK8sSync.Application;
 
@@ -59,8 +60,22 @@ public class CommandHandler : ICommandHandler
         }
         else
         {
-            _logger.LogInformation("Starting full sync...");
-            return await _syncService.SyncAsync();
+            SyncSummary syncSummary;
+            
+            // Use dynamic progress display for real-time updates
+            using (var progressDisplay = new Services.DynamicSyncProgressDisplay(_logger))
+            using (var progressReporter = new Services.DynamicProgressReporter(progressDisplay))
+            {
+                // Perform sync with dynamic progress reporting
+                syncSummary = await _syncService.SyncAsync(progressReporter);
+            }
+            
+                                // Show detailed summary
+                    var summaryText = Services.SyncSummaryFormatter.FormatSummary(syncSummary, _appSettings.Sync.DryRun);
+                    // Write directly to console to avoid logging framework truncation
+                    Console.WriteLine(summaryText);
+            
+            return syncSummary.OverallSuccess;
         }
     }
 
@@ -128,7 +143,7 @@ public class CommandHandler : ICommandHandler
         }
     }
 
-    private async Task<bool> HandleConfigCommandAsync()
+    private Task<bool> HandleConfigCommandAsync()
     {
         _logger.LogInformation("Validating configuration...");
         
@@ -151,7 +166,7 @@ public class CommandHandler : ICommandHandler
             _logger.LogInformation("Please check your .env file or environment variables");
         }
         
-        return true;
+        return Task.FromResult(true);
     }
 
     private bool HandleHelpCommand()
@@ -189,15 +204,20 @@ public class CommandHandler : ICommandHandler
                 
                 try
                 {
-                    var syncSuccess = await _syncService.SyncAsync();
-                    if (syncSuccess)
+                    SyncSummary syncSummary;
+                    
+                    // Use dynamic progress display for real-time updates
+                    using (var progressDisplay = new Services.DynamicSyncProgressDisplay(_logger))
+                    using (var progressReporter = new Services.DynamicProgressReporter(progressDisplay))
                     {
-                        _logger.LogInformation("Sync run #{RunCount} completed successfully", runCount);
+                        // Perform sync with dynamic progress reporting
+                        syncSummary = await _syncService.SyncAsync(progressReporter);
                     }
-                    else
-                    {
-                        _logger.LogWarning("Sync run #{RunCount} completed with errors", runCount);
-                    }
+                    
+                    // Show detailed summary
+                    var summaryText = Services.SyncSummaryFormatter.FormatSummary(syncSummary, _appSettings.Sync.DryRun);
+                    // Write directly to console to avoid logging framework truncation
+                    Console.WriteLine(summaryText);
                 }
                 catch (Exception ex)
                 {
@@ -228,6 +248,35 @@ public class CommandHandler : ICommandHandler
         }
     }
 
+    private string GetSyncCompletionMessage(SyncSummary summary, int? runNumber = null)
+    {
+        var prefix = runNumber.HasValue ? $"Sync #{runNumber} " : "Sync ";
+        var duration = $"({summary.Duration.TotalSeconds:F1}s)";
+        
+        // First, check if no changes were detected (regardless of success/failure)
+        if (!summary.HasChanges)
+        {
+            return $"⭕ {prefix}completed - no changes detected {duration}";
+        }
+        
+        // If changes were detected, check if sync failed
+        if (!summary.OverallSuccess)
+        {
+            var failedCount = summary.TotalSecretsFailed;
+            return $"❌ {prefix}completed with errors - {failedCount} secrets failed {duration}";
+        }
+        
+        // If changes detected and sync succeeded
+        if (summary.TotalSecretsCreated > 0 || summary.TotalSecretsUpdated > 0)
+        {
+            var changed = summary.TotalSecretsCreated + summary.TotalSecretsUpdated;
+            return $"✅ {prefix}completed successfully - {changed} secrets processed {duration}";
+        }
+        
+        // Fallback (shouldn't normally reach here if logic is correct)
+        return $"✅ {prefix}completed {duration}";
+    }
+
     private static void ShowHelp()
     {
         Console.WriteLine(@"
@@ -256,9 +305,10 @@ Configuration:
 
   Create a .env file from env.example for secure configuration.
 
-Namespace Tagging:
-  To sync a Vaultwarden item to a Kubernetes namespace, add the following to the item's description:
-  #namespaces:your-namespace-name
+Namespace Configuration:
+  To sync a Vaultwarden item to a Kubernetes namespace, add the following custom field:
+  Field name: namespaces
+  Field value: your-namespace-name
 
 Field Control:
   To exclude specific fields from being synced to Kubernetes secrets, add a custom field named 

@@ -1,10 +1,10 @@
 # Vaultwarden Kubernetes Secrets Sync
 
-A .NET 9 console application that synchronizes Vaultwarden vault entries to Kubernetes secrets. The tool automatically syncs secrets based on namespace tags in Vaultwarden item descriptions and maintains consistency by cleaning up orphaned secrets.
+A .NET 9 console application that synchronizes Vaultwarden vault entries to Kubernetes secrets. The tool automatically syncs secrets based on namespace custom fields in Vaultwarden items and maintains consistency by cleaning up orphaned secrets.
 
 ## Features
 
-- **Automatic Sync**: Syncs Vaultwarden items to Kubernetes secrets based on namespace tags
+- **Automatic Sync**: Syncs Vaultwarden items to Kubernetes secrets based on namespace custom fields
 - **Consistency Management**: Automatically deletes secrets that no longer exist in Vaultwarden
 - **Authentication**: API key authentication only
 - **Dry Run Mode**: Test sync operations without making changes
@@ -12,8 +12,7 @@ A .NET 9 console application that synchronizes Vaultwarden vault entries to Kube
 - **Comprehensive Logging**: Detailed logging for troubleshooting
 - **Multiple Item Types**: Supports login, secure notes, cards, and identity items
 - **Custom Fields**: Syncs custom fields from Vaultwarden items
-- **Custom Fields**: Syncs custom fields from Vaultwarden items
-- **Multiline Secrets from Notes**: Define extra secret keys and multiline values directly in item notes
+
 
 
 ## Prerequisites
@@ -126,7 +125,7 @@ KUBERNETES__DEFAULTNAMESPACE=default
 KUBERNETES__INCLUSTER=false
 
 # Sync Configuration
-  # Note tag keys follow SYNC__FIELD__* names; default is `#namespaces:` for namespaces
+
 SYNC__DRYRUN=false
 SYNC__DELETEORPHANS=true
 SYNC__SECRETPREFIX=
@@ -145,82 +144,59 @@ SYNC__CONTINUOUSSYNC=false
 
 ## Configure items in Bitwarden (GUI)
 
-Use these tags and custom fields in the Bitwarden web/desktop UI to control how items sync to Kubernetes Secrets.
+Use custom fields in the Bitwarden web/desktop UI to control how items sync to Kubernetes Secrets.
 
 - Namespaces (required for syncing)
-  - Notes: `#namespaces: production` or `#namespaces: staging,production`
   - Custom field: name `namespaces`, value `staging,production`
 
 - Secret name
-  - Notes: `#secret-name: my-secret`
   - Custom field: name `secret-name`, value `my-secret`
   - Default when omitted: sanitized item name
 
 - Primary value key (password/content)
-  - Notes: `#secret-key-password: db_password`
   - Custom field: name `secret-key-password`, value `db_password`
-  - Legacy (password only): Notes/field `secret-key`
   - Default when omitted: sanitized item name
 
 - Username key (when username exists)
-  - Notes: `#secret-key-username: db_user`
   - Custom field: name `secret-key-username`, value `db_user`
   - Default when omitted: `<sanitized_item_name>_username`
-
-- Extra keys from notes
-  - Inline KV: lines like `#kv:API_URL=https://api.example.com`
-  - Multiline block: fenced block
-    ```
-    ```secret:private_key
-    -----BEGIN PRIVATE KEY-----
-    ...
-    -----END PRIVATE KEY-----
-    ```
-    ```
 
 - SSH Key items (Bitwarden type "SSH Key")
   - Private key becomes the primary value (under your chosen password key name or default)
   - If present, `publicKey` and `fingerprint` are added automatically as `<item>_public_key` and `<item>_fingerprint`
 
 Defaults and overrides
-- Default tag/field names are:
-  - `namespaces`, `secret-name`, `secret-key-password`, `secret-key-username`, legacy `secret-key`, inline prefix `kv`, block prefix `secret`
+- Default field names are:
+  - `namespaces`, `secret-name`, `secret-key-password`, `secret-key-username`
 - You can override these via environment variables (or Helm values):
-  - `SYNC__FIELD__NAMESPACES`, `SYNC__FIELD__SECRETNAME`, `SYNC__FIELD__SECRETKEYPASSWORD`, `SYNC__FIELD__SECRETKEYUSERNAME`, `SYNC__FIELD__SECRETKEY`, `SYNC__FIELD__INLINEKVPREFIX`, `SYNC__FIELD__SECRETBLOCKPREFIX`
+  - `SYNC__FIELD__NAMESPACES`, `SYNC__FIELD__SECRETNAME`, `SYNC__FIELD__SECRETKEYPASSWORD`, `SYNC__FIELD__SECRETKEYUSERNAME`
 
 Quick examples
 - Database login (Login item)
-  - Notes:
-    ```
-    #namespaces: production
-    #secret-name: oracle-secrets
-    #secret-key-password: db_password
-    #secret-key-username: db_user
-    ```
+  - Custom fields:
+    - `namespaces`: `production`
+    - `secret-name`: `oracle-secrets`
+    - `secret-key-password`: `db_password`
+    - `secret-key-username`: `db_user`
   - Username/password come from the Login item; two keys `db_user` and `db_password` are written
 
 - API token only (Secure Note)
-  - Notes:
-    ```
-    Service token for X
-    #namespaces: staging
-    #secret-name: service-x
-    #kv:API_URL=https://api.example.com
-    ```
-  - Note body becomes the main value; extra key `API_URL` from inline kv
+  - Custom fields:
+    - `namespaces`: `staging`
+    - `secret-name`: `service-x`
+    - `API_URL`: `https://api.example.com`
+  - Note body becomes the main value; custom field `API_URL` is also written to the secret
 
 - SSH key (SSH Key item)
-  - Notes:
-    ```
-    #namespaces: prod,staging
-    #secret-name: deploy-ssh
-    #secret-key-password: private_key
-    ```
+  - Custom fields:
+    - `namespaces`: `prod,staging`
+    - `secret-name`: `deploy-ssh`
+    - `secret-key-password`: `private_key`
   - Private key stored under `private_key`; if available, `*_public_key` and `*_fingerprint` are added
 
 Common mistakes
-- Using `#namespace:` (missing "s") or `=` instead of `:` → must be `#namespaces:`
-- Target namespace doesn’t exist → create it first (or enable namespace creation in the chart)
+- Missing `namespaces` custom field → items won't sync
+- Target namespace doesn't exist → create it first (or enable namespace creation in the chart)
 - RBAC not cluster-wide when syncing to multiple namespaces → set `rbac.clusterWide=true` in Helm
 
 ### Vaultwarden Configuration
@@ -280,7 +256,6 @@ SYNC__FIELD__NAMESPACES=namespaces
 SYNC__FIELD__SECRETNAME=secret-name
 SYNC__FIELD__SECRETKEYPASSWORD=secret-key-password
 SYNC__FIELD__SECRETKEYUSERNAME=secret-key-username
-SYNC__FIELD__SECRETKEY=secret-key
 ```
 
 ## Usage
@@ -318,114 +293,62 @@ dotnet run config
 dotnet run help
 ```
 
-### Namespace Tagging
+### Namespace Configuration
 
-To sync a Vaultwarden item to Kubernetes namespaces, you can use either notes or custom fields.
+To sync a Vaultwarden item to Kubernetes namespaces, use custom fields.
 
-1) Notes (existing):
-```
-#namespaces:your-namespace-name
-```
-
-2) Custom field (new):
+Custom field:
 - Add a custom field named `namespaces` with value like `staging,production` or a single namespace `production`.
 
 **Examples:**
 ```
-# Sync to multiple namespaces via notes
-#namespaces:staging,production,development
-
-# Or use a custom field instead of notes:
+# Custom field configuration:
 # field name: namespaces
 # field value: staging,production,development
 
-# This will work too
-#namespaces:ns1,ns2,ns3
-#namespaces:ns4
+# Or single namespace:
+# field name: namespaces
+# field value: production
 ```
 
-### Secret Name Tagging
+### Secret Name Configuration
 
-You can set the Kubernetes secret name via notes or a custom field.
+You can set the Kubernetes secret name via a custom field.
 
-1) Notes (existing):
-```
-#secret-name:your-secret-name
-```
-
-2) Custom field (new):
+Custom field:
 - Add a custom field named `secret-name` with the desired secret name.
 
 **Example:**
 ```
-Database credentials for production environment
-
-#namespaces:production
-#secret-name:oracle-secrets
-#secret-key:db_password
-
-# Or using custom fields instead of notes for secret-name and namespaces:
+# Custom field configuration:
 # field name: namespaces       value: production
 # field name: secret-name      value: oracle-secrets
-# field name: secret-key       value: db_password   # legacy password key, optional
+# field name: secret-key-password   value: db_password
 ```
 
 **Note:** If no secret name is specified, the tool will use the item name.
 
-### Secret Key Tagging
+### Secret Key Configuration
 
-The application supports separate key tags for username and password data, via notes or custom fields.
+The application supports separate key configuration for username and password data via custom fields.
 
-#### Password Key Tagging
+#### Password Key Configuration
 To specify a custom key name for the password within the Kubernetes secret:
 
-1) Notes (existing):
-```
-#secret-key-password:your-password-key
-```
-
-2) Custom field (new):
+Custom field:
 - Add a custom field named `secret-key-password` with the desired key.
 
-#### Username Key Tagging
+#### Username Key Configuration
 To specify a custom key name for the username within the Kubernetes secret:
 
-1) Notes (existing):
-```
-#secret-key-username:your-username-key
-```
-
-2) Custom field (new):
+Custom field:
 - Add a custom field named `secret-key-username` with the desired key.
 
-#### Legacy Key Tagging (Backward Compatible)
-The old `#secret-key:` tag is still supported via notes and as a custom field for backward compatibility and applies to the password:
 
-1) Notes:
-```
-#secret-key:your-key-name
-```
-
-2) Custom field:
-- field name: `secret-key`
-- field value: `your-key-name`
 
 **Examples:**
 ```
-# Separate username and password keys
-Database credentials for production environment
-#namespaces:production
-#secret-name:oracle-secrets
-#secret-key-password:db_password
-#secret-key-username:db_user
-
-# Legacy format (password only)
-Database credentials for production environment
-#namespaces:production
-#secret-name:oracle-secrets
-#secret-key:db_password
-
-# Same using custom fields (no note tags required):
+# Username and password keys using custom fields:
 # fields:
 #   namespaces=production
 #   secret-name=oracle-secrets
@@ -440,9 +363,9 @@ Database credentials for production environment
 
 ### Multiple Items with Same Secret Name
 
-When multiple Vaultwarden items point to the same secret name (via `#secret-name:` or default naming), they will be combined into a single Kubernetes secret. Each item's data will be stored with its own key:
+When multiple Vaultwarden items point to the same secret name (via `secret-name` custom field or default naming), they will be combined into a single Kubernetes secret. Each item's data will be stored with its own key:
 
-- If a custom `#secret-key:` is specified, that key will be used
+- If a custom `secret-key-password` is specified, that key will be used
 - If no custom key is specified, the sanitized item name will be used as the key
 - If multiple items have the same key, the last item processed will overwrite previous values
 
@@ -450,10 +373,10 @@ When multiple Vaultwarden items point to the same secret name (via `#secret-name
 
 Secrets are named using one of the following patterns:
 
-1. **Custom Secret Name**: If `#secret-name:` is specified in the item's notes, that name is used directly
+1. **Custom Secret Name**: If `secret-name` is specified in the item's custom fields, that name is used directly
 2. **Default Pattern**: `{SecretPrefix}{SanitizedItemName}`
 
-By default, an item named "Database Credentials" becomes a secret named `database-credentials` unless a custom `#secret-name:` is specified.
+By default, an item named "Database Credentials" becomes a secret named `database-credentials` unless a custom `secret-name` custom field is specified.
 
 ### Secret Management and Security
 
@@ -504,36 +427,28 @@ data:
 
 **Note:** When using `kubectl get secret -o yaml`, multiline values may appear quoted. Use the application's `export` command for proper YAML formatting with literal block style.
 
-### Adding Extra Keys and Multiline Values via Notes
+### Adding Extra Keys via Custom Fields
 
-You can define additional secret entries directly in the Vaultwarden item's notes using either inline key/value or fenced blocks:
+You can define additional secret entries directly in the Vaultwarden item's custom fields:
 
-1. Inline key/value (single line):
+Simply add custom fields with the desired key names and values:
 ```
-#kv:API_URL=https://api.example.com
-#kv:API_KEY=sk-123...
-```
-
-2. Fenced block (for multiline values):
-```
-```secret:private_key
------BEGIN PRIVATE KEY-----
-...
------END PRIVATE KEY-----
-```
+# Example custom fields:
+# API_URL: https://api.example.com
+# API_KEY: sk-123...
+# DATABASE_HOST: db.example.com
 ```
 
 Notes:
-- Keys from notes are combined with the regular username/password and custom fields
+- All custom fields (except metadata fields like `namespaces`, `secret-name`, etc.) are included in the secret
 - Keys are sanitized to be valid Kubernetes secret keys (lowercase, underscores)
 - Last writer wins if the same key appears multiple times
 
 ### Syncing Secure Notes Content
 
-- If an item has no password or login password, the tool writes the note body as the primary value under the resolved password key (from `secret-key-password`, legacy `secret-key`, or the sanitized item name).
-- Metadata lines and blocks are excluded from the note body by default:
-  - `#namespaces:`, `#secret-name:`, `#secret-key:`, `#secret-key-password:`, `#secret-key-username:`, `#kv:` and fenced blocks starting with ```secret:...
-- To include specific note content as separate keys, prefer the note KV or fenced secret blocks shown above.
+- If an item has no password or login password, the tool writes the note body as the primary value under the resolved password key (from `secret-key-password` or the sanitized item name).
+- The full note body is included as-is in the secret data.
+- To include specific content as separate keys, use custom fields as shown above.
 
 ## Examples
 
@@ -541,9 +456,11 @@ Notes:
 
 **Vaultwarden Item:**
 - Name: "Production Database"
-- Description: "Production database credentials\n#namespaces:production"
+- Description: "Production database credentials"
 - Username: "dbuser"
 - Password: "securepassword123"
+- Custom Fields:
+  - namespaces: "production"
 
 **Resulting Kubernetes Secret:**
 ```yaml
@@ -563,8 +480,9 @@ data:
 
 **Vaultwarden Item:**
 - Name: "External API"
-- Description: "External service API keys\n#namespaces:staging"
+- Description: "External service API keys"
 - Custom Fields:
+  - namespaces: "staging"
   - API_KEY: "sk-1234567890abcdef"
   - API_URL: "https://api.external.com"
 
@@ -586,9 +504,14 @@ data:
 
 **Vaultwarden Item:**
 - Name: "Database User"
-- Notes: "Production database user\n#namespaces:production\n#secret-name:oracle-secrets\n#secret-key-password:db_password\n#secret-key-username:db_user"
+- Notes: "Production database user"
 - Username: "dbuser"
 - Password: "securepassword123"
+- Custom Fields:
+  - namespaces: "production"
+  - secret-name: "oracle-secrets"
+  - secret-key-password: "db_password"
+  - secret-key-username: "db_user"
 
 **Resulting Kubernetes Secret:**
 ```yaml
@@ -609,15 +532,25 @@ data:
 
 **Vaultwarden Item 1:**
 - Name: "Database User"
-- Notes: "Production database user\n#namespaces:production\n#secret-name:oracle-secrets\n#secret-key-password:user_password\n#secret-key-username:user_name"
+- Notes: "Production database user"
 - Username: "dbuser"
 - Password: "userpassword123"
+- Custom Fields:
+  - namespaces: "production"
+  - secret-name: "oracle-secrets"
+  - secret-key-password: "user_password"
+  - secret-key-username: "user_name"
 
 **Vaultwarden Item 2:**
 - Name: "Database Admin"
-- Notes: "Production database admin\n#namespaces:production\n#secret-name:oracle-secrets\n#secret-key-password:admin_password\n#secret-key-username:admin_name"
+- Notes: "Production database admin"
 - Username: "dbadmin"
 - Password: "adminpassword456"
+- Custom Fields:
+  - namespaces: "production"
+  - secret-name: "oracle-secrets"
+  - secret-key-password: "admin_password"
+  - secret-key-username: "admin_name"
 
 **Resulting Kubernetes Secret:**
 ```yaml
@@ -774,4 +707,4 @@ For issues and questions:
 - **Name resolution**:
   - Organization/Folder/Collection name filters resolve the first matching name via `bw list`. Use IDs to avoid ambiguity.
 - **Namespace requirements**:
-  - Items must include a namespace via notes (`#namespaces:`) or a `namespaces` custom field. Namespaces must exist or be created via your deployment method (Helm chart offers optional creation).
+  - Items must include a `namespaces` custom field. Namespaces must exist or be created via your deployment method (Helm chart offers optional creation).
