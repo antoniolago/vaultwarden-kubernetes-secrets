@@ -15,7 +15,7 @@ public static class Constants
         public const string ManagedByLabel = "app.kubernetes.io/managed-by";
         public const string CreatedByLabel = "app.kubernetes.io/created-by";
         public const string ManagedByValue = "vaultwarden-k8s-sync";
-        public const string HashKeyName = "vaultwarden-sync-hash";
+        public const string HashAnnotationKey = "vaultwarden-k8s-sync/content-hash";
         public const string SecretType = "Opaque";
     }
     

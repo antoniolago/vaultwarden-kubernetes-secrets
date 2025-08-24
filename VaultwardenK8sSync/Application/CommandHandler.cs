@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using VaultwardenK8sSync.Services;
+using VaultwardenK8sSync.Models;
 
 namespace VaultwardenK8sSync.Application;
 
@@ -59,8 +60,22 @@ public class CommandHandler : ICommandHandler
         }
         else
         {
-            _logger.LogInformation("Starting full sync...");
-            return await _syncService.SyncAsync();
+            SyncSummary syncSummary;
+            
+            // Use dynamic progress display for real-time updates
+            using (var progressDisplay = new Services.DynamicSyncProgressDisplay(_logger))
+            using (var progressReporter = new Services.DynamicProgressReporter(progressDisplay))
+            {
+                // Perform sync with dynamic progress reporting
+                syncSummary = await _syncService.SyncAsync(progressReporter);
+            }
+            
+                                // Show detailed summary
+                    var summaryText = Services.SyncSummaryFormatter.FormatSummary(syncSummary, _appSettings.Sync.DryRun);
+                    // Write directly to console to avoid logging framework truncation
+                    Console.WriteLine(summaryText);
+            
+            return syncSummary.OverallSuccess;
         }
     }
 
@@ -128,7 +143,7 @@ public class CommandHandler : ICommandHandler
         }
     }
 
-    private async Task<bool> HandleConfigCommandAsync()
+    private Task<bool> HandleConfigCommandAsync()
     {
         _logger.LogInformation("Validating configuration...");
         
@@ -151,7 +166,7 @@ public class CommandHandler : ICommandHandler
             _logger.LogInformation("Please check your .env file or environment variables");
         }
         
-        return true;
+        return Task.FromResult(true);
     }
 
     private bool HandleHelpCommand()
@@ -189,15 +204,20 @@ public class CommandHandler : ICommandHandler
                 
                 try
                 {
-                    var syncSuccess = await _syncService.SyncAsync();
-                    if (syncSuccess)
+                    SyncSummary syncSummary;
+                    
+                    // Use dynamic progress display for real-time updates
+                    using (var progressDisplay = new Services.DynamicSyncProgressDisplay(_logger))
+                    using (var progressReporter = new Services.DynamicProgressReporter(progressDisplay))
                     {
-                        _logger.LogInformation("Sync run #{RunCount} completed successfully", runCount);
+                        // Perform sync with dynamic progress reporting
+                        syncSummary = await _syncService.SyncAsync(progressReporter);
                     }
-                    else
-                    {
-                        _logger.LogWarning("Sync run #{RunCount} completed with errors", runCount);
-                    }
+                    
+                    // Show detailed summary
+                    var summaryText = Services.SyncSummaryFormatter.FormatSummary(syncSummary, _appSettings.Sync.DryRun);
+                    // Write directly to console to avoid logging framework truncation
+                    Console.WriteLine(summaryText);
                 }
                 catch (Exception ex)
                 {
@@ -226,6 +246,30 @@ public class CommandHandler : ICommandHandler
             _logger.LogError(ex, "Continuous sync failed with exception");
             return false;
         }
+    }
+
+    private string GetSyncCompletionMessage(SyncSummary summary, int? runNumber = null)
+    {
+        var prefix = runNumber.HasValue ? $"Sync #{runNumber} " : "Sync ";
+        var duration = $"({summary.Duration.TotalSeconds:F1}s)";
+        
+        if (!summary.OverallSuccess)
+        {
+            return $"❌ {prefix}completed with errors {duration}";
+        }
+        
+        if (!summary.HasChanges)
+        {
+            return $"⭕ {prefix}completed - no changes detected {duration}";
+        }
+        
+        if (summary.TotalSecretsCreated > 0 || summary.TotalSecretsUpdated > 0)
+        {
+            var changed = summary.TotalSecretsCreated + summary.TotalSecretsUpdated;
+            return $"✅ {prefix}completed successfully - {changed} secrets processed {duration}";
+        }
+        
+        return $"✅ {prefix}completed {duration}";
     }
 
     private static void ShowHelp()

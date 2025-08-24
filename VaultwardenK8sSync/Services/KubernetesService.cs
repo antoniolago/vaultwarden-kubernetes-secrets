@@ -22,12 +22,12 @@ public class KubernetesService : IKubernetesService
     {
         try
         {
-            _logger.LogInformation("Initializing Kubernetes client...");
+            _logger.LogDebug("Initializing Kubernetes client...");
 
             if (_config.InCluster)
             {
                 _client = new Kubernetes(KubernetesClientConfiguration.InClusterConfig());
-                _logger.LogInformation("Using in-cluster configuration");
+                _logger.LogDebug("Using in-cluster configuration");
             }
             else
             {
@@ -36,7 +36,7 @@ public class KubernetesService : IKubernetesService
                     : KubernetesClientConfiguration.BuildDefaultConfig();
 
                 _client = new Kubernetes(config);
-                _logger.LogInformation("Using kubeconfig configuration");
+                _logger.LogDebug("Using kubeconfig configuration");
             }
 
             // Test the connection
@@ -150,7 +150,7 @@ public class KubernetesService : IKubernetesService
         }
     }
 
-    public async Task<bool> CreateSecretAsync(string namespaceName, string secretName, Dictionary<string, string> data)
+    public async Task<OperationResult> CreateSecretAsync(string namespaceName, string secretName, Dictionary<string, string> data, Dictionary<string, string>? annotations = null)
     {
         if (_client == null)
         {
@@ -159,27 +159,35 @@ public class KubernetesService : IKubernetesService
 
         try
         {
+            var metadata = new V1ObjectMeta
+            {
+                Name = secretName,
+                NamespaceProperty = namespaceName,
+                Labels = new Dictionary<string, string>
+                {
+                    { Constants.Kubernetes.ManagedByLabel, Constants.Kubernetes.ManagedByValue },
+                    { Constants.Kubernetes.CreatedByLabel, Constants.Kubernetes.ManagedByValue }
+                }
+            };
+
+            // Add annotations if provided
+            if (annotations != null && annotations.Any())
+            {
+                metadata.Annotations = new Dictionary<string, string>(annotations);
+            }
+
             var secret = new V1Secret
             {
                 ApiVersion = "v1",
                 Kind = "Secret",
-                Metadata = new V1ObjectMeta
-                {
-                    Name = secretName,
-                    NamespaceProperty = namespaceName,
-                    Labels = new Dictionary<string, string>
-                    {
-                        { Constants.Kubernetes.ManagedByLabel, Constants.Kubernetes.ManagedByValue },
-                        { Constants.Kubernetes.CreatedByLabel, Constants.Kubernetes.ManagedByValue }
-                    }
-                },
+                Metadata = metadata,
                 Type = Constants.Kubernetes.SecretType,
                 Data = data.ToDictionary(kvp => kvp.Key, kvp => System.Text.Encoding.UTF8.GetBytes(kvp.Value))
             };
 
             await _client.CoreV1.CreateNamespacedSecretAsync(secret, namespaceName);
             _logger.LogInformation("Created secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
-            return true;
+            return OperationResult.Successful();
         }
         catch (k8s.Autorest.HttpOperationException httpEx)
         {
@@ -190,11 +198,14 @@ public class KubernetesService : IKubernetesService
                 var errorMessage = ParseKubernetesErrorMessage(httpEx.Response?.Content);
                 if (!string.IsNullOrEmpty(errorMessage))
                 {
-                    _logger.LogWarning("Cannot create secret {SecretName}: {ErrorMessage}", secretName, errorMessage);
+                    // _logger.LogWarning("Cannot create secret {SecretName}: {ErrorMessage}", secretName, errorMessage);
+                    return OperationResult.Failed(errorMessage);
                 }
                 else
                 {
-                    _logger.LogWarning("Cannot create secret {SecretName} - namespace {Namespace} does not exist", secretName, namespaceName);
+                    var message = $"Namespace '{namespaceName}' does not exist";
+                    // _logger.LogWarning("Cannot create secret {SecretName} - namespace {Namespace} does not exist", secretName, namespaceName);
+                    return OperationResult.Failed(message);
                 }
             }
             else
@@ -203,22 +214,23 @@ public class KubernetesService : IKubernetesService
                 if (!string.IsNullOrEmpty(errorMessage))
                 {
                     _logger.LogError("Failed to create secret {SecretName}: {ErrorMessage}", secretName, errorMessage);
+                    return OperationResult.Failed(errorMessage);
                 }
                 else
                 {
                     _logger.LogError(httpEx, "Failed to create secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
+                    return OperationResult.Failed($"HTTP {status}: {httpEx.Message}");
                 }
             }
-            return false;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to create secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
-            return false;
+            return OperationResult.Failed(ex.Message);
         }
     }
 
-    public async Task<bool> UpdateSecretAsync(string namespaceName, string secretName, Dictionary<string, string> data)
+    public async Task<OperationResult> UpdateSecretAsync(string namespaceName, string secretName, Dictionary<string, string> data, Dictionary<string, string>? annotations = null)
     {
         if (_client == null)
         {
@@ -227,27 +239,35 @@ public class KubernetesService : IKubernetesService
 
         try
         {
+            var metadata = new V1ObjectMeta
+            {
+                Name = secretName,
+                NamespaceProperty = namespaceName,
+                Labels = new Dictionary<string, string>
+                {
+                    { Constants.Kubernetes.ManagedByLabel, Constants.Kubernetes.ManagedByValue },
+                    { Constants.Kubernetes.CreatedByLabel, Constants.Kubernetes.ManagedByValue }
+                }
+            };
+
+            // Add annotations if provided
+            if (annotations != null && annotations.Any())
+            {
+                metadata.Annotations = new Dictionary<string, string>(annotations);
+            }
+
             var secret = new V1Secret
             {
                 ApiVersion = "v1",
                 Kind = "Secret",
-                Metadata = new V1ObjectMeta
-                {
-                    Name = secretName,
-                    NamespaceProperty = namespaceName,
-                    Labels = new Dictionary<string, string>
-                    {
-                        { Constants.Kubernetes.ManagedByLabel, Constants.Kubernetes.ManagedByValue },
-                        { Constants.Kubernetes.CreatedByLabel, Constants.Kubernetes.ManagedByValue }
-                    }
-                },
+                Metadata = metadata,
                 Type = Constants.Kubernetes.SecretType,
                 Data = data.ToDictionary(kvp => kvp.Key, kvp => System.Text.Encoding.UTF8.GetBytes(kvp.Value))
             };
 
             await _client.CoreV1.ReplaceNamespacedSecretAsync(secret, secretName, namespaceName);
             _logger.LogInformation("Updated secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
-            return true;
+            return OperationResult.Successful();
         }
         catch (k8s.Autorest.HttpOperationException httpEx)
         {
@@ -259,10 +279,13 @@ public class KubernetesService : IKubernetesService
                 if (!string.IsNullOrEmpty(errorMessage))
                 {
                     _logger.LogWarning("Cannot update secret {SecretName}: {ErrorMessage}", secretName, errorMessage);
+                    return OperationResult.Failed(errorMessage);
                 }
                 else
                 {
+                    var message = $"Namespace '{namespaceName}' does not exist";
                     _logger.LogWarning("Cannot update secret {SecretName} - namespace {Namespace} does not exist", secretName, namespaceName);
+                    return OperationResult.Failed(message);
                 }
             }
             else
@@ -270,18 +293,19 @@ public class KubernetesService : IKubernetesService
                 if (!string.IsNullOrEmpty(errorMessage))
                 {
                     _logger.LogError("Failed to update secret {SecretName}: {ErrorMessage}", secretName, errorMessage);
+                    return OperationResult.Failed(errorMessage);
                 }
                 else
                 {
                     _logger.LogError(httpEx, "Failed to update secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
+                    return OperationResult.Failed($"HTTP {status}: {httpEx.Message}");
                 }
             }
-            return false;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to update secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
-            return false;
+            return OperationResult.Failed(ex.Message);
         }
     }
 
@@ -398,6 +422,30 @@ public class KubernetesService : IKubernetesService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get secret data for {SecretName} in namespace {Namespace}", secretName, namespaceName);
+            return null;
+        }
+    }
+
+    public async Task<Dictionary<string, string>?> GetSecretAnnotationsAsync(string namespaceName, string secretName)
+    {
+        if (_client == null)
+        {
+            throw new InvalidOperationException("Kubernetes client not initialized. Call InitializeAsync first.");
+        }
+
+        try
+        {
+            var secret = await _client.CoreV1.ReadNamespacedSecretAsync(secretName, namespaceName);
+            var annotations = secret.Metadata?.Annotations;
+            return annotations != null ? new Dictionary<string, string>(annotations) : new Dictionary<string, string>();
+        }
+        catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get annotations for secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
             return null;
         }
     }
