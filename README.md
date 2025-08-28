@@ -1,7 +1,7 @@
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/vaultwarden-kubernetes-secrets)](https://artifacthub.io/packages/search?repo=vaultwarden-kubernetes-secrets) [![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/antoniolago/vaultwarden-kubernetes-secrets)
 # Vaultwarden Kubernetes Secrets Sync
 
-This software syncs Vaultwarden items to Kubernetes Secrets.
+This software leverages [bw-cli](https://bitwarden.com/help/cli/) to sync [Vaultwarden](https://github.com/dani-garcia/vaultwarden) items to Kubernetes Secrets.
 
 ⚠️ **WARNING: This application is not yet stable and may have significant CPU usage in high sync volume scenarios (needs more testing, you can help!).
 
