@@ -36,9 +36,10 @@ helm upgrade -i vaultwarden-sync oci://harbor.lag0.com.br/charts/vaultwarden-k8s
 Notes:
 - The chart references Secret `vaultwarden-sync-secrets` for sensitive values; the commands above create it.
 - Set optional filters (Org/Folder/Collection) via `--set env.config.VAULTWARDEN__ORGANIZATIONID=...` etc.
-- Security tips:
-    Create a Vaultwarden user just for this purpose
-    Use filter to a specific Collection inside an Organization
+
+Security tips:
+- Create a Vaultwarden user just for this purpose
+- Filter to a specific Collection inside an Organization
 
 ## How to use it
 
