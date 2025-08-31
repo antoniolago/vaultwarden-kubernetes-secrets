@@ -62,6 +62,29 @@ Security tips:
   - Merge multiple items pointing to the same `secret-name` into one Secret (last writer wins on key conflicts)
   - For SSH Key items, store the private key under the password key; if present, also add `<item>_public_key` and `<item>_fingerprint`
 
+## Sanitization
+
+Secret names and field names are automatically sanitized to comply with Kubernetes naming conventions:
+
+### Secret Names
+- **Custom secret names**: When a `secret-name` custom field is provided, it is sanitized to comply with RFC 1123 subdomain naming requirements (lowercase, alphanumeric characters, '-', '_', '.', must start and end with alphanumeric characters)
+- **Default secret names**: Generated from item names using the same sanitization rules
+- **Validation**: Basic sanitization is applied, but Kubernetes API provides the actual validation error messages
+- **Examples**: 
+  - `"Test-se-cret-default"` becomes `"test-se-cret-default"`
+  - `"-invalid-name-"` becomes `"-invalid-name-"` (Kubernetes will reject with RFC 1123 error)
+  - `"---"` becomes `"---"` (Kubernetes will reject with validation error)
+
+### Field Names (Secret Keys)
+- **Custom field names**: Preserve case while ensuring valid Kubernetes secret key names (valid environment variable names)
+- **Default field names**: Generated from item names using the same sanitization rules
+- **Validation**: Basic sanitization is applied, but Kubernetes API provides the actual validation error messages
+- **Examples**:
+  - `"API_KEY"` becomes `"API_KEY"`
+  - `"Database Password"` becomes `"Database_Password"`
+  - `"secret-key"` becomes `"secret-key"` (hyphens are preserved)
+  - `"123invalid"` becomes `"123invalid"` (Kubernetes will reject with environment variable naming error)
+
 ## Quick examples
 
 ### Example 1 - default fields
@@ -92,7 +115,8 @@ For detailed app configuration and usage, see `VaultwardenK8sSync/README.md`.
 - **Organization API Key**: Bitwarden CLI (`bw`) does not support logging in with an Organization API Key. Only user API keys (`BW_CLIENTID`/`BW_CLIENTSECRET`) are supported. Ensure that user has the required access to the organization/collections.
 - **Attachments**: File attachments are not synchronized. Only text-based fields (passwords, usernames, notes, custom fields) are processed.
 - **Secret type**: Only `Opaque` Kubernetes Secrets are produced. TLS or other special secret types are not generated.
-- **Key sanitization and collisions**: Secret keys are sanitized (lowercased and normalized). Different source keys may collide after sanitization; in collisions, the last writer wins.
+- **Key sanitization and collisions**: Secret keys are automatically sanitized to comply with Kubernetes naming conventions. Custom field names preserve case while ensuring valid key names. Different source keys may collide after sanitization; in collisions, the last writer wins.
+- **Kubernetes validation**: Invalid secret names or field names will cause sync to fail with Kubernetes API error messages. Users must fix naming issues to comply with Kubernetes naming requirements.
 - **Kubernetes size limits**: A single Secret must remain under the Kubernetes object size limit (~1 MiB). Very large note content or many combined keys under the same secret may cause an update failure.
 - **Name-based filters**: When filtering by organization/folder/collection names, the first matching name is used. Prefer IDs to avoid ambiguity.
 - **Namespace custom field required**: Items without an explicit namespace custom field (default `namespaces`) are skipped. Ensure the target namespaces exist or enable namespace creation in the Helm chart.

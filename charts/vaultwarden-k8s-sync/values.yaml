@@ -46,11 +46,11 @@ env:
     # Force Node-based Bitwarden CLI to prefer IPv4 DNS results (avoids IPv6 egress timeouts in many clusters)
     NODE_OPTIONS: "--dns-result-order=ipv4first"
     VAULTWARDEN__SERVERURL: "https://your-vaultwarden-server.com"
-    VAULTWARDEN__ORGANIZATIONID: ""
+    VAULTWARDEN__ORGANIZATIONID: "" #RECOMMENDED
     VAULTWARDEN__ORGANIZATIONNAME: ""
     VAULTWARDEN__FOLDERID: ""
     VAULTWARDEN__FOLDERNAME: ""
-    VAULTWARDEN__COLLECTIONID: ""
+    VAULTWARDEN__COLLECTIONID: "" #RECOMMENDED
     VAULTWARDEN__COLLECTIONNAME: ""
     KUBERNETES__INCLUSTER: "true"
     KUBERNETES__DEFAULTNAMESPACE: "default"
@@ -63,7 +63,8 @@ env:
     LOGGING__LOGLEVEL__MICROSOFT: "Warning"
     LOGGING__LOGLEVEL__MICROSOFT__HOSTING__LIFETIME: "Information"
   secrets:
-    # Map of env var -> {secretName, secretKey}
+    # For security, I suggest creating an account just for this purpose
+    # WARNING: Organization API keys are not supported by bw-cli!
     BW_CLIENTID:
       secretName: "vaultwarden-sync-secrets"
       secretKey: "BW_CLIENTID"

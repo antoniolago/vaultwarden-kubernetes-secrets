@@ -701,7 +701,7 @@ For issues and questions:
 - **Secret types**:
   - Only `Opaque` Secrets are created. TLS/dockerconfig or other secret types are not generated.
 - **Key sanitization**:
-  - Keys are normalized (lowercase, underscores). Collisions after sanitization may overwrite previous values; last writer wins when multiple items map to the same key.
+- Custom field names preserve case while ensuring valid Kubernetes secret key names. Default keys are generated from item names using sanitization rules. Collisions after sanitization may overwrite previous values; last writer wins when multiple items map to the same key.
 - **Object size limits**:
   - Kubernetes Secrets must be < ~1MiB in total size. Very large notes or many combined keys in one secret can exceed this limit.
 - **Name resolution**:
