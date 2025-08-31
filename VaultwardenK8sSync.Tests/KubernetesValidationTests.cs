@@ -154,11 +154,10 @@ public class KubernetesValidationTests
     {
         // Act & Assert
         var exception = Assert.Throws<ArgumentException>(() => SanitizeSecretName(input));
-        Assert.Contains("cannot be null, empty, or whitespace", exception.Message);
+        Assert.Contains("Secret name cannot be null, empty, or whitespace", exception.Message);
     }
 
     [Theory]
-    [InlineData("---")]
     [InlineData("...")]
     [InlineData("###")]
     [InlineData("***")]

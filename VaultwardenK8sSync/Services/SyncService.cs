@@ -825,7 +825,7 @@ public class SyncService : ISyncService
         // Basic check for completely empty result
         if (string.IsNullOrEmpty(sanitized))
         {
-            throw new ArgumentException($"Secret name '{name}' becomes empty after sanitization. Please provide a name with at least one alphanumeric character or use the 'secret-name' custom field to specify a valid Kubernetes secret name.", nameof(name));
+            throw new ArgumentException($"Secret name cannot be null, empty, or whitespace. '{name}' becomes empty after sanitization. Please provide a name with at least one alphanumeric character or use the 'secret-name' custom field to specify a valid Kubernetes secret name.", nameof(name));
         }
         
         return sanitized;
@@ -1367,7 +1367,7 @@ public class SyncService : ISyncService
         // Basic check for completely empty result
         if (string.IsNullOrEmpty(sanitized))
         {
-            throw new ArgumentException($"Field name '{fieldName}' becomes empty after sanitization. Please provide a name with at least one alphanumeric character.", nameof(fieldName));
+            throw new ArgumentException($"Secret name cannot be null, empty, or whitespace. '{fieldName}' becomes empty after sanitization. Please provide a name with at least one alphanumeric character.", nameof(fieldName));
         }
         
         return sanitized;

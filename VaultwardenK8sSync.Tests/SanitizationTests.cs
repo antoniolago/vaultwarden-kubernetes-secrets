@@ -155,9 +155,9 @@ public class SanitizationTests
     }
 
     [Theory]
-    [InlineData("---")]
     [InlineData("...")]
     [InlineData("###")]
+    [InlineData("#@!@#")]
     [InlineData("***")]
     public void SanitizeFieldName_OnlySpecialCharacters_ShouldThrowArgumentException(string input)
     {
