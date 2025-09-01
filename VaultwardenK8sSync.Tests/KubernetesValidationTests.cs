@@ -204,7 +204,7 @@ public class KubernetesValidationTests
             {
                 new FieldInfo { Name = "SMTP_PASSWORD", Value = "smtp123", Type = 0 },
                 new FieldInfo { Name = "API-KEY", Value = "api123", Type = 0 },
-                new FieldInfo { Name = "Database Password", Value = "db123", Type = 0 },
+                new FieldInfo { Name = "Database Password", Value = "DB123", Type = 0 },
                 new FieldInfo { Name = "config_path_key", Value = "config123", Type = 0 },
                 new FieldInfo { Name = "my-field-name", Value = "field123", Type = 0 },
                 new FieldInfo { Name = "123invalid", Value = "invalid123", Type = 0 },
@@ -225,7 +225,7 @@ public class KubernetesValidationTests
         
         Assert.Equal("smtp123", result["SMTP_PASSWORD"]);
         Assert.Equal("api123", result["API-KEY"]);
-        Assert.Equal("db123", result["Database_Password"]);
+        Assert.Equal("DB123", result["Database_Password"]);
         Assert.Equal("config123", result["config_path_key"]);
         Assert.Equal("field123", result["my-field-name"]);
         Assert.Equal("invalid123", result["123invalid"]);
