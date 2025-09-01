@@ -271,27 +271,27 @@ jobs:
           script: |
             const commentBody = `PR Docker Image Ready for Testing
 
-Build Status: Successfully built and pushed Docker image for this PR
+            Build Status: Successfully built and pushed Docker image for this PR
 
-Docker Image: ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}
+            Docker Image: ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}
 
-How to Test:
-1. Update your deployment to use this image:
-   image: ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}
+            How to Test:
+            1. Update your deployment to use this image:
+              image: ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}
 
-2. Or update your Helm values:
-   image:
-     repository: ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync
-     tag: ${process.env.PR_TAG}
+            2. Or update your Helm values:
+              image:
+                repository: ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync
+                tag: ${process.env.PR_TAG}
 
-3. Or use kubectl to update existing deployment:
-   kubectl set image deployment/vaultwarden-k8s-sync vaultwarden-k8s-sync=ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}
+            3. Or use kubectl to update existing deployment:
+              kubectl set image deployment/vaultwarden-k8s-sync vaultwarden-k8s-sync=ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}
 
-Note: This image contains the changes from this PR and is ready for testing. The image will be automatically cleaned up after the PR is closed or merged.
+            Note: This image contains the changes from this PR and is ready for testing. The image will be automatically cleaned up after the PR is closed or merged.
 
----
-Last updated: ${new Date().toISOString()}
-Build SHA: ${process.env.GITHUB_SHA}`;
+            ---
+            Last updated: ${new Date().toISOString()}
+            Build SHA: ${process.env.GITHUB_SHA}`;
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
@@ -331,15 +331,15 @@ Build SHA: ${process.env.GITHUB_SHA}`;
           script: |
             const dockerInfoSection = `## Docker Image for Testing
 
-This PR includes a pre-built Docker image for easy testing:
+            This PR includes a pre-built Docker image for easy testing:
 
-Image: ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}
+            Image: ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}
 
-Quick Test Command:
-kubectl set image deployment/vaultwarden-k8s-sync vaultwarden-k8s-sync=ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}
+            Quick Test Command:
+            kubectl set image deployment/vaultwarden-k8s-sync vaultwarden-k8s-sync=ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}
 
----
-`;
+            ---
+            `;
             
             // Add a summary to the PR description if it doesn't already have Docker info
             const pr = await github.rest.pulls.get({
