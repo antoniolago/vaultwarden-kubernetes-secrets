@@ -244,3 +244,119 @@ jobs:
           helm push "$CHART_FILE" oci://ghcr.io/${{ github.repository_owner }}/charts
           helm push "$CHART_FILE" oci://harbor.lag0.com.br/charts
 
+  comment-pr:
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate PR tag
+        id: vars
+        run: |
+          PR_NUMBER="${{ github.event.number }}"
+          COMMIT_SHA="${GITHUB_SHA::8}"
+          PR_TAG="pr-${PR_NUMBER}-${COMMIT_SHA}"
+          echo "pr_tag=${PR_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Comment on PR with Docker image info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const commentBody = `PR Docker Image Ready for Testing
+
+Build Status: Successfully built and pushed Docker image for this PR
+
+Docker Image: ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}
+
+How to Test:
+1. Update your deployment to use this image:
+   image: ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}
+
+2. Or update your Helm values:
+   image:
+     repository: ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync
+     tag: ${process.env.PR_TAG}
+
+3. Or use kubectl to update existing deployment:
+   kubectl set image deployment/vaultwarden-k8s-sync vaultwarden-k8s-sync=ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}
+
+Note: This image contains the changes from this PR and is ready for testing. The image will be automatically cleaned up after the PR is closed or merged.
+
+---
+Last updated: ${new Date().toISOString()}
+Build SHA: ${process.env.GITHUB_SHA}`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+            
+            // Check if we already commented on this PR
+            const existingComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('PR Docker Image Ready for Testing')
+            );
+            
+            if (existingComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: commentBody
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: commentBody
+              });
+            }
+        env:
+          PR_TAG: ${{ steps.vars.outputs.pr_tag }}
+
+      - name: Add PR image info to PR description
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const dockerInfoSection = `## Docker Image for Testing
+
+This PR includes a pre-built Docker image for easy testing:
+
+Image: ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}
+
+Quick Test Command:
+kubectl set image deployment/vaultwarden-k8s-sync vaultwarden-k8s-sync=ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}
+
+---
+`;
+            
+            // Add a summary to the PR description if it doesn't already have Docker info
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            
+            if (!pr.data.body || !pr.data.body.includes('Docker Image for Testing')) {
+              const newBody = pr.data.body ? `${pr.data.body}\n\n${dockerInfoSection}` : dockerInfoSection;
+              
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number,
+                body: newBody
+              });
+            }
+        env:
+          PR_TAG: ${{ steps.vars.outputs.pr_tag }}
