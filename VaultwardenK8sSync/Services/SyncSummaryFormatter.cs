@@ -7,6 +7,11 @@ public static class SyncSummaryFormatter
 {
     public static string FormatSummary(SyncSummary summary, bool isDryRun = false)
     {
+        if (summary == null)
+        {
+            return string.Empty;
+        }
+        
         var sb = new StringBuilder();
         
         // Header with ASCII art
@@ -20,13 +25,13 @@ public static class SyncSummaryFormatter
         AppendCompactOverview(sb, summary, isDryRun);
         
         // Namespace details (more compact)
-        if (summary.Namespaces.Any())
+        if (summary.Namespaces?.Any() == true)
         {
             AppendCompactNamespaceDetails(sb, summary.Namespaces, isDryRun);
         }
         
         // Orphan cleanup (more compact)
-        if (summary.OrphanCleanup != null && summary.OrphanCleanup.Enabled)
+        if (summary.OrphanCleanup?.Enabled == true)
         {
             AppendCompactOrphanCleanup(sb, summary.OrphanCleanup, isDryRun);
         }
@@ -70,11 +75,15 @@ public static class SyncSummaryFormatter
     
     private static void AppendCompactNamespaceDetails(StringBuilder sb, List<NamespaceSummary> namespaces, bool isDryRun)
     {
+        if (namespaces == null || !namespaces.Any()) return;
+        
         sb.AppendLine("🌐 NAMESPACE DETAILS");
         sb.AppendLine("├─────────────────────────────────────────");
         
         foreach (var ns in namespaces.OrderBy(n => n.Name))
         {
+            if (ns == null) continue;
+            
             var statusIcon = ns.GetStatusIcon();
             
             // Compact namespace header with stats on one line
@@ -89,16 +98,17 @@ public static class SyncSummaryFormatter
             sb.AppendLine($"│   └─ Items: {ns.SourceItems} → Secrets: {ns.Created + ns.Updated + ns.Skipped + ns.Failed}{resultsText}");
             
             // Show ALL secrets with outcomes (not filtered)
-            var allSecrets = ns.Secrets.Where(s => 
+            var allSecrets = ns.Secrets?.Where(s => 
                 s.Outcome == ReconcileOutcome.Failed || 
                 s.Outcome == ReconcileOutcome.Created ||
                 s.Outcome == ReconcileOutcome.Updated ||
                 s.Outcome == ReconcileOutcome.Skipped).ToList();
                 
-            if (allSecrets.Any())
+            if (allSecrets?.Any() == true)
             {
                 foreach (var secret in allSecrets)
                 {
+                    if (secret == null) continue;
                     var secretIcon = secret.GetStatusIcon();
                     var secretStatus = secret.GetStatusText();
                     sb.AppendLine($"│      • {secretIcon} {secret.Name}: {secretStatus}");
@@ -127,19 +137,25 @@ public static class SyncSummaryFormatter
     
     private static void AppendCompactIssues(StringBuilder sb, SyncSummary summary)
     {
-        if (summary.Errors.Any() || summary.Warnings.Any())
+        if (summary?.Errors?.Any() == true || summary?.Warnings?.Any() == true)
         {
             sb.AppendLine("⚠️  ISSUES");
             sb.AppendLine("├─────────────────────────────────────────");
             
-            foreach (var error in summary.Errors)
+            if (summary.Errors?.Any() == true)
             {
-                sb.AppendLine($"│ ❌ {error}");
+                foreach (var error in summary.Errors)
+                {
+                    sb.AppendLine($"│ ❌ {error}");
+                }
             }
             
-            foreach (var warning in summary.Warnings)
+            if (summary.Warnings?.Any() == true)
             {
-                sb.AppendLine($"│ ⚠️  {warning}");
+                foreach (var warning in summary.Warnings)
+                {
+                    sb.AppendLine($"│ ⚠️  {warning}");
+                }
             }
             
             sb.AppendLine("└─────────────────────────────────────────");
@@ -149,6 +165,8 @@ public static class SyncSummaryFormatter
     
     private static void AppendFooter(StringBuilder sb, SyncSummary summary)
     {
+        if (summary == null) return;
+        
         var statusIcon = summary.GetStatusIcon();
         var endTime = summary.EndTime.ToString("HH:mm:ss");
         

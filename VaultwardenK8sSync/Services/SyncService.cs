@@ -317,7 +317,7 @@ public class SyncService : ISyncService
             // Use extracted secret name if available, otherwise use item name
             var extractedSecretName = item.ExtractSecretName();
             var secretName = !string.IsNullOrEmpty(extractedSecretName) 
-                ? extractedSecretName 
+                ? SanitizeSecretName(extractedSecretName) 
                 : SanitizeSecretName(item.Name);
             
             var secretData = await ExtractSecretDataAsync(item);
@@ -428,11 +428,15 @@ public class SyncService : ISyncService
         var username = GetUsername(item);
         if (!string.IsNullOrEmpty(username))
         {
-            // Use custom username key if specified, otherwise use sanitized item name with _username suffix
+            // Use custom username key if specified, otherwise use sanitized secret name with _username suffix
             var usernameKey = item.ExtractSecretKeyUsername();
             if (string.IsNullOrEmpty(usernameKey))
             {
-                usernameKey = $"{SanitizeFieldName(item.Name)}_username";
+                // Use the sanitized secret name (which preserves hyphens) instead of item name
+                var secretName = !string.IsNullOrEmpty(item.ExtractSecretName()) 
+                    ? SanitizeSecretName(item.ExtractSecretName()) 
+                    : SanitizeSecretName(item.Name);
+                usernameKey = $"{SanitizeFieldName(secretName)}-username";
             }
             data[usernameKey] = FormatMultilineValue(username);
         }
@@ -444,7 +448,11 @@ public class SyncService : ISyncService
         var passwordKeyResolved = item.ExtractSecretKeyPassword();
         if (string.IsNullOrEmpty(passwordKeyResolved))
         {
-            passwordKeyResolved = SanitizeFieldName(item.Name);
+            // Use the sanitized item name for the field key (preserves case and uses underscores)
+            var itemName = !string.IsNullOrEmpty(item.ExtractSecretName()) 
+                ? item.ExtractSecretName() 
+                : item.Name;
+            passwordKeyResolved = SanitizeFieldName(itemName);
         }
 
         if (!string.IsNullOrEmpty(password))
@@ -463,9 +471,14 @@ public class SyncService : ISyncService
         // Include SSH-specific extras if present
         if (item.SshKey != null)
         {
+            // Use the sanitized secret name (which preserves hyphens) instead of item name
+            var secretName = !string.IsNullOrEmpty(item.ExtractSecretName()) 
+                ? SanitizeSecretName(item.ExtractSecretName()) 
+                : SanitizeSecretName(item.Name);
+                
             if (!string.IsNullOrWhiteSpace(item.SshKey.PublicKey))
             {
-                var pubKeyKey = $"{SanitizeFieldName(item.Name)}_public_key";
+                var pubKeyKey = $"{SanitizeFieldName(secretName)}-public-key";
                 if (!data.ContainsKey(pubKeyKey))
                 {
                     data[pubKeyKey] = FormatMultilineValue(item.SshKey.PublicKey!);
@@ -473,7 +486,7 @@ public class SyncService : ISyncService
             }
             if (!string.IsNullOrWhiteSpace(item.SshKey.Fingerprint))
             {
-                var fpKey = $"{SanitizeFieldName(item.Name)}_fingerprint";
+                var fpKey = $"{SanitizeFieldName(secretName)}-fingerprint";
                 if (!data.ContainsKey(fpKey))
                 {
                     data[fpKey] = item.SshKey.Fingerprint!;
@@ -501,6 +514,7 @@ public class SyncService : ISyncService
                 if (ignoredFields.Contains(field.Name))
                     continue;
 
+                _logger.LogDebug("Processing field: original name='{OriginalName}', sanitized name='{SanitizedName}'", field.Name, SanitizeFieldName(field.Name));
                 var fieldKey = SanitizeFieldName(field.Name);
 
                 if (!data.ContainsKey(fieldKey))
@@ -702,7 +716,7 @@ public class SyncService : ISyncService
             var expectedSecrets = items.Select(item => {
                 var extractedSecretName = item.ExtractSecretName();
                 return !string.IsNullOrEmpty(extractedSecretName) 
-                    ? extractedSecretName 
+                    ? SanitizeSecretName(extractedSecretName) 
                     : SanitizeSecretName(item.Name);
             }).ToHashSet();
 
@@ -763,8 +777,14 @@ public class SyncService : ISyncService
 
     private static string SanitizeSecretName(string name)
     {
-        // Kubernetes secret names must be lowercase, contain only alphanumeric characters, '-', '_', or '.'
-        return name.ToLowerInvariant()
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException("Secret name cannot be null, empty, or whitespace. Please provide a valid name or use the 'secret-name' custom field to specify a valid Kubernetes secret name.", nameof(name));
+        }
+
+        // Basic sanitization - replace invalid characters with hyphens and convert to lowercase
+        // Let Kubernetes API handle the actual validation and provide real error messages
+        var sanitized = name.ToLowerInvariant()
             .Replace(" ", "-")
             .Replace("_", "-")
             .Replace(".", "-")
@@ -797,9 +817,18 @@ public class SyncService : ISyncService
             .Replace("\\", "-")
             .Replace("<", "-")
             .Replace(">", "-")
-            .Replace("?", "-")
-            .Replace("--", "-")
-            .Trim('-');
+            .Replace("?", "-");
+        
+        // Collapse multiple consecutive hyphens and trim
+        sanitized = Regex.Replace(sanitized, "-+", "-").Trim('-');
+        
+        // Basic check for completely empty result
+        if (string.IsNullOrEmpty(sanitized))
+        {
+            throw new ArgumentException($"Secret name cannot be null, empty, or whitespace. '{name}' becomes empty after sanitization. Please provide a name with at least one alphanumeric character or use the 'secret-name' custom field to specify a valid Kubernetes secret name.", nameof(name));
+        }
+        
+        return sanitized;
     }
 
     private static bool HasSecretDataChanged(Dictionary<string, string> existingData, Dictionary<string, string> newData)
@@ -833,7 +862,7 @@ public class SyncService : ISyncService
         {
             var extractedSecretName = item.ExtractSecretName();
             var secretName = !string.IsNullOrEmpty(extractedSecretName) 
-                ? extractedSecretName 
+                ? SanitizeSecretName(extractedSecretName) 
                 : SanitizeSecretName(item.Name);
 
             if (!itemsBySecretName.ContainsKey(secretName))
@@ -1290,43 +1319,39 @@ public class SyncService : ISyncService
 
     private static string SanitizeFieldName(string fieldName)
     {
-        // Kubernetes secret keys must be valid environment variable names
-        return fieldName.ToLowerInvariant()
-            .Replace(" ", "_")
-            .Replace("-", "_")
-            .Replace(".", "_")
-            .Replace("/", "_")
-            .Replace("\\", "_")
-            .Replace(":", "_")
-            .Replace(";", "_")
-            .Replace(",", "_")
-            .Replace("(", "_")
-            .Replace(")", "_")
-            .Replace("[", "_")
-            .Replace("]", "_")
-            .Replace("{", "_")
-            .Replace("}", "_")
-            .Replace("'", "_")
-            .Replace("\"", "_")
-            .Replace("`", "_")
-            .Replace("~", "_")
-            .Replace("!", "_")
-            .Replace("@", "_")
-            .Replace("#", "_")
-            .Replace("$", "_")
-            .Replace("%", "_")
-            .Replace("^", "_")
-            .Replace("&", "_")
-            .Replace("*", "_")
-            .Replace("+", "_")
-            .Replace("=", "_")
-            .Replace("|", "_")
-            .Replace("\\", "_")
-            .Replace("<", "_")
-            .Replace(">", "_")
-            .Replace("?", "_")
-            .Replace("__", "_")
-            .Trim('_');
+        if (string.IsNullOrWhiteSpace(fieldName))
+        {
+            throw new ArgumentException("Field name cannot be null, empty, or whitespace. Please provide a valid field name.", nameof(fieldName));
+        }
+
+        // Get the replacement character from environment variable, default to dash for better Kubernetes compatibility
+        var replacementChar = Environment.GetEnvironmentVariable("SYNC__FIELD__REPLACEMENT_CHAR")?.Trim() ?? "-";
+        if (replacementChar.Length != 1 || !"-._".Contains(replacementChar))
+        {
+            replacementChar = "-"; // Fallback to dash if invalid
+        }
+
+        // Only replace truly forbidden characters, preserve case and valid characters
+        var sanitized = fieldName;
+        
+        // Replace only forbidden characters with the configured replacement character (preserve case, hyphens, dots, etc.)
+        // Kubernetes env var pattern: [-._a-zA-Z][-._a-zA-Z0-9]*
+        sanitized = Regex.Replace(sanitized, $@"[^-._a-zA-Z0-9]", Regex.Escape(replacementChar));
+        
+        // Replace multiple consecutive replacement characters with single one
+        sanitized = Regex.Replace(sanitized, $"{Regex.Escape(replacementChar)}+", replacementChar);
+        
+        // Trim leading and trailing replacement characters
+        sanitized = sanitized.Trim(replacementChar[0]);
+        
+        // Additional validation: ensure the field name contains at least one alphanumeric character
+        // This prevents cases like "..." or "---" from being considered valid
+        if (!Regex.IsMatch(sanitized, @"[a-zA-Z0-9]"))
+        {
+            throw new ArgumentException($"Field name '{fieldName}' must contain at least one alphanumeric character. Please provide a valid field name.", nameof(fieldName));
+        }
+        
+        return sanitized;
     }
 
     /// <summary>

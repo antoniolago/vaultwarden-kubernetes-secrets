@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <RunConfiguration>
+    <ResultsDirectory>$(MSBuildProjectDirectory)\TestResults</ResultsDirectory>
+    <CollectSourceInformation>false</CollectSourceInformation>
+  </RunConfiguration>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="Code Coverage" uri="datacollector://Microsoft/CodeCoverage/2.0">
+        <Configuration>
+          <Format>Cobertura</Format>
+          <Exclude>
+            <ModulePath>.*\\VaultwardenK8sSync.Tests\\.*</ModulePath>
+          </Exclude>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

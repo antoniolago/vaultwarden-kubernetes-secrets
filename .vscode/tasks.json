@@ -2,7 +2,27 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "build-project",
+            "label": "build",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "build",
+                "${workspaceFolder}/VaultwardenK8sSync/VaultwardenK8sSync.csproj",
+                "${workspaceFolder}/VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj",
+                "/property:GenerateFullPaths=true",
+                "/consoleloggerparameters:NoSummary"
+            ],
+            "problemMatcher": "$msCompile",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "build-main",
             "command": "dotnet",
             "type": "process",
             "args": [
@@ -11,39 +31,62 @@
                 "/property:GenerateFullPaths=true",
                 "/consoleloggerparameters:NoSummary"
             ],
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared"
-            },
             "problemMatcher": "$msCompile"
         },
         {
-            "label": "publish",
+            "label": "build-tests",
             "command": "dotnet",
             "type": "process",
             "args": [
-                "publish",
-                "${workspaceFolder}/VaultwardenK8sSync/VaultwardenK8sSync.csproj",
+                "build",
+                "${workspaceFolder}/VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj",
                 "/property:GenerateFullPaths=true",
-                "/consoleloggerparameters:NoSummary;ForceNoAlign"
+                "/consoleloggerparameters:NoSummary"
             ],
             "problemMatcher": "$msCompile"
         },
         {
-            "label": "watch",
+            "label": "test",
             "command": "dotnet",
             "type": "process",
             "args": [
-                "watch",
-                "run",
-                "--project",
-                "${workspaceFolder}/VaultwardenK8sSync/VaultwardenK8sSync.csproj"
+                "test",
+                "${workspaceFolder}/VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj",
+                "/property:GenerateFullPaths=true",
+                "/consoleloggerparameters:NoSummary"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "problemMatcher": "$msCompile",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "test-with-coverage",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "test",
+                "${workspaceFolder}/VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj",
+                "--collect",
+                "XPlat Code Coverage",
+                "/property:GenerateFullPaths=true",
+                "/consoleloggerparameters:NoSummary"
+            ],
+            "group": "test",
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "clean",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "clean",
+                "${workspaceFolder}/VaultwardenK8sSync/VaultwardenK8sSync.csproj",
+                "${workspaceFolder}/VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj"
             ],
             "problemMatcher": "$msCompile"
         }

@@ -5,15 +5,82 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": ".NET Core Launch (console)",
+            "name": "Debug VaultwardenK8sSync",
             "type": "coreclr",
             "request": "launch",
+            "preLaunchTask": "build",
             "program": "${workspaceFolder}/VaultwardenK8sSync/bin/Debug/net9.0/VaultwardenK8sSync.dll",
             "args": [],
             "cwd": "${workspaceFolder}/VaultwardenK8sSync",
             "console": "internalConsole",
             "stopAtEntry": false,
-            "preLaunchTask": "build-project"
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            }
+        },
+        {
+            "name": "Debug Tests",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "dotnet",
+            "args": [
+                "test",
+                "${workspaceFolder}/VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj",
+                "--no-build",
+                "--verbosity",
+                "normal"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            }
+        },
+        {
+            "name": "Debug Tests with Filter",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "dotnet",
+            "args": [
+                "test",
+                "${workspaceFolder}/VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj",
+                "--no-build",
+                "--filter",
+                "FullyQualifiedName~SanitizationTests",
+                "--verbosity",
+                "normal"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            }
+        },
+        {
+            "name": "Debug Tests with Coverage",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "dotnet",
+            "args": [
+                "test",
+                "${workspaceFolder}/VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj",
+                "--no-build",
+                "--collect",
+                "XPlat Code Coverage",
+                "--verbosity",
+                "normal"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            }
         }
     ]
 }

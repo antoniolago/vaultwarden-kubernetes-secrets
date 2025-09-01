@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat Code Coverage">
+        <Configuration>
+          <Format>cobertura</Format>
+          <Exclude>[*]*.Program,[*]*.Startup</Exclude>
+          <ExcludeByAttribute>Obsolete,GeneratedCodeAttribute,CompilerGeneratedAttribute</ExcludeByAttribute>
+          <SingleHit>false</SingleHit>
+          <UseSourceLink>true</UseSourceLink>
+          <IncludeTestAssembly>false</IncludeTestAssembly>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+  <RunConfiguration>
+    <ResultsDirectory>$(MSBuildProjectDirectory)/TestResults</ResultsDirectory>
+    <CollectSourceInformation>false</CollectSourceInformation>
+  </RunConfiguration>
+  <TestRunParameters>
+    <Parameter name="TestCategory" value="Sanitization" />
+  </TestRunParameters>
+</RunSettings>

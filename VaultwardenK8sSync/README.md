@@ -159,7 +159,7 @@ Use custom fields in the Bitwarden web/desktop UI to control how items sync to K
 
 - Username key (when username exists)
   - Custom field: name `secret-key-username`, value `db_user`
-  - Default when omitted: `<sanitized_item_name>_username`
+  - Default when omitted: `<sanitized_item_name>-username`
 
 - SSH Key items (Bitwarden type "SSH Key")
   - Private key becomes the primary value (under your chosen password key name or default)
@@ -192,7 +192,7 @@ Quick examples
     - `namespaces`: `prod,staging`
     - `secret-name`: `deploy-ssh`
     - `secret-key-password`: `private_key`
-  - Private key stored under `private_key`; if available, `*_public_key` and `*_fingerprint` are added
+  - Private key stored under `private_key`; if available, `*-public-key` and `*-fingerprint` are added
 
 Common mistakes
 - Missing `namespaces` custom field → items won't sync
@@ -358,7 +358,7 @@ Custom field:
 
 **Note:** 
 - If no password key is specified, the tool will use the sanitized item name as the key
-- If no username key is specified but a username is available, the tool will use `{sanitized_item_name}_username` as the key
+- If no username key is specified but a username is available, the tool will use `{sanitized_item_name}-username` as the key
 - Username data is only included if the Vaultwarden item has login information or custom fields with username data
 
 ### Multiple Items with Same Secret Name
@@ -701,7 +701,7 @@ For issues and questions:
 - **Secret types**:
   - Only `Opaque` Secrets are created. TLS/dockerconfig or other secret types are not generated.
 - **Key sanitization**:
-  - Keys are normalized (lowercase, underscores). Collisions after sanitization may overwrite previous values; last writer wins when multiple items map to the same key.
+- Custom field names preserve case while ensuring valid Kubernetes secret key names. Default keys are generated from item names using sanitization rules. Collisions after sanitization may overwrite previous values; last writer wins when multiple items map to the same key.
 - **Object size limits**:
   - Kubernetes Secrets must be < ~1MiB in total size. Very large notes or many combined keys in one secret can exceed this limit.
 - **Name resolution**:
