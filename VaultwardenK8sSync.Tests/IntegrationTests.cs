@@ -541,6 +541,6 @@ public class IntegrationTests
         Assert.Equal("https://api.example.com", result["API_ENDPOINT"]);
         Assert.Equal("v1", result["API_VERSION"]);
         Assert.Equal("30", result["API_TIMEOUT"]);
-        Assert.Equal("This is a secure note with API configuration", result["API_Configuration"]); // Default key from item name
+        Assert.Equal("This is a secure note with API configuration", result["API-Configuration"]); // Default key from item name
     }
 }

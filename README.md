@@ -52,7 +52,7 @@ Security tips:
 - Optional: choose keys for values written to the Secret via custom fields:
   - Password/content key: custom field name `secret-key-password`, value `db_password`
   - Username key: custom field name `secret-key-username`, value `db_user`
-  - Defaults: password key = sanitized item name; username key = `<sanitized_item_name>_username`
+  - Defaults: password key = sanitized item name; username key = `<sanitized_item_name>-username`
 
 - Optional:
   - All the custom fields you add (that are not the ones used by this app for configuration) will also be synced to the secret, if you want a field to not be synced, use custom field "ignore-field" with the fields you want to ignore as values separated by comma.
@@ -60,7 +60,7 @@ Security tips:
   - Create/update one Secret per target namespace
   - Purge old secrets (only the ones created by the sync app)
   - Merge multiple items pointing to the same `secret-name` into one Secret (last writer wins on key conflicts)
-  - For SSH Key items, store the private key under the password key; if present, also add `<item>_public_key` and `<item>_fingerprint`
+  - For SSH Key items, store the private key under the password key; if present, also add `<item>-public-key` and `<item>-fingerprint`
 
 ## Quick examples
 

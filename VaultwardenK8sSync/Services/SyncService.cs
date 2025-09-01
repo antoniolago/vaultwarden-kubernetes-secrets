@@ -436,7 +436,7 @@ public class SyncService : ISyncService
                 var secretName = !string.IsNullOrEmpty(item.ExtractSecretName()) 
                     ? SanitizeSecretName(item.ExtractSecretName()) 
                     : SanitizeSecretName(item.Name);
-                usernameKey = $"{SanitizeFieldName(secretName)}_username";
+                usernameKey = $"{SanitizeFieldName(secretName)}-username";
             }
             data[usernameKey] = FormatMultilineValue(username);
         }
@@ -478,7 +478,7 @@ public class SyncService : ISyncService
                 
             if (!string.IsNullOrWhiteSpace(item.SshKey.PublicKey))
             {
-                var pubKeyKey = $"{SanitizeFieldName(secretName)}_public_key";
+                var pubKeyKey = $"{SanitizeFieldName(secretName)}-public-key";
                 if (!data.ContainsKey(pubKeyKey))
                 {
                     data[pubKeyKey] = FormatMultilineValue(item.SshKey.PublicKey!);
@@ -486,7 +486,7 @@ public class SyncService : ISyncService
             }
             if (!string.IsNullOrWhiteSpace(item.SshKey.Fingerprint))
             {
-                var fpKey = $"{SanitizeFieldName(secretName)}_fingerprint";
+                var fpKey = $"{SanitizeFieldName(secretName)}-fingerprint";
                 if (!data.ContainsKey(fpKey))
                 {
                     data[fpKey] = item.SshKey.Fingerprint!;
@@ -1324,11 +1324,11 @@ public class SyncService : ISyncService
             throw new ArgumentException("Field name cannot be null, empty, or whitespace. Please provide a valid field name.", nameof(fieldName));
         }
 
-        // Get the replacement character from environment variable, default to underscore for backward compatibility
-        var replacementChar = Environment.GetEnvironmentVariable("SYNC__FIELD__REPLACEMENT_CHAR")?.Trim() ?? "_";
+        // Get the replacement character from environment variable, default to dash for better Kubernetes compatibility
+        var replacementChar = Environment.GetEnvironmentVariable("SYNC__FIELD__REPLACEMENT_CHAR")?.Trim() ?? "-";
         if (replacementChar.Length != 1 || !"-._".Contains(replacementChar))
         {
-            replacementChar = "_"; // Fallback to underscore if invalid
+            replacementChar = "-"; // Fallback to dash if invalid
         }
 
         // Only replace truly forbidden characters, preserve case and valid characters
@@ -1343,12 +1343,6 @@ public class SyncService : ISyncService
         
         // Trim leading and trailing replacement characters
         sanitized = sanitized.Trim(replacementChar[0]);
-        
-        // If empty after processing (e.g., "###" becomes ""), throw exception
-        if (string.IsNullOrEmpty(sanitized))
-        {
-            throw new ArgumentException($"Field name '{fieldName}' becomes empty after sanitization. Please provide a name with at least one alphanumeric character.", nameof(fieldName));
-        }
         
         // Additional validation: ensure the field name contains at least one alphanumeric character
         // This prevents cases like "..." or "---" from being considered valid

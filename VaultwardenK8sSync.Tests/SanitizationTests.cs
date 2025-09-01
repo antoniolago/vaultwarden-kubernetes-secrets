@@ -4,6 +4,7 @@ using VaultwardenK8sSync.Models;
 using VaultwardenK8sSync.Services;
 using VaultwardenK8sSync.Configuration;
 using Xunit;
+using System.Text.RegularExpressions;
 
 namespace VaultwardenK8sSync.Tests;
 
@@ -105,31 +106,31 @@ public class SanitizationTests
     [Trait("Category", "Sanitization")]
     [Trait("Category", "FieldNames")]
     [InlineData("API_KEY", "API_KEY")]
-    [InlineData("Database Password", "Database_Password")]
+    [InlineData("Database Password", "Database-Password")]
     [InlineData("secret-key", "secret-key")]
     [InlineData("my.field.name", "my.field.name")]
-    [InlineData("config/path/key", "config_path_key")]
-    [InlineData("Field with (parentheses)", "Field_with_parentheses")]
-    [InlineData("Field with [brackets]", "Field_with_brackets")]
-    [InlineData("Field with {braces}", "Field_with_braces")]
-    [InlineData("Field with 'quotes'", "Field_with_quotes")]
-    [InlineData("Field with \"double quotes\"", "Field_with_double_quotes")]
-    [InlineData("Field with `backticks`", "Field_with_backticks")]
-    [InlineData("Field with ~tilde~", "Field_with_tilde")]
-    [InlineData("Field with !exclamation!", "Field_with_exclamation")]
-    [InlineData("Field with @at@", "Field_with_at")]
-    [InlineData("Field with #hash#", "Field_with_hash")]
-    [InlineData("Field with $dollar$", "Field_with_dollar")]
-    [InlineData("Field with %percent%", "Field_with_percent")]
-    [InlineData("Field with ^caret^", "Field_with_caret")]
-    [InlineData("Field with &ampersand&", "Field_with_ampersand")]
-    [InlineData("Field with *asterisk*", "Field_with_asterisk")]
-    [InlineData("Field with +plus+", "Field_with_plus")]
-    [InlineData("Field with =equals=", "Field_with_equals")]
-    [InlineData("Field with |pipe|", "Field_with_pipe")]
-    [InlineData("Field with <less>", "Field_with_less")]
-    [InlineData("Field with >greater>", "Field_with_greater")]
-    [InlineData("Field with ?question?", "Field_with_question")]
+    [InlineData("config/path/key", "config-path-key")]
+    [InlineData("Field with (parentheses)", "Field-with-parentheses")]
+    [InlineData("Field with [brackets]", "Field-with-brackets")]
+    [InlineData("Field with {braces}", "Field-with-braces")]
+    [InlineData("Field with 'quotes'", "Field-with-quotes")]
+    [InlineData("Field with \"double quotes\"", "Field-with-double-quotes")]
+    [InlineData("Field with `backticks`", "Field-with-backticks")]
+    [InlineData("Field with ~tilde~", "Field-with-tilde")]
+    [InlineData("Field with !exclamation!", "Field-with-exclamation")]
+    [InlineData("Field with @at@", "Field-with-at")]
+    [InlineData("Field with #hash#", "Field-with-hash")]
+    [InlineData("Field with $dollar$", "Field-with-dollar")]
+    [InlineData("Field with %percent%", "Field-with-percent")]
+    [InlineData("Field with ^caret^", "Field-with-caret")]
+    [InlineData("Field with &ampersand&", "Field-with-ampersand")]
+    [InlineData("Field with *asterisk*", "Field-with-asterisk")]
+    [InlineData("Field with +plus+", "Field-with-plus")]
+    [InlineData("Field with =equals=", "Field-with-equals")]
+    [InlineData("Field with |pipe|", "Field-with-pipe")]
+    [InlineData("Field with <less>", "Field-with-less")]
+    [InlineData("Field with >greater>", "Field-with-greater")]
+    [InlineData("Field with ?question?", "Field-with-question")]
     [InlineData("SMTP_PASSWORD", "SMTP_PASSWORD")]
     [InlineData("smtp_password", "smtp_password")]
     [InlineData("smtp-password", "smtp-password")]
@@ -157,19 +158,23 @@ public class SanitizationTests
 
     [Theory]
     [InlineData("...")]
+    [InlineData("---")]
     [InlineData("###")]
-    [InlineData("#@!@#")]
-
     [InlineData("***")]
+    [InlineData("___")]
+    [InlineData("#@!@#")]
+    [InlineData("   ")]
+    [InlineData("")]
+    [InlineData(null)]
     public void SanitizeFieldName_OnlySpecialCharacters_ShouldThrowArgumentException(string input)
     {
         // Act & Assert
         var exception = Assert.Throws<ArgumentException>(() => SanitizeFieldName(input));
         
         // Check for appropriate error message based on the input
-        if (input == "...")
+        if (string.IsNullOrWhiteSpace(input))
         {
-            Assert.Contains("must contain at least one alphanumeric character", exception.Message);
+            Assert.Contains("cannot be null, empty, or whitespace", exception.Message);
         }
         else
         {
@@ -222,10 +227,10 @@ public class SanitizationTests
         // Assert
         Assert.Contains("SMTP_PASSWORD", result.Keys);
         Assert.Contains("API-KEY", result.Keys);
-        Assert.Contains("Database_Password", result.Keys);
+        Assert.Contains("Database-Password", result.Keys);
         Assert.Equal("smtp123", result["SMTP_PASSWORD"]);
         Assert.Equal("api123", result["API-KEY"]);
-        Assert.Equal("db123", result["Database_Password"]);
+        Assert.Equal("db123", result["Database-Password"]);
     }
 
     [Fact]
@@ -253,9 +258,9 @@ public class SanitizationTests
 
         // Assert
         Assert.Contains("test-se-cret-default", result.Keys);
-        Assert.Contains("test-se-cret-default_username", result.Keys);
+        Assert.Contains("test-se-cret-default-username", result.Keys);
         Assert.Equal("testpass", result["test-se-cret-default"]);
-        Assert.Equal("testuser", result["test-se-cret-default_username"]);
+        Assert.Equal("testuser", result["test-se-cret-default-username"]);
     }
 
     [Fact]
@@ -284,9 +289,9 @@ public class SanitizationTests
 
         // Assert
         Assert.Contains("my-custom-secret", result.Keys);
-        Assert.Contains("my-custom-secret_username", result.Keys);
+        Assert.Contains("my-custom-secret-username", result.Keys);
         Assert.Equal("testpass", result["my-custom-secret"]);
-        Assert.Equal("testuser", result["my-custom-secret_username"]);
+        Assert.Equal("testuser", result["my-custom-secret-username"]);
     }
 
     [Fact]
@@ -315,11 +320,11 @@ public class SanitizationTests
 
         // Assert
         Assert.Contains("my-ssh-key", result.Keys);
-        Assert.Contains("my-ssh-key_public_key", result.Keys);
-        Assert.Contains("my-ssh-key_fingerprint", result.Keys);
+        Assert.Contains("my-ssh-key-public-key", result.Keys);
+        Assert.Contains("my-ssh-key-fingerprint", result.Keys);
         Assert.Equal("private-key-content", result["my-ssh-key"]);
-        Assert.Equal("public-key-content", result["my-ssh-key_public_key"]);
-        Assert.Equal("fingerprint-content", result["my-ssh-key_fingerprint"]);
+        Assert.Equal("public-key-content", result["my-ssh-key-public-key"]);
+        Assert.Equal("fingerprint-content", result["my-ssh-key-fingerprint"]);
     }
 
     [Fact]
@@ -381,8 +386,8 @@ public class SanitizationTests
 
         // Assert
         Assert.DoesNotContain("SMTP_PASSWORD", result.Keys);
-        Assert.Contains("Test_Item", result.Keys); // Default password key (sanitized)
-        Assert.Contains("test-item_username", result.Keys); // Default username key (sanitized)
+        Assert.Contains("Test-Item", result.Keys); // Default password key (sanitized)
+        Assert.Contains("test-item-username", result.Keys); // Default username key (sanitized)
     }
 
     [Fact]

@@ -4,6 +4,7 @@ using VaultwardenK8sSync.Models;
 using VaultwardenK8sSync.Services;
 using VaultwardenK8sSync.Configuration;
 using Xunit;
+using System.Text.RegularExpressions;
 
 namespace VaultwardenK8sSync.Tests;
 
@@ -76,32 +77,32 @@ public class KubernetesValidationTests
     [InlineData("a-b", "a-b")] // Valid hyphen preserved
     [InlineData("a_b", "a_b")] // Valid underscore preserved
     [InlineData("a.b", "a.b")] // Dot should NOT be converted to underscore
-    [InlineData("a/b", "a_b")] // Slash converted to underscore
-    [InlineData("a\\b", "a_b")] // Backslash converted to underscore
-    [InlineData("a:b", "a_b")] // Colon converted to underscore
-    [InlineData("a;b", "a_b")] // Semicolon converted to underscore
-    [InlineData("a,b", "a_b")] // Comma converted to underscore
-    [InlineData("a(b", "a_b")] // Parentheses converted to underscore
-    [InlineData("a[b", "a_b")] // Brackets converted to underscore
-    [InlineData("a{b", "a_b")] // Braces converted to underscore
-    [InlineData("a'b", "a_b")] // Single quote converted to underscore
-    [InlineData("a\"b", "a_b")] // Double quote converted to underscore
-    [InlineData("a`b", "a_b")] // Backtick converted to underscore
-    [InlineData("a~b", "a_b")] // Tilde converted to underscore
-    [InlineData("a!b", "a_b")] // Exclamation converted to underscore
-    [InlineData("a@b", "a_b")] // At converted to underscore
-    [InlineData("a#b", "a_b")] // Hash converted to underscore
-    [InlineData("a$b", "a_b")] // Dollar converted to underscore
-    [InlineData("a%b", "a_b")] // Percent converted to underscore
-    [InlineData("a^b", "a_b")] // Caret converted to underscore
-    [InlineData("a&b", "a_b")] // Ampersand converted to underscore
-    [InlineData("a*b", "a_b")] // Asterisk converted to underscore
-    [InlineData("a+b", "a_b")] // Plus converted to underscore
-    [InlineData("a=b", "a_b")] // Equals converted to underscore
-    [InlineData("a|b", "a_b")] // Pipe converted to underscore
-    [InlineData("a<b", "a_b")] // Less than converted to underscore
-    [InlineData("a>b", "a_b")] // Greater than converted to underscore
-    [InlineData("a?b", "a_b")] // Question mark converted to underscore
+    [InlineData("a/b", "a-b")] // Slash converted to dash
+    [InlineData("a\\b", "a-b")] // Backslash converted to dash
+    [InlineData("a:b", "a-b")] // Colon converted to dash
+    [InlineData("a;b", "a-b")] // Semicolon converted to dash
+    [InlineData("a,b", "a-b")] // Comma converted to dash
+    [InlineData("a(b", "a-b")] // Parentheses converted to dash
+    [InlineData("a[b", "a-b")] // Brackets converted to dash
+    [InlineData("a{b", "a-b")] // Braces converted to dash
+    [InlineData("a'b", "a-b")] // Single quote converted to dash
+    [InlineData("a\"b", "a-b")] // Double quote converted to dash
+    [InlineData("a`b", "a-b")] // Backtick converted to dash
+    [InlineData("a~b", "a-b")] // Tilde converted to dash
+    [InlineData("a!b", "a-b")] // Exclamation converted to dash
+    [InlineData("a@b", "a-b")] // At converted to dash
+    [InlineData("a#b", "a-b")] // Hash converted to dash
+    [InlineData("a$b", "a-b")] // Dollar converted to dash
+    [InlineData("a%b", "a-b")] // Percent converted to dash
+    [InlineData("a^b", "a-b")] // Caret converted to dash
+    [InlineData("a&b", "a-b")] // Ampersand converted to dash
+    [InlineData("a*b", "a-b")] // Asterisk converted to dash
+    [InlineData("a+b", "a-b")] // Plus converted to dash
+    [InlineData("a=b", "a-b")] // Equals converted to dash
+    [InlineData("a|b", "a-b")] // Pipe converted to dash
+    [InlineData("a<b", "a-b")] // Less than converted to dash
+    [InlineData("a>b", "a-b")] // Greater than converted to dash
+    [InlineData("a?b", "a-b")] // Question mark converted to dash
     public void SanitizeFieldName_EdgeCases_ShouldHandleCorrectly(string input, string expected)
     {
         // Act
@@ -176,13 +177,9 @@ public class KubernetesValidationTests
         {
             Assert.Contains("cannot be null, empty, or whitespace", exception.Message);
         }
-        else if (input == "..." || input == "---")
-        {
-            Assert.Contains("must contain at least one alphanumeric character", exception.Message);
-        }
         else
         {
-            Assert.Contains("becomes empty after sanitization", exception.Message);
+            Assert.Contains("must contain at least on", exception.Message);
         }
     }
 
@@ -218,15 +215,15 @@ public class KubernetesValidationTests
         // Assert
         Assert.Contains("SMTP_PASSWORD", result.Keys);
         Assert.Contains("API-KEY", result.Keys);
-        Assert.Contains("Database_Password", result.Keys);
+        Assert.Contains("Database-Password", result.Keys);
         Assert.Contains("config_path_key", result.Keys);
         Assert.Contains("my-field-name", result.Keys);
         Assert.Contains("123invalid", result.Keys);
         
         Assert.Equal("smtp123", result["SMTP_PASSWORD"]);
         Assert.Equal("api123", result["API-KEY"]);
-        Assert.Equal("DB123", result["Database_Password"]);
-        Assert.NotEqual("db123", result["Database_Password"]);
+        Assert.Equal("DB123", result["Database-Password"]);
+        Assert.NotEqual("db123", result["Database-Password"]);
         Assert.Equal("config123", result["config_path_key"]);
         Assert.Equal("field123", result["my-field-name"]);
         Assert.Equal("invalid123", result["123invalid"]);
@@ -261,7 +258,7 @@ public class KubernetesValidationTests
         // Assert
         // Default fields should use hyphenated secret name
         Assert.Contains("test-se-cret-default", result.Keys);
-        Assert.Contains("test-se-cret-default_username", result.Keys);
+        Assert.Contains("test-se-cret-default-username", result.Keys);
         
         // Custom fields should preserve their formatting
         Assert.Contains("SMTP_PASSWORD", result.Keys);
@@ -269,7 +266,7 @@ public class KubernetesValidationTests
         Assert.Contains("database-password", result.Keys);
         
         Assert.Equal("testpass", result["test-se-cret-default"]);
-        Assert.Equal("testuser", result["test-se-cret-default_username"]);
+        Assert.Equal("testuser", result["test-se-cret-default-username"]);
         Assert.Equal("smtp123", result["SMTP_PASSWORD"]);
         Assert.Equal("api123", result["API-KEY"]);
         Assert.Equal("db123", result["database-password"]);
