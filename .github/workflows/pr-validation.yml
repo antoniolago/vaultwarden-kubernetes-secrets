@@ -60,6 +60,9 @@ jobs:
       with:
         dotnet-version: '9.0.x'
 
+    - name: Restore dependencies
+      run: dotnet restore
+
     - name: Check for vulnerable packages
       run: dotnet list package --vulnerable
 
