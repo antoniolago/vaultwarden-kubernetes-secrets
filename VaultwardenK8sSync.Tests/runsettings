@@ -1,21 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RunSettings>
-  <RunConfiguration>
-    <ResultsDirectory>$(MSBuildProjectDirectory)\TestResults</ResultsDirectory>
-    <CollectSourceInformation>false</CollectSourceInformation>
-  </RunConfiguration>
   <DataCollectionRunSettings>
     <DataCollectors>
-      <DataCollector friendlyName="Code Coverage" uri="datacollector://Microsoft/CodeCoverage/2.0">
+      <DataCollector friendlyName="XPlat Code Coverage">
         <Configuration>
-          <Format>Cobertura</Format>
-          <Exclude>
-            <ModulePath>.*\\VaultwardenK8sSync.Tests\\.*</ModulePath>
-          </Exclude>
+          <Format>cobertura</Format>
+          <Exclude>[*]*.Program,[*]*.Startup</Exclude>
+          <ExcludeByAttribute>Obsolete,GeneratedCodeAttribute,CompilerGeneratedAttribute</ExcludeByAttribute>
+          <SingleHit>false</SingleHit>
+          <UseSourceLink>true</UseSourceLink>
+          <IncludeTestAssembly>false</IncludeTestAssembly>
         </Configuration>
       </DataCollector>
     </DataCollectors>
   </DataCollectionRunSettings>
+  <RunConfiguration>
+    <ResultsDirectory>$(MSBuildProjectDirectory)/TestResults</ResultsDirectory>
+    <CollectSourceInformation>false</CollectSourceInformation>
+  </RunConfiguration>
   <TestRunParameters>
     <Parameter name="TestCategory" value="Sanitization" />
   </TestRunParameters>
