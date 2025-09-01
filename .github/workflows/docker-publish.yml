@@ -4,11 +4,10 @@ on:
   push:
     tags:
       - 'v*'
-    branches:
-      - '**'
   pull_request:
     branches:
-      - '**'
+      - main
+      - develop
   workflow_dispatch:
 
 jobs:
