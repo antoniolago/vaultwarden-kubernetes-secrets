@@ -79,6 +79,7 @@ Secret names and field names are automatically sanitized to comply with Kubernet
 - **Custom field names**: Preserve case while ensuring valid Kubernetes secret key names (valid environment variable names)
 - **Default field names**: Generated from item names using the same sanitization rules
 - **Validation**: Basic sanitization is applied, but Kubernetes API provides the actual validation error messages
+- **Configuration**: The replacement character for invalid characters can be configured via `SYNC__FIELD__REPLACEMENT_CHAR` environment variable (default: `_`, valid values: `-`, `.`, `_`)
 - **Examples**:
   - `"API_KEY"` becomes `"API_KEY"`
   - `"Database Password"` becomes `"Database_Password"`

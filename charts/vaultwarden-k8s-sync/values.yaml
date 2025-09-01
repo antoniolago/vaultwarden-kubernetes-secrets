@@ -91,6 +91,8 @@ env:
     inlineKvPrefix: "kv"
     # SYNC__FIELD__SECRETBLOCKPREFIX
     secretBlockPrefix: "secret"
+    # SYNC__FIELD__REPLACEMENT_CHAR
+    replacementChar: "_"
 
 podAnnotations: {}
 

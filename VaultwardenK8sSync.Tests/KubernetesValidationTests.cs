@@ -75,7 +75,7 @@ public class KubernetesValidationTests
     [InlineData("ab", "ab")] // Two characters
     [InlineData("a-b", "a-b")] // Valid hyphen preserved
     [InlineData("a_b", "a_b")] // Valid underscore preserved
-    [InlineData("a.b", "a_b")] // Dot converted to underscore
+    [InlineData("a.b", "a.b")] // Dot should NOT be converted to underscore
     [InlineData("a/b", "a_b")] // Slash converted to underscore
     [InlineData("a\\b", "a_b")] // Backslash converted to underscore
     [InlineData("a:b", "a_b")] // Colon converted to underscore
@@ -159,6 +159,7 @@ public class KubernetesValidationTests
 
     [Theory]
     [InlineData("...")]
+    [InlineData("---")]
     [InlineData("###")]
     [InlineData("***")]
     [InlineData("___")]
@@ -169,7 +170,20 @@ public class KubernetesValidationTests
     {
         // Act & Assert
         var exception = Assert.Throws<ArgumentException>(() => SanitizeFieldName(input));
-        Assert.Contains("cannot be null, empty, or whitespace", exception.Message);
+        
+        // Check for appropriate error message based on the input
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            Assert.Contains("cannot be null, empty, or whitespace", exception.Message);
+        }
+        else if (input == "..." || input == "---")
+        {
+            Assert.Contains("must contain at least one alphanumeric character", exception.Message);
+        }
+        else
+        {
+            Assert.Contains("becomes empty after sanitization", exception.Message);
+        }
     }
 
     [Fact]

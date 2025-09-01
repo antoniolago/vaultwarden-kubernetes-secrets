@@ -448,11 +448,11 @@ public class SyncService : ISyncService
         var passwordKeyResolved = item.ExtractSecretKeyPassword();
         if (string.IsNullOrEmpty(passwordKeyResolved))
         {
-            // Use the sanitized secret name (which preserves hyphens) instead of item name
-            var secretName = !string.IsNullOrEmpty(item.ExtractSecretName()) 
-                ? SanitizeSecretName(item.ExtractSecretName()) 
-                : SanitizeSecretName(item.Name);
-            passwordKeyResolved = SanitizeFieldName(secretName);
+            // Use the sanitized item name for the field key (preserves case and uses underscores)
+            var itemName = !string.IsNullOrEmpty(item.ExtractSecretName()) 
+                ? item.ExtractSecretName() 
+                : item.Name;
+            passwordKeyResolved = SanitizeFieldName(itemName);
         }
 
         if (!string.IsNullOrEmpty(password))
@@ -1324,50 +1324,37 @@ public class SyncService : ISyncService
             throw new ArgumentException("Field name cannot be null, empty, or whitespace. Please provide a valid field name.", nameof(fieldName));
         }
 
-        // Basic sanitization - replace invalid characters with underscores
-        // Let Kubernetes API handle the actual validation and provide real error messages
-        // Note: hyphens (-) are valid in environment variable names, so we preserve them
-        var sanitized = fieldName
-            .Replace(" ", "_")
-            .Replace(".", "_")
-            .Replace("/", "_")
-            .Replace("\\", "_")
-            .Replace(":", "_")
-            .Replace(";", "_")
-            .Replace(",", "_")
-            .Replace("(", "_")
-            .Replace(")", "_")
-            .Replace("[", "_")
-            .Replace("]", "_")
-            .Replace("{", "_")
-            .Replace("}", "_")
-            .Replace("'", "_")
-            .Replace("\"", "_")
-            .Replace("`", "_")
-            .Replace("~", "_")
-            .Replace("!", "_")
-            .Replace("@", "_")
-            .Replace("#", "_")
-            .Replace("$", "_")
-            .Replace("%", "_")
-            .Replace("^", "_")
-            .Replace("&", "_")
-            .Replace("*", "_")
-            .Replace("+", "_")
-            .Replace("=", "_")
-            .Replace("|", "_")
-            .Replace("\\", "_")
-            .Replace("<", "_")
-            .Replace(">", "_")
-            .Replace("?", "_");
+        // Get the replacement character from environment variable, default to underscore for backward compatibility
+        var replacementChar = Environment.GetEnvironmentVariable("SYNC__FIELD__REPLACEMENT_CHAR")?.Trim() ?? "_";
+        if (replacementChar.Length != 1 || !"-._".Contains(replacementChar))
+        {
+            replacementChar = "_"; // Fallback to underscore if invalid
+        }
+
+        // Only replace truly forbidden characters, preserve case and valid characters
+        var sanitized = fieldName;
         
-        // Collapse multiple consecutive underscores and trim
-        sanitized = Regex.Replace(sanitized, "_+", "_").Trim('_');
+        // Replace only forbidden characters with the configured replacement character (preserve case, hyphens, dots, etc.)
+        // Kubernetes env var pattern: [-._a-zA-Z][-._a-zA-Z0-9]*
+        sanitized = Regex.Replace(sanitized, $@"[^-._a-zA-Z0-9]", Regex.Escape(replacementChar));
         
-        // Basic check for completely empty result
+        // Replace multiple consecutive replacement characters with single one
+        sanitized = Regex.Replace(sanitized, $"{Regex.Escape(replacementChar)}+", replacementChar);
+        
+        // Trim leading and trailing replacement characters
+        sanitized = sanitized.Trim(replacementChar[0]);
+        
+        // If empty after processing (e.g., "###" becomes ""), throw exception
         if (string.IsNullOrEmpty(sanitized))
         {
-            throw new ArgumentException($"Secret name cannot be null, empty, or whitespace. '{fieldName}' becomes empty after sanitization. Please provide a name with at least one alphanumeric character.", nameof(fieldName));
+            throw new ArgumentException($"Field name '{fieldName}' becomes empty after sanitization. Please provide a name with at least one alphanumeric character.", nameof(fieldName));
+        }
+        
+        // Additional validation: ensure the field name contains at least one alphanumeric character
+        // This prevents cases like "..." or "---" from being considered valid
+        if (!Regex.IsMatch(sanitized, @"[a-zA-Z0-9]"))
+        {
+            throw new ArgumentException($"Field name '{fieldName}' must contain at least one alphanumeric character. Please provide a valid field name.", nameof(fieldName));
         }
         
         return sanitized;
