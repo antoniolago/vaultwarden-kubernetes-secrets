@@ -226,6 +226,7 @@ public class KubernetesValidationTests
         Assert.Equal("smtp123", result["SMTP_PASSWORD"]);
         Assert.Equal("api123", result["API-KEY"]);
         Assert.Equal("DB123", result["Database_Password"]);
+        Assert.NotEqual("db123", result["Database_Password"]);
         Assert.Equal("config123", result["config_path_key"]);
         Assert.Equal("field123", result["my-field-name"]);
         Assert.Equal("invalid123", result["123invalid"]);
