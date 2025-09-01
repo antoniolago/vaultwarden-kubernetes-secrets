@@ -46,7 +46,7 @@ jobs:
 
     - name: Check Dockerfile
       run: |
-        docker build --dry-run -f VaultwardenK8sSync/Dockerfile VaultwardenK8sSync/
+        docker build --check -f VaultwardenK8sSync/Dockerfile VaultwardenK8sSync/
 
   security:
     runs-on: ubuntu-latest
