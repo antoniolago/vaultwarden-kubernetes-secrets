@@ -178,7 +178,7 @@ public class SanitizationTests
         }
         else
         {
-            Assert.Contains("becomes empty after sanitization", exception.Message);
+            Assert.Contains("must contain at least on", exception.Message);
         }
     }
 
