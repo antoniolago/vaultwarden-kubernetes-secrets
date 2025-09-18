@@ -3,7 +3,7 @@
 
 This software leverages [bw-cli](https://bitwarden.com/help/cli/) to sync [Vaultwarden](https://github.com/dani-garcia/vaultwarden) items to Kubernetes Secrets.
 
-⚠️ **WARNING: This application is not yet stable and may have significant CPU usage in high sync volume scenarios, SYNC__SYNCINTERVALSECONDS can reduce/increase resource usage tho. (needs more testing, you can help!). 
+⚠️ **WARNING: This application is not yet stable and may have significant CPU usage in high sync volume scenarios, higher SYNC__SYNCINTERVALSECONDS can reduce resource usage. (needs more testing, you can help!). 
 
 ## Install (Helm)
 
