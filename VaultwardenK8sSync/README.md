@@ -154,7 +154,7 @@ Use custom fields in the Bitwarden web/desktop UI to control how items sync to K
   - Default when omitted: sanitized item name
 
 - Primary value key (password/content)
-  - Custom field: name `secret-key-password`, value `db_password`
+  - Custom field: name `secret-key-password` (or `secret-key`), value `db_password`
   - Default when omitted: sanitized item name
 
 - Username key (when username exists)
@@ -167,7 +167,7 @@ Use custom fields in the Bitwarden web/desktop UI to control how items sync to K
 
 Defaults and overrides
 - Default field names are:
-  - `namespaces`, `secret-name`, `secret-key-password`, `secret-key-username`
+  - `namespaces`, `secret-name`, `secret-key-password` (synonym: `secret-key`), `secret-key-username`
 - You can override these via environment variables (or Helm values):
   - `SYNC__FIELD__NAMESPACES`, `SYNC__FIELD__SECRETNAME`, `SYNC__FIELD__SECRETKEYPASSWORD`, `SYNC__FIELD__SECRETKEYUSERNAME`
 
@@ -336,7 +336,7 @@ The application supports separate key configuration for username and password da
 To specify a custom key name for the password within the Kubernetes secret:
 
 Custom field:
-- Add a custom field named `secret-key-password` with the desired key.
+- Add a custom field named `secret-key-password` (or `secret-key`) with the desired key.
 
 #### Username Key Configuration
 To specify a custom key name for the username within the Kubernetes secret:

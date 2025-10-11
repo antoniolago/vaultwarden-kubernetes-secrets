@@ -50,7 +50,7 @@ Security tips:
   - Custom field: name `secret-name`, value `my-secret`
   - Default when omitted: sanitized item name
 - Optional: choose keys for values written to the Secret via custom fields:
-  - Password/content key: custom field name `secret-key-password`, value `db_password`
+  - Password/content key: custom field name `secret-key-password` (or `secret-key`), value `db_password`
   - Username key: custom field name `secret-key-username`, value `db_user`
   - Defaults: password key = sanitized item name; username key = `<sanitized_item_name>-username`
 

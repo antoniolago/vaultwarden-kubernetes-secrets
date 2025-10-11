@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -17,6 +17,7 @@
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.8" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.8" />
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.8" />
+    <PackageReference Include="Spectre.Console" Version="0.49.1" />
     <PackageReference Include="VwConnector" Version="1.34.2-rev.1" />
   </ItemGroup>
 
