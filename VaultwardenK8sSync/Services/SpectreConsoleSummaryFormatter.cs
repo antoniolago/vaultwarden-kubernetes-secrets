@@ -26,8 +26,9 @@ public static class SpectreConsoleSummaryFormatter
             _ => "white"
         };
 
-        // Set console to use full width
-        AnsiConsole.Profile.Width = Console.WindowWidth;
+        // Set console to use full width (with fallback for CI environments)
+        var consoleWidth = Console.WindowWidth > 0 ? Console.WindowWidth : 120;
+        AnsiConsole.Profile.Width = consoleWidth;
 
         // Header
         AnsiConsole.WriteLine();
