@@ -8,7 +8,7 @@
             "name": "Debug VaultwardenK8sSync",
             "type": "coreclr",
             "request": "launch",
-            "preLaunchTask": "build",
+            "preLaunchTask": "build-main",
             "program": "${workspaceFolder}/VaultwardenK8sSync/bin/Debug/net9.0/VaultwardenK8sSync.dll",
             "args": [],
             "cwd": "${workspaceFolder}/VaultwardenK8sSync",
@@ -22,7 +22,7 @@
             "name": "Debug Tests",
             "type": "coreclr",
             "request": "launch",
-            "preLaunchTask": "build",
+            "preLaunchTask": "build-tests",
             "program": "dotnet",
             "args": [
                 "test",
@@ -42,7 +42,7 @@
             "name": "Debug Tests with Filter",
             "type": "coreclr",
             "request": "launch",
-            "preLaunchTask": "build",
+            "preLaunchTask": "build-tests",
             "program": "dotnet",
             "args": [
                 "test",
@@ -64,7 +64,7 @@
             "name": "Debug Tests with Coverage",
             "type": "coreclr",
             "request": "launch",
-            "preLaunchTask": "build",
+            "preLaunchTask": "build-tests",
             "program": "dotnet",
             "args": [
                 "test",

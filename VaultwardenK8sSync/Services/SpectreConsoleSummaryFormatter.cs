@@ -26,53 +26,97 @@ public static class SpectreConsoleSummaryFormatter
             _ => "white"
         };
 
-        // Set console to use full width (with fallback for CI environments)
-        var consoleWidth = Console.WindowWidth > 0 ? Console.WindowWidth : 120;
-        AnsiConsole.Profile.Width = consoleWidth;
-
-        // Header
+        // Detect console width (with reasonable min/max)
+        int consoleWidth;
+        if (int.TryParse(Environment.GetEnvironmentVariable("CONSOLE_WIDTH"), out var width))
+        {
+            // Use width from environment variable if set (for testing)
+            consoleWidth = Math.Clamp(width, min: 60, max: 120);
+        }
+        else
+        {
+            // Otherwise use actual console width
+            consoleWidth = Math.Clamp(
+                Console.WindowWidth > 0 ? Console.WindowWidth : 80,
+                min: 60,  // Absolute minimum
+                max: 120  // Maximum width to use
+            );
+        }
+        
+        // Use a more compact layout on small screens
+        var isNarrow = consoleWidth < 100;
+        
+        // Header with dynamic width
         AnsiConsole.WriteLine();
-        var headerRule = new Rule($"[bold cyan]🔄 VAULTWARDEN K8S SYNC SUMMARY 🔄[/]");
+        var headerText = isNarrow ? "🔄 SYNC SUMMARY 🔄" : "🔄 VAULTWARDEN K8S SYNC SUMMARY 🔄";
+        var headerRule = new Rule($"[bold cyan]{headerText}[/]");
         headerRule.Style = Style.Parse("cyan");
         AnsiConsole.Write(headerRule);
         AnsiConsole.WriteLine();
 
-        // Create main layout with 3 columns
-        var layout = new Layout("Root")
-            .SplitColumns(
-                new Layout("Left"),
-                new Layout("Middle"),
-                new Layout("Right")
-            );
+        // Create responsive layout
+        Layout layout;
+        if (isNarrow)
+        {
+            // Stack panels vertically on small screens
+            layout = new Layout("Root")
+                .SplitRows(
+                    new Layout("Top"),
+                    new Layout("Middle"),
+                    new Layout("Bottom")
+                );
+        }
+        else
+        {
+            // Use columns on wider screens
+            layout = new Layout("Root")
+                .SplitColumns(
+                    new Layout("Left").Size(consoleWidth / 3),
+                    new Layout("Middle").Size(consoleWidth / 3),
+                    new Layout("Right").Size(consoleWidth / 3)
+                );
+        }
 
-        // Left column: Sync Info
+        // Build panels
         var syncInfoPanel = new Panel(BuildSyncInfo(summary, dryRunTag, statusIcon, statusText, statusColor))
         {
-            Header = new PanelHeader("[bold]📊 Sync Info[/]"),
+            Header = new PanelHeader("[bold]📊 " + (isNarrow ? "Info" : "Sync Info") + "[/]"),
             Border = BoxBorder.Rounded,
-            BorderStyle = Style.Parse("blue")
+            BorderStyle = Style.Parse("blue"),
+            Padding = new Padding(1, 1, 1, 1)
         };
-        layout["Left"].Update(syncInfoPanel);
 
-        // Middle column: Quick Stats
-        var statsPanel = new Panel(BuildQuickStats(summary))
+        var statsPanel = new Panel(BuildQuickStats(summary, isNarrow))
         {
-            Header = new PanelHeader("[bold]📈 Quick Stats[/]"),
+            Header = new PanelHeader("[bold]📈 " + (isNarrow ? "Stats" : "Quick Stats") + "[/]"),
             Border = BoxBorder.Rounded,
-            BorderStyle = Style.Parse("green")
+            BorderStyle = Style.Parse("green"),
+            Padding = new Padding(1, 1, 1, 1)
         };
-        layout["Middle"].Update(statsPanel);
 
-        // Right column: Issues & Orphans
-        var issuesPanel = new Panel(BuildIssuesAndOrphans(summary, isDryRun))
+        var issuesPanel = new Panel(BuildIssuesAndOrphans(summary, isDryRun, isNarrow))
         {
-            Header = new PanelHeader("[bold]⚠️  Issues & Cleanup[/]"),
+            Header = new PanelHeader("[bold]⚠️  " + (isNarrow ? "Issues" : "Issues & Cleanup") + "[/]"),
             Border = BoxBorder.Rounded,
-            BorderStyle = Style.Parse("yellow")
+            BorderStyle = Style.Parse("yellow"),
+            Padding = new Padding(1, 1, 1, 1)
         };
-        layout["Right"].Update(issuesPanel);
 
-        // Render the layout
+        // Update layout based on screen size
+        if (isNarrow)
+        {
+            layout["Top"].Update(syncInfoPanel);
+            layout["Middle"].Update(statsPanel);
+            layout["Bottom"].Update(issuesPanel);
+        }
+        else
+        {
+            layout["Left"].Update(syncInfoPanel);
+            layout["Middle"].Update(statsPanel);
+            layout["Right"].Update(issuesPanel);
+        }
+
+        // Render the layout with proper width handling
         AnsiConsole.Write(layout);
         AnsiConsole.WriteLine();
 
@@ -105,26 +149,45 @@ public static class SpectreConsoleSummaryFormatter
         return new Markup(text);
     }
 
-    private static Table BuildQuickStats(SyncSummary summary)
+    private static Table BuildQuickStats(SyncSummary summary, bool isNarrow = false)
     {
-        var table = new Table();
-        table.Border(TableBorder.None);
+        var table = new Table
+        {
+            Border = TableBorder.None,
+            UseSafeBorder = true,
+            Expand = true
+        };
+        
         table.HideHeaders();
         table.AddColumn(new TableColumn("Label").LeftAligned());
         table.AddColumn(new TableColumn("Value").RightAligned());
         
-        table.AddRow("🆕 Created", $"[green]{summary.TotalSecretsCreated}[/]");
-        table.AddRow("🔄 Updated", $"[yellow]{summary.TotalSecretsUpdated}[/]");
-        table.AddRow("✅ Up-To-Date", $"[blue]{summary.TotalSecretsSkipped}[/]");
-        table.AddRow("❌ Failed", $"[red]{summary.TotalSecretsFailed}[/]");
-        table.AddRow("🧹 Orphans", $"[magenta]{summary.OrphanCleanup?.TotalOrphansDeleted ?? 0}[/]");
-        table.AddRow("[dim]───────────[/]", "[dim]────[/]");
-        table.AddRow("[bold]➤  Total[/]", $"[bold]{summary.TotalSecretsProcessed}[/]");
+        // Use shorter labels in narrow mode
+        if (isNarrow)
+        {
+            table.AddRow("🆕 New", $"[green]{summary.TotalSecretsCreated}[/]");
+            table.AddRow("🔄 Upd", $"[yellow]{summary.TotalSecretsUpdated}[/]");
+            table.AddRow("✅ OK", $"[blue]{summary.TotalSecretsSkipped}[/]");
+            table.AddRow("❌ Err", $"[red]{summary.TotalSecretsFailed}[/]");
+            table.AddRow("🧹 Del", $"[magenta]{summary.OrphanCleanup?.TotalOrphansDeleted ?? 0}[/]");
+            table.AddRow("───────", "────");
+            table.AddRow("[bold]TOTAL[/]", $"[bold]{summary.TotalSecretsProcessed}[/]");
+        }
+        else
+        {
+            table.AddRow("🆕 Created", $"[green]{summary.TotalSecretsCreated}[/]");
+            table.AddRow("🔄 Updated", $"[yellow]{summary.TotalSecretsUpdated}[/]");
+            table.AddRow("✅ Up-To-Date", $"[blue]{summary.TotalSecretsSkipped}[/]");
+            table.AddRow("❌ Failed", $"[red]{summary.TotalSecretsFailed}[/]");
+            table.AddRow("🧹 Orphans", $"[magenta]{summary.OrphanCleanup?.TotalOrphansDeleted ?? 0}[/]");
+            table.AddRow("[dim]───────────[/]", "[dim]────[/]");
+            table.AddRow("[bold]➤  Total[/]", $"[bold]{summary.TotalSecretsProcessed}[/]");
+        }
         
         return table;
     }
 
-    private static Markup BuildIssuesAndOrphans(SyncSummary summary, bool isDryRun)
+    private static Markup BuildIssuesAndOrphans(SyncSummary summary, bool isDryRun, bool isNarrow = false)
     {
         var lines = new List<string>();
 
@@ -204,10 +267,15 @@ public static class SpectreConsoleSummaryFormatter
     
     private static void RenderSuccessTable(List<NamespaceSummary> created, List<NamespaceSummary> updated, List<NamespaceSummary> upToDate)
     {
-        var table = new Table();
-        table.Border(TableBorder.Rounded);
-        table.BorderColor(Color.Grey);
-        table.ShowRowSeparators();
+        var isNarrow = Console.WindowWidth > 0 && Console.WindowWidth < 100;
+        
+        var table = new Table()
+            .Border(isNarrow ? TableBorder.Simple : TableBorder.Rounded);
+            
+        if (!isNarrow)
+        {
+            table.ShowRowSeparators();
+        }
         
         var groups = new List<(string Header, List<NamespaceSummary> Namespaces)>();
         if (created.Any()) groups.Add(("🆕 Created", created));
@@ -241,10 +309,18 @@ public static class SpectreConsoleSummaryFormatter
 
                     var statsText = stats.Any() ? $"\n[dim]{string.Join(", ", stats)}[/]" : "";
                     
-                    // Show secret names in small font
-                    var secretNames = ns.Secrets?.Take(3).Select(s => Markup.Escape(s.Name)).ToList() ?? new List<string>();
+                    // Show limited secret names with truncation
+                    var maxSecrets = isNarrow ? 2 : 3;
+                    var secretNames = ns.Secrets?.Take(maxSecrets).Select(s => 
+                    {
+                        var name = s.Name;
+                        if (isNarrow && name.Length > 12)
+                            name = name.Substring(0, 9) + "...";
+                        return Markup.Escape(name);
+                    }).ToList() ?? new List<string>();
+                    
                     var secretsText = secretNames.Any() 
-                        ? $"\n[dim italic grey]{string.Join(", ", secretNames)}{(ns.Secrets?.Count > 3 ? "..." : "")}[/]" 
+                        ? $"\n[dim italic grey]{string.Join(", ", secretNames)}{(ns.Secrets?.Count > maxSecrets ? "..." : "")}[/]" 
                         : "";
                     
                     var errorText = ns.Errors.Any() ? $"\n[dim italic red]{Markup.Escape(ns.Errors.First().Substring(0, Math.Min(35, ns.Errors.First().Length)))}...[/]" : "";
@@ -263,12 +339,19 @@ public static class SpectreConsoleSummaryFormatter
         AnsiConsole.Write(table);
     }
     
-    private static void RenderFailedTable(List<NamespaceSummary> failed)
+    private static void RenderFailedTable(List<NamespaceSummary> failed, bool isNarrow = false)
     {
-        var table = new Table();
-        table.Border(TableBorder.Rounded);
-        table.BorderColor(Color.Red);
-        table.ShowRowSeparators();
+        var table = new Table
+        {
+            Border = isNarrow ? TableBorder.Simple : TableBorder.Rounded,
+            UseSafeBorder = true,
+            Expand = true
+        };
+        
+        if (!isNarrow)
+        {
+            table.ShowRowSeparators();
+        }
         table.Title("[bold red]❌ Failed Namespaces[/]");
         
         table.AddColumn(new TableColumn("[bold]Namespace[/]").LeftAligned().Width(25));
@@ -285,11 +368,22 @@ public static class SpectreConsoleSummaryFormatter
             if (ns.Failed > 0) stats.Add($"[red]{ns.Failed} failed[/]");
             var statsText = stats.Any() ? string.Join("\n", stats) : "[dim]none[/]";
             
-            // Build errors (show more errors for failed namespaces)
-            var errors = ns.Errors.Take(3).Select(e => $"[red]• {Markup.Escape(e)}[/]").ToList();
+            // Truncate error messages for display
+            var maxErrorLength = isNarrow ? 40 : 60;
+            var errors = ns.Errors
+                .Take(3)
+                .Select(e => 
+                {
+                    var error = e.Length > maxErrorLength 
+                        ? e.Substring(0, maxErrorLength - 3) + "..." 
+                        : e;
+                    return $"[red]• {Markup.Escape(error)}[/]";
+                })
+                .ToList();
+                
             if (ns.Errors.Count > 3)
             {
-                errors.Add($"[dim]... and {ns.Errors.Count - 3} more errors[/]");
+                errors.Add($"[dim]... and {ns.Errors.Count - 3} more[/]");
             }
             var errorsText = errors.Any() ? string.Join("\n", errors) : "[dim]no error details[/]";
             

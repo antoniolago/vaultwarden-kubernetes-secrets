@@ -12,6 +12,7 @@ public class ApplicationHost
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<ApplicationHost> _logger;
     private readonly AppSettings _appSettings;
+    private MetricsServer? _metricsServer;
 
     public ApplicationHost()
     {
@@ -41,9 +42,11 @@ public class ApplicationHost
         services.AddScoped<IProcessRunner, ProcessRunner>();
         
         // Register application services
+        services.AddSingleton<IMetricsService, MetricsService>();
         services.AddScoped<IVaultwardenService, VaultwardenService>();
         services.AddScoped<IKubernetesService, KubernetesService>();
         services.AddScoped<ISyncService, SyncService>();
+        services.AddScoped<IWebhookService, WebhookService>();
         services.AddScoped<ICommandHandler, CommandHandler>();
     }
 
@@ -64,6 +67,9 @@ public class ApplicationHost
                 return 1;
             }
 
+            // Start metrics server if enabled
+            await StartMetricsServerAsync();
+
             var commandHandler = _serviceProvider.GetRequiredService<ICommandHandler>();
             var success = await commandHandler.HandleCommandAsync(args);
             
@@ -81,6 +87,8 @@ public class ApplicationHost
         }
         finally
         {
+            await StopMetricsServerAsync();
+            
             if (_serviceProvider is IDisposable disposable)
             {
                 disposable.Dispose();
@@ -179,6 +187,63 @@ public class ApplicationHost
         }
 
         return true;
+    }
+
+    private async Task StartMetricsServerAsync()
+    {
+        if (!_appSettings.Metrics.Enabled)
+        {
+            _logger.LogInformation("Metrics server is disabled");
+            return;
+        }
+
+        try
+        {
+            var vaultwardenService = _serviceProvider.GetRequiredService<IVaultwardenService>();
+            var kubernetesService = _serviceProvider.GetRequiredService<IKubernetesService>();
+            var metricsService = _serviceProvider.GetRequiredService<IMetricsService>();
+            var loggerFactory = _serviceProvider.GetRequiredService<ILoggerFactory>();
+            var metricsLogger = loggerFactory.CreateLogger<MetricsServer>();
+
+            // Get webhook service if enabled
+            IWebhookService? webhookService = null;
+            if (_appSettings.Webhook.Enabled)
+            {
+                webhookService = _serviceProvider.GetRequiredService<IWebhookService>();
+                _logger.LogInformation("Webhook support enabled");
+            }
+
+            _metricsServer = new MetricsServer(
+                metricsLogger,
+                vaultwardenService,
+                kubernetesService,
+                metricsService,
+                webhookService,
+                _appSettings.Webhook,
+                _appSettings.Metrics.Port);
+
+            await _metricsServer.StartAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to start metrics server - continuing without metrics");
+        }
+    }
+
+    private async Task StopMetricsServerAsync()
+    {
+        if (_metricsServer != null)
+        {
+            try
+            {
+                await _metricsServer.StopAsync();
+                _metricsServer.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error stopping metrics server");
+            }
+        }
     }
 }
 

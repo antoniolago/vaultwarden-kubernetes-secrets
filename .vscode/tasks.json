@@ -7,8 +7,7 @@
             "type": "process",
             "args": [
                 "build",
-                "${workspaceFolder}/VaultwardenK8sSync/VaultwardenK8sSync.csproj",
-                "${workspaceFolder}/VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj",
+                "${workspaceFolder}/VaultwardenK8sSync.sln",
                 "/property:GenerateFullPaths=true",
                 "/consoleloggerparameters:NoSummary"
             ],
@@ -85,8 +84,7 @@
             "type": "process",
             "args": [
                 "clean",
-                "${workspaceFolder}/VaultwardenK8sSync/VaultwardenK8sSync.csproj",
-                "${workspaceFolder}/VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj"
+                "${workspaceFolder}/VaultwardenK8sSync.sln"
             ],
             "problemMatcher": "$msCompile"
         }

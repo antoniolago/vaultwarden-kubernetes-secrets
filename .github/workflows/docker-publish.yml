@@ -235,21 +235,17 @@ jobs:
             --destination dist
 
       - name: Login to GHCR (Helm OCI)
-        if: steps.vars.outputs.is_release == 'true'
         run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io --username "${{ github.actor }}" --password-stdin
 
       - name: Push Helm chart to GHCR
-        if: steps.vars.outputs.is_release == 'true'
         run: |
           CHART_FILE="dist/vaultwarden-k8s-sync-${{ steps.vars.outputs.version }}.tgz"
           helm push "$CHART_FILE" oci://ghcr.io/${{ github.repository_owner }}/charts
       
       - name: Login to Harbor (Helm OCI)
-        if: steps.vars.outputs.is_release == 'true'
         run: echo "${{ secrets.HARBOR_PASSWORD }}" | helm registry login harbor.lag0.com.br --username "${{ secrets.HARBOR_USERNAME }}" --password-stdin
       
       - name: Push Helm chart to Harbor
-        if: steps.vars.outputs.is_release == 'true'
         run: |
           CHART_FILE="dist/vaultwarden-k8s-sync-${{ steps.vars.outputs.version }}.tgz"
           helm push "$CHART_FILE" oci://harbor.lag0.com.br/charts

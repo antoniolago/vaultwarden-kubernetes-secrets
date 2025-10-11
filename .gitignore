@@ -404,3 +404,6 @@ FodyWeavers.xsd
 .env
 .env.local
 .env.*.local
+
+# Act secrets file
+.secrets.tmp

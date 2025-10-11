@@ -15,6 +15,8 @@ public static class ConfigurationExtensions
         services.AddSingleton(appSettings.Kubernetes);
         services.AddSingleton(appSettings.Sync);
         services.AddSingleton(appSettings.Logging);
+        services.AddSingleton(appSettings.Metrics);
+        services.AddSingleton(appSettings.Webhook);
         services.AddSingleton(appSettings);
         
         return services;

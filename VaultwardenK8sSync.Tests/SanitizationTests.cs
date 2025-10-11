@@ -16,6 +16,7 @@ public class SanitizationTests
     private readonly Mock<ILogger<SyncService>> _loggerMock;
     private readonly Mock<IVaultwardenService> _vaultwardenServiceMock;
     private readonly Mock<IKubernetesService> _kubernetesServiceMock;
+    private readonly Mock<IMetricsService> _metricsServiceMock;
     private readonly SyncSettings _syncConfig;
 
     public SanitizationTests()
@@ -23,12 +24,14 @@ public class SanitizationTests
         _loggerMock = new Mock<ILogger<SyncService>>();
         _vaultwardenServiceMock = new Mock<IVaultwardenService>();
         _kubernetesServiceMock = new Mock<IKubernetesService>();
+        _metricsServiceMock = new Mock<IMetricsService>();
         _syncConfig = new SyncSettings();
         
         _syncService = new SyncService(
             _loggerMock.Object,
             _vaultwardenServiceMock.Object,
             _kubernetesServiceMock.Object,
+            _metricsServiceMock.Object,
             _syncConfig);
     }
 

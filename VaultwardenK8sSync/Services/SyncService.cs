@@ -10,6 +10,7 @@ public class SyncService : ISyncService
     private readonly ILogger<SyncService> _logger;
     private readonly IVaultwardenService _vaultwardenService;
     private readonly IKubernetesService _kubernetesService;
+    private readonly IMetricsService _metricsService;
     private readonly SyncSettings _syncConfig;
     private string? _lastItemsHash;
     private string? _currentItemsHash;
@@ -22,11 +23,13 @@ public class SyncService : ISyncService
         ILogger<SyncService> logger,
         IVaultwardenService vaultwardenService,
         IKubernetesService kubernetesService,
+        IMetricsService metricsService,
         SyncSettings syncConfig)
     {
         _logger = logger;
         _vaultwardenService = vaultwardenService;
         _kubernetesService = kubernetesService;
+        _metricsService = metricsService;
         _syncConfig = syncConfig;
     }
 
@@ -38,10 +41,11 @@ public class SyncService : ISyncService
     public async Task<SyncSummary> SyncAsync(ISyncProgressReporter? progressReporter)
     {
         var progress = progressReporter ?? new NullProgressReporter();
+        var syncStartTime = DateTime.UtcNow;
         
         var summary = new SyncSummary
         {
-            StartTime = DateTime.UtcNow,
+            StartTime = syncStartTime,
             SyncNumber = GetSyncCount()
         };
         
@@ -55,6 +59,9 @@ public class SyncService : ISyncService
             // Get all items from Vaultwarden
             var items = await _vaultwardenService.GetItemsAsync();
             summary.TotalItemsFromVaultwarden = items.Count;
+            
+            // Record items watched
+            _metricsService.RecordItemsWatched(items.Count);
             
             if (!items.Any())
             {
@@ -185,6 +192,24 @@ public class SyncService : ISyncService
 
             summary.EndTime = DateTime.UtcNow;
             
+            // Record sync metrics
+            var syncDuration = (summary.EndTime - syncStartTime).TotalSeconds;
+            _metricsService.RecordSyncDuration(syncDuration, summary.OverallSuccess);
+            
+            // Record secrets synced
+            _metricsService.RecordSecretsSynced(summary.TotalSecretsCreated, "created");
+            _metricsService.RecordSecretsSynced(summary.TotalSecretsUpdated, "updated");
+            if (summary.OrphanCleanup != null)
+            {
+                _metricsService.RecordSecretsSynced(summary.OrphanCleanup.TotalOrphansDeleted, "deleted");
+            }
+            
+            // Update last successful sync timestamp
+            if (summary.OverallSuccess)
+            {
+                _metricsService.SetLastSuccessfulSync();
+            }
+            
             // Only update the hash if the sync completed successfully (no failed items)
             if (summary.OverallSuccess)
             {
@@ -206,6 +231,12 @@ public class SyncService : ISyncService
             _logger.LogError(ex, "Failed to perform sync");
             summary.AddError($"Sync failed: {ex.Message}");
             summary.EndTime = DateTime.UtcNow;
+            
+            // Record sync failure
+            var syncDuration = (summary.EndTime - syncStartTime).TotalSeconds;
+            _metricsService.RecordSyncDuration(syncDuration, false);
+            _metricsService.RecordSyncError(ex.GetType().Name);
+            
             progress.Complete($"Sync failed: {ex.Message}");
             return summary;
         }
