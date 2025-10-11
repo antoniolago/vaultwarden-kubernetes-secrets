@@ -29,7 +29,8 @@ public class SpectreConsoleSummaryDemo
             OverallSuccess = false,
             HasChanges = true,
             TotalItemsFromVaultwarden = 25,
-            SyncNumber = 42
+            SyncNumber = 42,
+            SyncIntervalSeconds = 300
         };
         
         // 🆕 CREATED

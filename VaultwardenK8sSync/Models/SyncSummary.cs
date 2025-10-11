@@ -9,6 +9,7 @@ public class SyncSummary
     public TimeSpan Duration => EndTime - StartTime;
     public int SyncNumber { get; set; }
     public bool OverallSuccess { get; set; } = true;
+    public int SyncIntervalSeconds { get; set; }
     
     public int TotalItemsFromVaultwarden { get; set; }
     public int TotalNamespaces { get; set; }

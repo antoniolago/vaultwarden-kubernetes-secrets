@@ -80,7 +80,10 @@ public static class SpectreConsoleSummaryFormatter
 
         // Footer
         AnsiConsole.WriteLine();
-        var footerRule = new Rule($"{statusIcon} [bold]Sync completed at {summary.EndTime:HH:mm:ss}[/] - Next sync in configured interval");
+        var nextSyncText = summary.SyncIntervalSeconds > 0 
+            ? $"Next sync in {summary.SyncIntervalSeconds}s" 
+            : "Next sync at configured interval";
+        var footerRule = new Rule($"[bold]{statusIcon}  Sync completed at {summary.EndTime:HH:mm:ss}  •  {nextSyncText}[/]");
         footerRule.Style = Style.Parse(statusColor);
         AnsiConsole.Write(footerRule);
     }
@@ -200,6 +203,7 @@ public static class SpectreConsoleSummaryFormatter
         var table = new Table();
         table.Border(TableBorder.Rounded);
         table.BorderColor(Color.Grey);
+        table.ShowRowSeparators();
         
         var groups = new List<(string Header, List<NamespaceSummary> Namespaces)>();
         if (created.Any()) groups.Add(("🆕 Created", created));
@@ -260,6 +264,7 @@ public static class SpectreConsoleSummaryFormatter
         var table = new Table();
         table.Border(TableBorder.Rounded);
         table.BorderColor(Color.Red);
+        table.ShowRowSeparators();
         table.Title("[bold red]❌ Failed Namespaces[/]");
         
         table.AddColumn(new TableColumn("[bold]Namespace[/]").LeftAligned().Width(25));
