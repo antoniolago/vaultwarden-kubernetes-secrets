@@ -26,6 +26,9 @@ public static class SpectreConsoleSummaryFormatter
             _ => "white"
         };
 
+        // Set console to use full width
+        AnsiConsole.Profile.Width = Console.WindowWidth;
+
         // Header
         AnsiConsole.WriteLine();
         var headerRule = new Rule($"[bold cyan]🔄 VAULTWARDEN K8S SYNC SUMMARY 🔄[/]");

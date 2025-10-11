@@ -55,7 +55,7 @@ Example to deploy this base with FluxCD:
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
 metadata:
-  name: vaultwarden-sync
+  name: vaultwarden-kubernetes-secrets
   namespace: flux-system
 spec:
   interval: 1m
@@ -66,15 +66,15 @@ spec:
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: vaultwarden-sync
+  name: vaultwarden-kubernetes-secrets
   namespace: flux-system
 spec:
   interval: 5m
   prune: true
-  targetNamespace: vaultwarden-sync
+  targetNamespace: vaultwarden-kubernetes-secrets
   sourceRef:
     kind: GitRepository
-    name: vaultwarden-sync
+    name: vaultwarden-kubernetes-secrets
   path: ./VaultwardenK8sSync/deploy
   # Optionally override image tag
   images:
@@ -83,8 +83,8 @@ spec:
 ```
 
 Notes:
-- Manage sensitive values by creating `Secret/vaultwarden-sync-secrets` in `vaultwarden-sync` namespace (or use SealedSecrets/SOPS).
-- Non-sensitive values live in `ConfigMap/vaultwarden-sync-config` and can be customized via an overlay in your Git repo.
+- Manage sensitive values by creating `Secret/vaultwarden-kubernetes-secrets-secrets` in `vaultwarden-kubernetes-secrets` namespace (or use SealedSecrets/SOPS).
+- Non-sensitive values live in `ConfigMap/vaultwarden-kubernetes-secrets-config` and can be customized via an overlay in your Git repo.
 
 ## Configuration
 
