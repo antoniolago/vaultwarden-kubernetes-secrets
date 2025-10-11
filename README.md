@@ -44,7 +44,7 @@ In Vaultwarden, create a **Login** or **Secure Note** item with:
 
 **Required custom field:**
 - Name: `namespaces`
-- Value: `production` (or `staging,production` for multiple)
+- Value: `your-namespace` (e.g. `staging,production` for multiple)
 
 **Optional custom fields:**
 - `secret-name`: Set the Kubernetes Secret name (default: sanitized item name)
