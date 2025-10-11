@@ -196,7 +196,6 @@ We welcome contributions! Whether you're fixing bugs, adding features, or improv
 
 **Get started:**
 - Read the [Contributing Guide](CONTRIBUTING.md)
-- Check out [good first issues](https://github.com/antoniolago/vaultwarden-kubernetes-secrets/labels/good%20first%20issue)
 - Join the [Discussions](https://github.com/antoniolago/vaultwarden-kubernetes-secrets/discussions)
 
 ---
