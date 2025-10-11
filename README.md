@@ -28,15 +28,26 @@ kubectl create secret generic vaultwarden-kubernetes-secrets -n "$NAMESPACE" \
   --from-literal=VAULTWARDEN__MASTERPASSWORD="$MASTER_PASSWORD" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-# Install the sync service
-helm upgrade -i vaultwarden-kubernetes-secrets oci://harbor.lag0.com.br/charts/vaultwarden-k8s-sync \
+# Install the sync service (using GitHub Container Registry)
+helm upgrade -i vaultwarden-kubernetes-secrets oci://ghcr.io/antoniolago/charts/vaultwarden-k8s-sync \
   --version "$CHART_VERSION" \
   --namespace "$NAMESPACE" --create-namespace \
   --set env.config.VAULTWARDEN__SERVERURL="$SERVER_URL" \
   --set image.tag="$CHART_VERSION"
+
+# Alternative: Use Harbor registry (faster in some regions)
+# helm upgrade -i vaultwarden-kubernetes-secrets oci://harbor.lag0.com.br/charts/vaultwarden-k8s-sync \
+#   --version "$CHART_VERSION" \
+#   --namespace "$NAMESPACE" --create-namespace \
+#   --set env.config.VAULTWARDEN__SERVERURL="$SERVER_URL" \
+#   --set image.tag="$CHART_VERSION"
 ```
 
 **Security tip**: Create a dedicated Vaultwarden user for this service and scope it to a specific Organization/Collection.
+
+**Registry Options:**
+- **GHCR (Recommended)**: `oci://ghcr.io/antoniolago/charts/vaultwarden-k8s-sync` - Public GitHub Container Registry
+- **Harbor**: `oci://harbor.lag0.com.br/charts/vaultwarden-k8s-sync` - Alternative registry (may be faster in some regions)
 
 ### 2. Create a Secret in Vaultwarden
 
