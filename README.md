@@ -22,7 +22,7 @@ MASTER_PASSWORD="<your_master_password>"
 
 # Create credentials secret
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-kubectl create secret generic vaultwarden-kubernetes-secrets-secrets -n "$NAMESPACE" \
+kubectl create secret generic vaultwarden-kubernetes-secrets -n "$NAMESPACE" \
   --from-literal=BW_CLIENTID="$BW_CLIENTID" \
   --from-literal=BW_CLIENTSECRET="$BW_CLIENTSECRET" \
   --from-literal=VAULTWARDEN__MASTERPASSWORD="$MASTER_PASSWORD" \

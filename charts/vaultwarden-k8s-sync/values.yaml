@@ -66,13 +66,13 @@ env:
     # For security, I suggest creating an account just for this purpose
     # WARNING: Organization API keys are not supported by bw-cli!
     BW_CLIENTID:
-      secretName: "vaultwarden-kubernetes-secrets-secrets"
+      secretName: "vaultwarden-kubernetes-secrets"
       secretKey: "BW_CLIENTID"
     BW_CLIENTSECRET:
-      secretName: "vaultwarden-kubernetes-secrets-secrets"
+      secretName: "vaultwarden-kubernetes-secrets"
       secretKey: "BW_CLIENTSECRET"
     VAULTWARDEN__MASTERPASSWORD:
-      secretName: "vaultwarden-kubernetes-secrets-secrets"
+      secretName: "vaultwarden-kubernetes-secrets"
       secretKey: "VAULTWARDEN__MASTERPASSWORD"
 
   # Configure note/custom-field tag names understood by the app

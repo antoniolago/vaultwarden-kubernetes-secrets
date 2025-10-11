@@ -83,7 +83,7 @@ spec:
 ```
 
 Notes:
-- Manage sensitive values by creating `Secret/vaultwarden-kubernetes-secrets-secrets` in `vaultwarden-kubernetes-secrets` namespace (or use SealedSecrets/SOPS).
+- Manage sensitive values by creating `Secret/vaultwarden-kubernetes-secrets` in `vaultwarden-kubernetes-secrets` namespace (or use SealedSecrets/SOPS).
 - Non-sensitive values live in `ConfigMap/vaultwarden-kubernetes-secrets-config` and can be customized via an overlay in your Git repo.
 
 ## Configuration
