@@ -164,3 +164,4 @@ public class SpectreConsoleStressTest
             AnsiConsole.Console = originalConsole;
         }
     }
+}

@@ -432,7 +432,7 @@ public class DynamicSyncProgressDisplay : IDisposable
                 Console.SetCursorPosition(0, Console.CursorTop - _lastRenderedLines);
                 for (int i = 0; i < _lastRenderedLines; i++)
                 {
-                    var width = Math.Min(Console.WindowWidth - 1, 120);
+                    var width = Math.Min(Console.WindowWidth - 1, 100);
                     Console.Write(new string(' ', width));
                     Console.WriteLine();
                 }
