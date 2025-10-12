@@ -136,11 +136,11 @@ dotnet test --filter "DisplaySpectreConsoleSummaryDemo"
 SYNC__DRYRUN=true dotnet run sync
 
 # Build Docker image
-docker build -t vaultwarden-k8s-sync:test ./VaultwardenK8sSync
+docker build -t vaultwarden-kubernetes-secrets:test ./VaultwardenK8sSync
 
 # Test in Kubernetes (if available)
-kubectl set image deployment/vaultwarden-k8s-sync \
-  vaultwarden-k8s-sync=vaultwarden-k8s-sync:test
+kubectl set image deployment/vaultwarden-kubernetes-secrets \
+  vaultwarden-kubernetes-secrets=vaultwarden-kubernetes-secrets:test
 ```
 
 ### 4. Submit a Pull Request
@@ -273,7 +273,7 @@ vaultwarden-kubernetes-secrets/
 │   └── Program.cs               # Application entry point
 ├── VaultwardenK8sSync.Tests/    # Test project
 ├── charts/                      # Helm chart
-│   └── vaultwarden-k8s-sync/
+│   └── vaultwarden-kubernetes-secrets/
 ├── .github/workflows/           # CI/CD pipelines
 └── README.md                    # User documentation
 ```

@@ -230,7 +230,7 @@ def send_webhook(event_type, item_id, secret):
     ).hexdigest()
     
     response = requests.post(
-        "http://vaultwarden-k8s-sync:9090/webhook",
+        "http://vaultwarden-kubernetes-secrets:9090/webhook",
         headers={
             "Content-Type": "application/json",
             "X-Webhook-Signature": f"sha256={signature}"
@@ -323,7 +323,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: vaultwarden-k8s-sync
+      app: vaultwarden-kubernetes-secrets
   ingress:
     - from:
         - podSelector:
@@ -347,7 +347,7 @@ spec:
 
 2. Check logs:
    ```bash
-   kubectl logs -f deployment/vaultwarden-k8s-sync | grep webhook
+   kubectl logs -f deployment/vaultwarden-kubernetes-secrets | grep webhook
    ```
 
 3. Verify endpoint is accessible:

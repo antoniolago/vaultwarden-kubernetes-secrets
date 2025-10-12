@@ -4,6 +4,6 @@ kind: Namespace
 metadata:
   name: {{ .Release.Namespace | quote }}
   labels:
-    app.kubernetes.io/name: {{ include "vaultwarden-k8s-sync.name" . }}
-    app.kubernetes.io/part-of: {{ include "vaultwarden-k8s-sync.name" . }}
+    app.kubernetes.io/name: {{ include "vaultwarden-kubernetes-secrets.name" . }}
+    app.kubernetes.io/part-of: {{ include "vaultwarden-kubernetes-secrets.name" . }}
 {{- end }}

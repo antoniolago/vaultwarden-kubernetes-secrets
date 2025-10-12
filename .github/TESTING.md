@@ -100,7 +100,7 @@ Optimized for local testing with act:
 | Test Helm chart directly | `./test-helm-local.sh` |
 | Run all act tests | `./run-helm-test.sh` |
 | Run specific act job | `./run-helm-test.sh -j JOB_NAME` |
-| Validate Helm chart | `helm lint charts/vaultwarden-k8s-sync` |
+| Validate Helm chart | `helm lint charts/vaultwarden-kubernetes-secrets` |
 | Build .NET project | `dotnet build --configuration Release` |
 | Run .NET tests | `dotnet test --configuration Release` |
 
@@ -141,7 +141,7 @@ systemctl --user start podman.socket
 Check the chart structure:
 
 ```bash
-helm lint charts/vaultwarden-k8s-sync --debug
+helm lint charts/vaultwarden-kubernetes-secrets --debug
 ```
 
 ---

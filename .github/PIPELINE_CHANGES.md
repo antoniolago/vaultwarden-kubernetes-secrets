@@ -25,7 +25,7 @@ cache-to: type=gha,mode=max
 **Problem:** Documentation showed Harbor as primary, but GHCR is more accessible publicly.
 
 **Solution:**
-- Updated README to use `oci://ghcr.io/antoniolago/charts/vaultwarden-k8s-sync` as primary
+- Updated README to use `oci://ghcr.io/antoniolago/charts/vaultwarden-kubernetes-secrets` as primary
 - Harbor remains as secondary/alternative option
 - Pipeline already pushes to both registries (GHCR for all builds, Harbor for releases only)
 
@@ -57,22 +57,22 @@ cache-to: type=gha,mode=max
 ## Registry Strategy
 
 ### Docker Images
-- **GHCR** (`ghcr.io/antoniolago/vaultwarden-k8s-sync`):
+- **GHCR** (`ghcr.io/antoniolago/vaultwarden-kubernetes-secrets`):
   - All builds (PRs, branches, releases)
   - Public, no authentication needed for pulls
   - Primary for users
 
-- **Harbor** (`harbor.lag0.com.br/library/vaultwarden-k8s-sync`):
+- **Harbor** (`harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets`):
   - Releases only (non-PR builds)
   - Requires authentication
   - Alternative/backup registry
 
 ### Helm Charts
-- **GHCR** (`oci://ghcr.io/antoniolago/charts/vaultwarden-k8s-sync`):
+- **GHCR** (`oci://ghcr.io/antoniolago/charts/vaultwarden-kubernetes-secrets`):
   - Primary, recommended in documentation
   - Public access
   
-- **Harbor** (`oci://harbor.lag0.com.br/charts/vaultwarden-k8s-sync`):
+- **Harbor** (`oci://harbor.lag0.com.br/charts/vaultwarden-kubernetes-secrets`):
   - Secondary option
   - May be faster in some regions
 
@@ -107,10 +107,10 @@ The new `test-helm-chart` job provides:
 Users should update their Helm commands from:
 ```bash
 # Old (still works)
-helm upgrade -i app oci://harbor.lag0.com.br/charts/vaultwarden-k8s-sync
+helm upgrade -i app oci://harbor.lag0.com.br/charts/vaultwarden-kubernetes-secrets
 
 # New (recommended)
-helm upgrade -i app oci://ghcr.io/antoniolago/charts/vaultwarden-k8s-sync
+helm upgrade -i app oci://ghcr.io/antoniolago/charts/vaultwarden-kubernetes-secrets
 ```
 
 Both registries will continue to receive updates, so existing deployments won't break.

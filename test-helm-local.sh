@@ -35,7 +35,7 @@ kubectl cluster-info --context kind-helm-test
 
 echo ""
 echo "🔍 Validating Helm chart..."
-helm lint charts/vaultwarden-k8s-sync
+helm lint charts/vaultwarden-kubernetes-secrets
 
 echo ""
 echo "📋 Creating test namespace..."
@@ -51,9 +51,9 @@ kubectl create secret generic vaultwarden-kubernetes-secrets -n vaultwarden-test
 
 echo ""
 echo "📦 Installing Helm chart (dry-run mode)..."
-helm upgrade -i vaultwarden-test ./charts/vaultwarden-k8s-sync \
+helm upgrade -i vaultwarden-test ./charts/vaultwarden-kubernetes-secrets \
   --namespace vaultwarden-test \
-  --set image.repository=ghcr.io/antoniolago/vaultwarden-k8s-sync \
+  --set image.repository=ghcr.io/antoniolago/vaultwarden-kubernetes-secrets \
   --set image.tag=latest \
   --set env.config.VAULTWARDEN__SERVERURL="https://test.example.com" \
   --set env.config.SYNC__DRYRUN="true" \
@@ -67,13 +67,13 @@ kubectl get deployment -n vaultwarden-test
 
 echo ""
 echo "📋 Deployment details:"
-kubectl describe deployment vaultwarden-test-vaultwarden-k8s-sync -n vaultwarden-test
+kubectl describe deployment vaultwarden-test-vaultwarden-kubernetes-secrets -n vaultwarden-test
 
 echo ""
 echo "✅ Helm chart test completed successfully!"
 echo ""
 echo "To view logs, run:"
-echo "  kubectl logs -n vaultwarden-test -l app.kubernetes.io/name=vaultwarden-k8s-sync"
+echo "  kubectl logs -n vaultwarden-test -l app.kubernetes.io/name=vaultwarden-kubernetes-secrets"
 echo ""
 echo "To cleanup, run:"
 echo "  kubectl delete namespace vaultwarden-test"

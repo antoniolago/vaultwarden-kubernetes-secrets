@@ -2,7 +2,7 @@ nameOverride: ""
 fullnameOverride: ""
 
 image:
-  repository: ghcr.io/antoniolago/vaultwarden-k8s-sync
+  repository: ghcr.io/antoniolago/vaultwarden-kubernetes-secrets
   tag: "latest"
   pullPolicy: IfNotPresent
 
@@ -12,12 +12,12 @@ rbac:
 
 serviceAccount:
   create: true
-  name: "vaultwarden-k8s-sync"
+  name: "vaultwarden-kubernetes-secrets"
 
 # Namespace management
 namespace:
   create: false
-  name: "vaultwarden-k8s-sync"
+  name: "vaultwarden-kubernetes-secrets"
 
 debug: false
 

@@ -1,8 +1,8 @@
-{{- define "vaultwarden-k8s-sync.name" -}}
+{{- define "vaultwarden-kubernetes-secrets.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
-{{- define "vaultwarden-k8s-sync.fullname" -}}
+{{- define "vaultwarden-kubernetes-secrets.fullname" -}}
 {{- if .Values.fullnameOverride -}}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
@@ -15,10 +15,10 @@
 {{- end -}}
 {{- end -}}
 
-{{- define "vaultwarden-k8s-sync.serviceAccountName" -}}
+{{- define "vaultwarden-kubernetes-secrets.serviceAccountName" -}}
 {{- if .Values.serviceAccount.name -}}
 {{- .Values.serviceAccount.name -}}
 {{- else -}}
-{{ include "vaultwarden-k8s-sync.fullname" . }}
+{{ include "vaultwarden-kubernetes-secrets.fullname" . }}
 {{- end -}}
 {{- end -}}

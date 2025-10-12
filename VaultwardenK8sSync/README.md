@@ -78,7 +78,7 @@ spec:
   path: ./VaultwardenK8sSync/deploy
   # Optionally override image tag
   images:
-    - name: harbor.lag0.com.br/library/vaultwarden-k8s-sync
+    - name: harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets
       newTag: latest
 ```
 
@@ -381,8 +381,8 @@ By default, an item named "Database Credentials" becomes a secret named `databas
 ### Secret Management and Security
 
 **Application Labels**: All secrets created by this application are automatically labeled with:
-- `app.kubernetes.io/managed-by: vaultwarden-k8s-sync`
-- `app.kubernetes.io/created-by: vaultwarden-k8s-sync`
+- `app.kubernetes.io/managed-by: vaultwarden-kubernetes-secrets`
+- `app.kubernetes.io/created-by: vaultwarden-kubernetes-secrets`
 
 **Safe Cleanup**: The application only manages secrets with its specific labels, ensuring it never deletes secrets created by other applications. This prevents accidental deletion of secrets managed by other tools or applications.
 
@@ -470,7 +470,7 @@ metadata:
   name: vaultwarden-production-database
   namespace: production
   labels:
-    app.kubernetes.io/managed-by: vaultwarden-k8s-sync
+    app.kubernetes.io/managed-by: vaultwarden-kubernetes-secrets
 type: Opaque
 data:
   production_database: c2VjdXJlcGFzc3dvcmQxMjM=
@@ -494,7 +494,7 @@ metadata:
   name: external-api
   namespace: staging
   labels:
-    app.kubernetes.io/managed-by: vaultwarden-k8s-sync
+    app.kubernetes.io/managed-by: vaultwarden-kubernetes-secrets
 type: Opaque
 data:
   external_api: c2stMTIzNDU2Nzg5MGFiY2RlZg==
@@ -521,7 +521,7 @@ metadata:
   name: oracle-secrets
   namespace: production
   labels:
-    app.kubernetes.io/managed-by: vaultwarden-k8s-sync
+    app.kubernetes.io/managed-by: vaultwarden-kubernetes-secrets
 type: Opaque
 data:
   db_user: ZGJ1c2Vy
@@ -560,7 +560,7 @@ metadata:
   name: oracle-secrets
   namespace: production
   labels:
-    app.kubernetes.io/managed-by: vaultwarden-k8s-sync
+    app.kubernetes.io/managed-by: vaultwarden-kubernetes-secrets
 type: Opaque
 data:
   user_name: ZGJ1c2Vy
@@ -575,7 +575,7 @@ data:
 
 1. **Network Security**: Ensure secure communication between the sync tool and Vaultwarden/Kubernetes.
 2. **Access Control**: Limit the sync tool's access to only necessary collections/folders, namespaces and secrets.
-3. **Safe Secret Management**: The application only touches secrets with its specific labels (`app.kubernetes.io/managed-by: vaultwarden-k8s-sync`), preventing accidental deletion of secrets created by other means.
+3. **Safe Secret Management**: The application only touches secrets with its specific labels (`app.kubernetes.io/managed-by: vaultwarden-kubernetes-secrets`), preventing accidental deletion of secrets created by other means.
 
 ## Troubleshooting
 

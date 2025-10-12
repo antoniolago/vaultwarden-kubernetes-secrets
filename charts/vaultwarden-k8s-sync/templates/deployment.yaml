@@ -1,25 +1,25 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "vaultwarden-k8s-sync.fullname" . }}
+  name: {{ include "vaultwarden-kubernetes-secrets.fullname" . }}
   labels:
-    app.kubernetes.io/name: {{ include "vaultwarden-k8s-sync.name" . }}
+    app.kubernetes.io/name: {{ include "vaultwarden-kubernetes-secrets.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "vaultwarden-k8s-sync.name" . }}
+      app.kubernetes.io/name: {{ include "vaultwarden-kubernetes-secrets.name" . }}
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       annotations:
         {{- toYaml .Values.podAnnotations | nindent 8 }}
       labels:
-        app.kubernetes.io/name: {{ include "vaultwarden-k8s-sync.name" . }}
+        app.kubernetes.io/name: {{ include "vaultwarden-kubernetes-secrets.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
-      serviceAccountName: {{ include "vaultwarden-k8s-sync.serviceAccountName" . }}
+      serviceAccountName: {{ include "vaultwarden-kubernetes-secrets.serviceAccountName" . }}
       nodeSelector:
         {{- toYaml .Values.nodeSelector | nindent 8 }}
       tolerations:
@@ -44,7 +44,7 @@ spec:
         - name: tmp
           emptyDir: {}
       containers:
-        - name: {{ include "vaultwarden-k8s-sync.name" . }}
+        - name: {{ include "vaultwarden-kubernetes-secrets.name" . }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- if .Values.debug }}
@@ -54,7 +54,7 @@ spec:
           {{- end }}
           envFrom:
             - configMapRef:
-                name: {{ include "vaultwarden-k8s-sync.fullname" . }}-config
+                name: {{ include "vaultwarden-kubernetes-secrets.fullname" . }}-config
                 optional: true
           # Propagate SYNC__FIELD_* env overrides from values.env.fields
           {{- with .Values.env.fields }}

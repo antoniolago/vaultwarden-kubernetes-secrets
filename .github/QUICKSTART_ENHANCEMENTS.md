@@ -176,9 +176,9 @@ Add this to your Prometheus `scrape_configs`:
 
 ```yaml
 scrape_configs:
-  - job_name: 'vaultwarden-k8s-sync'
+  - job_name: 'vaultwarden-kubernetes-secrets'
     static_configs:
-      - targets: ['vaultwarden-k8s-sync:9090']
+      - targets: ['vaultwarden-kubernetes-secrets:9090']
     scrape_interval: 30s
 ```
 
@@ -188,12 +188,12 @@ scrape_configs:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: vaultwarden-k8s-sync
+  name: vaultwarden-kubernetes-secrets
   namespace: vaultwarden-kubernetes-secrets
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: vaultwarden-k8s-sync
+      app.kubernetes.io/name: vaultwarden-kubernetes-secrets
   endpoints:
     - port: metrics
       interval: 30s
@@ -248,7 +248,7 @@ rate(vaultwarden_api_calls_total[5m])
    - Legend: `{{operation}}`
 
 6. **Health Status** (Stat)
-   - Query: `up{job="vaultwarden-k8s-sync"}`
+   - Query: `up{job="vaultwarden-kubernetes-secrets"}`
    - Thresholds: 0 = red, 1 = green
 
 ---

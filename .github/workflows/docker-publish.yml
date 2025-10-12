@@ -73,7 +73,7 @@ jobs:
     - name: Validate Helm chart structure
       run: |
         echo "🔍 Validating Helm chart structure..."
-        helm lint charts/vaultwarden-k8s-sync
+        helm lint charts/vaultwarden-kubernetes-secrets
         echo "✅ Helm chart validation passed"
 
     - name: Set up Docker Buildx
@@ -184,8 +184,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/vaultwarden-k8s-sync:latest', github.repository_owner) || '' }}
-            ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync:${{ steps.vars.outputs.raw_tag }}
+            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets:latest', github.repository_owner) || '' }}
+            ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets:${{ steps.vars.outputs.raw_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -198,7 +198,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync:${{ steps.vars.outputs.pr_tag }}
+            ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets:${{ steps.vars.outputs.pr_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -211,11 +211,11 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            harbor.lag0.com.br/library/vaultwarden-k8s-sync:latest
-            harbor.lag0.com.br/library/vaultwarden-k8s-sync:${{ steps.vars.outputs.raw_tag }}
-            harbor.lag0.com.br/library/vaultwarden-k8s-sync:${{ steps.vars.outputs.version }}
-          cache-from: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-k8s-sync:buildcache
-          cache-to: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-k8s-sync:buildcache,mode=max
+            harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:latest
+            harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:${{ steps.vars.outputs.raw_tag }}
+            harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:${{ steps.vars.outputs.version }}
+          cache-from: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:buildcache
+          cache-to: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:buildcache,mode=max
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
@@ -223,13 +223,13 @@ jobs:
           version: v3.14.4
 
       - name: Helm lint chart
-        run: helm lint charts/vaultwarden-k8s-sync
+        run: helm lint charts/vaultwarden-kubernetes-secrets
 
       - name: Package Helm chart
         if: steps.vars.outputs.is_release == 'true'
         run: |
           mkdir -p dist
-          helm package charts/vaultwarden-k8s-sync \
+          helm package charts/vaultwarden-kubernetes-secrets \
             --version "${{ steps.vars.outputs.version }}" \
             --app-version "${{ steps.vars.outputs.version }}" \
             --destination dist
@@ -239,7 +239,7 @@ jobs:
 
       - name: Push Helm chart to GHCR
         run: |
-          CHART_FILE="dist/vaultwarden-k8s-sync-${{ steps.vars.outputs.version }}.tgz"
+          CHART_FILE="dist/vaultwarden-kubernetes-secrets-${{ steps.vars.outputs.version }}.tgz"
           helm push "$CHART_FILE" oci://ghcr.io/${{ github.repository_owner }}/charts
       
       - name: Login to Harbor (Helm OCI)
@@ -247,7 +247,7 @@ jobs:
       
       - name: Push Helm chart to Harbor
         run: |
-          CHART_FILE="dist/vaultwarden-k8s-sync-${{ steps.vars.outputs.version }}.tgz"
+          CHART_FILE="dist/vaultwarden-kubernetes-secrets-${{ steps.vars.outputs.version }}.tgz"
           helm push "$CHART_FILE" oci://harbor.lag0.com.br/charts
 
   test-helm-chart:
@@ -295,9 +295,9 @@ jobs:
       
       - name: Install Helm chart (dry-run mode)
         run: |
-          helm upgrade -i vaultwarden-test ./charts/vaultwarden-k8s-sync \
+          helm upgrade -i vaultwarden-test ./charts/vaultwarden-kubernetes-secrets \
             --namespace vaultwarden-test \
-            --set image.repository=ghcr.io/${{ github.repository_owner }}/vaultwarden-k8s-sync \
+            --set image.repository=ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets \
             --set image.tag=${{ steps.vars.outputs.image_tag }} \
             --set env.config.VAULTWARDEN__SERVERURL="https://test.example.com" \
             --set env.config.SYNC__DRYRUN="true" \
@@ -308,12 +308,12 @@ jobs:
         run: |
           kubectl get pods -n vaultwarden-test
           kubectl get deployment -n vaultwarden-test
-          kubectl describe deployment vaultwarden-test-vaultwarden-k8s-sync -n vaultwarden-test
+          kubectl describe deployment vaultwarden-test-vaultwarden-kubernetes-secrets -n vaultwarden-test
       
       - name: Check pod logs
         if: always()
         run: |
-          POD_NAME=$(kubectl get pods -n vaultwarden-test -l app.kubernetes.io/name=vaultwarden-k8s-sync -o jsonpath='{.items[0].metadata.name}')
+          POD_NAME=$(kubectl get pods -n vaultwarden-test -l app.kubernetes.io/name=vaultwarden-kubernetes-secrets -o jsonpath='{.items[0].metadata.name}')
           if [ -n "$POD_NAME" ]; then
             echo "📋 Pod logs:"
             kubectl logs $POD_NAME -n vaultwarden-test --tail=50 || true
@@ -350,7 +350,7 @@ jobs:
           script: |
             const commentBody = `## ✅ PR Build & Test Complete
 
-            **Docker Image:** \`ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}\`
+            **Docker Image:** \`ghcr.io/${context.repo.owner}/vaultwarden-kubernetes-secrets:${process.env.PR_TAG}\`
             
             **Helm Chart:** ✅ Tested and validated in kind cluster
 
@@ -358,7 +358,7 @@ jobs:
 
             **Using Helm:**
             \`\`\`bash
-            helm upgrade -i vaultwarden-test oci://ghcr.io/${context.repo.owner}/charts/vaultwarden-k8s-sync \\
+            helm upgrade -i vaultwarden-test oci://ghcr.io/${context.repo.owner}/charts/vaultwarden-kubernetes-secrets \\
               --set image.tag=${process.env.PR_TAG} \\
               --set env.config.VAULTWARDEN__SERVERURL="https://your-server.com" \\
               --namespace vaultwarden-test --create-namespace
@@ -366,8 +366,8 @@ jobs:
 
             **Using kubectl:**
             \`\`\`bash
-            kubectl set image deployment/vaultwarden-k8s-sync \\
-              vaultwarden-k8s-sync=ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}
+            kubectl set image deployment/vaultwarden-kubernetes-secrets \\
+              vaultwarden-kubernetes-secrets=ghcr.io/${context.repo.owner}/vaultwarden-kubernetes-secrets:${process.env.PR_TAG}
             \`\`\`
 
             ---
@@ -413,10 +413,10 @@ jobs:
 
             This PR includes a pre-built Docker image for easy testing:
 
-            Image: ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}
+            Image: ghcr.io/${context.repo.owner}/vaultwarden-kubernetes-secrets:${process.env.PR_TAG}
 
             Quick Test Command:
-            kubectl set image deployment/vaultwarden-k8s-sync vaultwarden-k8s-sync=ghcr.io/${context.repo.owner}/vaultwarden-k8s-sync:${process.env.PR_TAG}
+            kubectl set image deployment/vaultwarden-kubernetes-secrets vaultwarden-kubernetes-secrets=ghcr.io/${context.repo.owner}/vaultwarden-kubernetes-secrets:${process.env.PR_TAG}
 
             ---
             `;

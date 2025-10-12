@@ -3,10 +3,10 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "vaultwarden-k8s-sync.fullname" . }}
+  name: {{ include "vaultwarden-kubernetes-secrets.fullname" . }}
   labels:
-    app.kubernetes.io/name: {{ include "vaultwarden-k8s-sync.name" . }}
-    app.kubernetes.io/part-of: {{ include "vaultwarden-k8s-sync.name" . }}
+    app.kubernetes.io/name: {{ include "vaultwarden-kubernetes-secrets.name" . }}
+    app.kubernetes.io/part-of: {{ include "vaultwarden-kubernetes-secrets.name" . }}
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
@@ -18,23 +18,23 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "vaultwarden-k8s-sync.fullname" . }}
+  name: {{ include "vaultwarden-kubernetes-secrets.fullname" . }}
   labels:
-    app.kubernetes.io/name: {{ include "vaultwarden-k8s-sync.name" . }}
-    app.kubernetes.io/part-of: {{ include "vaultwarden-k8s-sync.name" . }}
+    app.kubernetes.io/name: {{ include "vaultwarden-kubernetes-secrets.name" . }}
+    app.kubernetes.io/part-of: {{ include "vaultwarden-kubernetes-secrets.name" . }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "vaultwarden-k8s-sync.fullname" . }}
+  name: {{ include "vaultwarden-kubernetes-secrets.fullname" . }}
 subjects:
   - kind: ServiceAccount
-    name: {{ include "vaultwarden-k8s-sync.serviceAccountName" . }}
+    name: {{ include "vaultwarden-kubernetes-secrets.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 {{- else }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "vaultwarden-k8s-sync.fullname" . }}
+  name: {{ include "vaultwarden-kubernetes-secrets.fullname" . }}
   namespace: {{ .Release.Namespace }}
 rules:
   - apiGroups: [""]
@@ -44,15 +44,15 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "vaultwarden-k8s-sync.fullname" . }}
+  name: {{ include "vaultwarden-kubernetes-secrets.fullname" . }}
   namespace: {{ .Release.Namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ include "vaultwarden-k8s-sync.fullname" . }}
+  name: {{ include "vaultwarden-kubernetes-secrets.fullname" . }}
 subjects:
   - kind: ServiceAccount
-    name: {{ include "vaultwarden-k8s-sync.serviceAccountName" . }}
+    name: {{ include "vaultwarden-kubernetes-secrets.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 {{- end }}
 {{- end }}
