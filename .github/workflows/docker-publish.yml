@@ -226,7 +226,6 @@ jobs:
         run: helm lint charts/vaultwarden-kubernetes-secrets
 
       - name: Package Helm chart
-        if: steps.vars.outputs.is_release == 'true'
         run: |
           mkdir -p dist
           helm package charts/vaultwarden-kubernetes-secrets \
@@ -236,10 +235,15 @@ jobs:
 
       - name: Login to GHCR (Helm OCI)
         run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io --username "${{ github.actor }}" --password-stdin
-
+          
       - name: Push Helm chart to GHCR
         run: |
           CHART_FILE="dist/vaultwarden-kubernetes-secrets-${{ steps.vars.outputs.version }}.tgz"
+          if [ ! -f "$CHART_FILE" ]; then
+            echo "Error: Chart file $CHART_FILE not found!"
+            ls -la dist/ || true
+            exit 1
+          fi
           helm push "$CHART_FILE" oci://ghcr.io/${{ github.repository_owner }}/charts
       
       - name: Login to Harbor (Helm OCI)
