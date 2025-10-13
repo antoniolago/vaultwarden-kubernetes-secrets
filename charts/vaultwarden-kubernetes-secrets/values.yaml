@@ -23,6 +23,79 @@ debug: false
 
 replicaCount: 1
 
+# API Configuration
+api:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: ghcr.io/antoniolago/vaultwarden-kubernetes-secrets-api
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  databasePath: /data/sync.db
+  persistence:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 1Gi
+    storageClass: ""
+  auth:
+    enabled: true
+    # Leave empty to auto-generate random token on install
+    # Or set explicitly: token: "your-secret-token-here"
+    token: ""
+
+# Dashboard Configuration
+dashboard:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: ghcr.io/antoniolago/vaultwarden-kubernetes-secrets-dashboard
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 50m
+      memory: 64Mi
+  url: "http://localhost:3000"
+
+# Ingress Configuration
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: vaultwarden-sync.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          backend: dashboard
+          port: 80
+        - path: /api
+          pathType: Prefix
+          backend: api
+          port: 8080
+  tls:
+    - secretName: vaultwarden-sync-tls
+      hosts:
+        - vaultwarden-sync.example.com
+
 resources:
   requests:
     cpu: 25m

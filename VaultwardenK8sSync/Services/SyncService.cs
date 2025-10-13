@@ -11,6 +11,7 @@ public class SyncService : ISyncService
     private readonly IVaultwardenService _vaultwardenService;
     private readonly IKubernetesService _kubernetesService;
     private readonly IMetricsService _metricsService;
+    private readonly IDatabaseLoggerService _dbLogger;
     private readonly SyncSettings _syncConfig;
     private string? _lastItemsHash;
     private string? _currentItemsHash;
@@ -24,12 +25,14 @@ public class SyncService : ISyncService
         IVaultwardenService vaultwardenService,
         IKubernetesService kubernetesService,
         IMetricsService metricsService,
+        IDatabaseLoggerService dbLogger,
         SyncSettings syncConfig)
     {
         _logger = logger;
         _vaultwardenService = vaultwardenService;
         _kubernetesService = kubernetesService;
         _metricsService = metricsService;
+        _dbLogger = dbLogger;
         _syncConfig = syncConfig;
     }
 
@@ -49,6 +52,9 @@ public class SyncService : ISyncService
             SyncNumber = GetSyncCount()
         };
         
+        // Start database logging
+        long syncLogId = 0;
+        
         try
         {
             progress.Start("Starting sync operation...");
@@ -60,6 +66,9 @@ public class SyncService : ISyncService
             var items = await _vaultwardenService.GetItemsAsync();
             summary.TotalItemsFromVaultwarden = items.Count;
             
+            // Start sync log in database
+            syncLogId = await _dbLogger.StartSyncLogAsync("Full Sync", items.Count);
+            
             // Record items watched
             _metricsService.RecordItemsWatched(items.Count);
             
@@ -67,6 +76,7 @@ public class SyncService : ISyncService
             {
                 summary.AddWarning("No items found in Vaultwarden vault");
                 summary.EndTime = DateTime.UtcNow;
+                await _dbLogger.CompleteSyncLogAsync(syncLogId, "Success", "No items found in vault");
                 progress.Complete("No items found in vault");
                 return summary;
             }
@@ -81,6 +91,7 @@ public class SyncService : ISyncService
                 _logger.LogDebug("No changes detected in Vaultwarden items - skipping reconciliation");
                 summary.HasChanges = false;
                 summary.EndTime = DateTime.UtcNow;
+                await _dbLogger.CompleteSyncLogAsync(syncLogId, "Success", "No changes detected");
                 progress.Complete("No changes detected - all secrets up to date");
                 return summary;
             }
@@ -192,6 +203,29 @@ public class SyncService : ISyncService
 
             summary.EndTime = DateTime.UtcNow;
             
+            // Update database with final sync results
+            var deletedCount = summary.OrphanCleanup?.TotalOrphansDeleted ?? 0;
+            await _dbLogger.UpdateSyncProgressAsync(
+                syncLogId,
+                summary.TotalSecretsProcessed,
+                summary.TotalSecretsCreated,
+                summary.TotalSecretsUpdated,
+                summary.TotalSecretsSkipped,
+                summary.TotalSecretsFailed,
+                deletedCount
+            );
+            
+            // Complete database log
+            var status = summary.OverallSuccess ? "Success" : "Failed";
+            var errorMsg = summary.Errors.Any() ? string.Join("; ", summary.Errors) : null;
+            await _dbLogger.CompleteSyncLogAsync(syncLogId, status, errorMsg);
+            
+            // Update secret states in database
+            foreach (var ns in summary.Namespaces ?? new List<NamespaceSummary>())
+            {
+                // This will be populated when we process each secret
+            }
+            
             // Record sync metrics
             var syncDuration = (summary.EndTime - syncStartTime).TotalSeconds;
             _metricsService.RecordSyncDuration(syncDuration, summary.OverallSuccess);
@@ -231,6 +265,9 @@ public class SyncService : ISyncService
             _logger.LogError(ex, "Failed to perform sync");
             summary.AddError($"Sync failed: {ex.Message}");
             summary.EndTime = DateTime.UtcNow;
+            
+            // Complete database log with error
+            await _dbLogger.CompleteSyncLogAsync(syncLogId, "Failed", ex.Message);
             
             // Record sync failure
             var syncDuration = (summary.EndTime - syncStartTime).TotalSeconds;
@@ -787,6 +824,19 @@ public class SyncService : ISyncService
                             _logger.LogDebug("Namespace {Namespace}: deleted orphaned secret {SecretName}", 
                                 namespaceName, orphanedSecret);
                             namespaceSummary.OrphansDeleted++;
+                            
+                            // Update database status to Deleted
+                            await _dbLogger.UpsertSecretStateAsync(
+                                namespaceName,
+                                orphanedSecret,
+                                string.Empty, // VaultwardenItemId not known for orphaned secret
+                                orphanedSecret, // Use secret name as item name
+                                "Deleted",
+                                0, // No data keys for deleted secret
+                                "Secret removed - no longer configured in Vaultwarden"
+                            );
+                            _logger.LogDebug("Updated database status to Deleted for {Namespace}/{SecretName}", 
+                                namespaceName, orphanedSecret);
                         }
                     }
                 }
@@ -946,6 +996,22 @@ public class SyncService : ISyncService
                 _logger.LogDebug("[DRY RUN] Secret {SecretName} in {Namespace}: ensure up-to-date from {Count} item(s)", 
                     secretName, namespaceName, items.Count);
                 secretSummary.Outcome = ReconcileOutcome.Skipped;
+                
+                // Log to database even in dry run
+                var itemForLog = items.FirstOrDefault();
+                if (itemForLog != null)
+                {
+                    await _dbLogger.UpsertSecretStateAsync(
+                        namespaceName,
+                        secretName,
+                        itemForLog.Id,
+                        itemForLog.Name,
+                        "DryRun",
+                        combinedSecretData.Count,
+                        null
+                    );
+                }
+                
                 return secretSummary;
             }
 
@@ -1005,6 +1071,22 @@ public class SyncService : ISyncService
                 {
                     _logger.LogDebug("Reconciled secret {SecretName} in namespace {Namespace}: Skipped (UpToDate)", secretName, namespaceName);
                     secretSummary.Outcome = ReconcileOutcome.Skipped;
+                    
+                    // Log secret state to database
+                    var itemForState = items.FirstOrDefault();
+                    if (itemForState != null)
+                    {
+                        await _dbLogger.UpsertSecretStateAsync(
+                            namespaceName,
+                            secretName,
+                            itemForState.Id,
+                            itemForState.Name,
+                            "Active",
+                            combinedSecretData.Count,
+                            null
+                        );
+                    }
+                    
                     return secretSummary;
                 }
 
@@ -1077,6 +1159,30 @@ public class SyncService : ISyncService
                 secretSummary.Outcome = ReconcileOutcome.Skipped;
             }
             
+            // Log secret state to database
+            var status = secretSummary.Outcome switch
+            {
+                ReconcileOutcome.Created => "Created",
+                ReconcileOutcome.Updated => "Updated",
+                ReconcileOutcome.Skipped => "Active",
+                ReconcileOutcome.Failed => "Failed",
+                _ => "Unknown"
+            };
+            
+            var firstItem = items.FirstOrDefault();
+            if (firstItem != null)
+            {
+                await _dbLogger.UpsertSecretStateAsync(
+                    namespaceName,
+                    secretName,
+                    firstItem.Id,
+                    firstItem.Name,
+                    status,
+                    combinedSecretData.Count,
+                    secretSummary.Error
+                );
+            }
+            
             return secretSummary;
         }
         catch (Exception ex)
@@ -1084,6 +1190,22 @@ public class SyncService : ISyncService
             _logger.LogError(ex, "Failed to reconcile secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
             secretSummary.Outcome = ReconcileOutcome.Failed;
             secretSummary.Error = ex.Message;
+            
+            // Log failed secret state to database
+            var firstItem = items.FirstOrDefault();
+            if (firstItem != null)
+            {
+                await _dbLogger.UpsertSecretStateAsync(
+                    namespaceName,
+                    secretName,
+                    firstItem.Id,
+                    firstItem.Name,
+                    "Failed",
+                    0,
+                    ex.Message
+                );
+            }
+            
             return secretSummary;
         }
     }

@@ -3,7 +3,9 @@ using Microsoft.Extensions.Logging;
 using VaultwardenK8sSync.Configuration;
 using VaultwardenK8sSync.Infrastructure;
 using VaultwardenK8sSync.Services;
+using VaultwardenK8sSync.Database;
 using dotenv.net;
+using System.IO;
 
 namespace VaultwardenK8sSync.Application;
 
@@ -26,6 +28,33 @@ public class ApplicationHost
         _serviceProvider = services.BuildServiceProvider();
         _logger = _serviceProvider.GetRequiredService<ILogger<ApplicationHost>>();
         _appSettings = _serviceProvider.GetRequiredService<AppSettings>();
+        
+        // Initialize database
+        InitializeDatabase();
+    }
+    
+    private void InitializeDatabase()
+    {
+        try
+        {
+            // Ensure data directory exists
+            var dbPath = Environment.GetEnvironmentVariable("DATABASE_PATH") ?? "./data/sync.db";
+            var dbDirectory = Path.GetDirectoryName(dbPath);
+            if (!string.IsNullOrEmpty(dbDirectory) && !Directory.Exists(dbDirectory))
+            {
+                Directory.CreateDirectory(dbDirectory);
+                _logger.LogInformation("Created database directory: {Directory}", dbDirectory);
+            }
+            
+            using var scope = _serviceProvider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<SyncDbContext>();
+            db.Database.EnsureCreated();
+            _logger.LogInformation("Database initialized successfully at {Path}", dbPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to initialize database - database logging will be disabled");
+        }
     }
 
     private static void ConfigureServices(IServiceCollection services)

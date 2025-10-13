@@ -43,81 +43,26 @@ public static class SpectreConsoleSummaryFormatter
             );
         }
         
-        // Use a more compact layout on small screens
-        var isNarrow = consoleWidth < 100;
-        
-        // Header with dynamic width
+        // Header
         AnsiConsole.WriteLine();
-        var headerText = isNarrow ? "🔄 SYNC SUMMARY 🔄" : "🔄 VAULTWARDEN K8S SYNC SUMMARY 🔄";
-        var headerRule = new Rule($"[bold cyan]{headerText}[/]");
+        var headerRule = new Rule("[bold cyan]🔄 VAULTWARDEN K8S SYNC SUMMARY 🔄[/]");
         headerRule.Style = Style.Parse("cyan");
         AnsiConsole.Write(headerRule);
         AnsiConsole.WriteLine();
 
-        // Create responsive layout
-        Layout layout;
-        if (isNarrow)
-        {
-            // Stack panels vertically on small screens
-            layout = new Layout("Root")
-                .SplitRows(
-                    new Layout("Top"),
-                    new Layout("Middle"),
-                    new Layout("Bottom")
-                );
-        }
-        else
-        {
-            // Use columns on wider screens
-            layout = new Layout("Root")
-                .SplitColumns(
-                    new Layout("Left").Size(consoleWidth / 3),
-                    new Layout("Middle").Size(consoleWidth / 3),
-                    new Layout("Right").Size(consoleWidth / 3)
-                );
-        }
+        // Sync Info
+        AnsiConsole.MarkupLine("[bold]📊 Sync Info:[/]");
+        RenderSyncInfo(summary, dryRunTag, statusIcon, statusText, statusColor);
+        AnsiConsole.WriteLine();
 
-        // Build panels
-        var syncInfoPanel = new Panel(BuildSyncInfo(summary, dryRunTag, statusIcon, statusText, statusColor))
-        {
-            Header = new PanelHeader("[bold]📊 " + (isNarrow ? "Info" : "Sync Info") + "[/]"),
-            Border = BoxBorder.Rounded,
-            BorderStyle = Style.Parse("blue"),
-            Padding = new Padding(1, 1, 1, 1)
-        };
+        // Quick Stats
+        AnsiConsole.MarkupLine("[bold]📈 Quick Stats:[/]");
+        RenderQuickStats(summary);
+        AnsiConsole.WriteLine();
 
-        var statsPanel = new Panel(BuildQuickStats(summary, isNarrow))
-        {
-            Header = new PanelHeader("[bold]📈 " + (isNarrow ? "Stats" : "Quick Stats") + "[/]"),
-            Border = BoxBorder.Rounded,
-            BorderStyle = Style.Parse("green"),
-            Padding = new Padding(1, 1, 1, 1)
-        };
-
-        var issuesPanel = new Panel(BuildIssuesAndOrphans(summary, isDryRun, isNarrow))
-        {
-            Header = new PanelHeader("[bold]⚠️  " + (isNarrow ? "Issues" : "Issues & Cleanup") + "[/]"),
-            Border = BoxBorder.Rounded,
-            BorderStyle = Style.Parse("yellow"),
-            Padding = new Padding(1, 1, 1, 1)
-        };
-
-        // Update layout based on screen size
-        if (isNarrow)
-        {
-            layout["Top"].Update(syncInfoPanel);
-            layout["Middle"].Update(statsPanel);
-            layout["Bottom"].Update(issuesPanel);
-        }
-        else
-        {
-            layout["Left"].Update(syncInfoPanel);
-            layout["Middle"].Update(statsPanel);
-            layout["Right"].Update(issuesPanel);
-        }
-
-        // Render the layout with proper width handling
-        AnsiConsole.Write(layout);
+        // Issues & Cleanup
+        AnsiConsole.MarkupLine("[bold]⚠️  Issues & Cleanup:[/]");
+        RenderIssuesAndOrphans(summary, isDryRun);
         AnsiConsole.WriteLine();
 
         // Namespace Details Table
@@ -136,106 +81,76 @@ public static class SpectreConsoleSummaryFormatter
         AnsiConsole.Write(footerRule);
     }
 
-    private static Markup BuildSyncInfo(SyncSummary summary, string dryRunTag, string statusIcon, string statusText, string statusColor)
+    private static void RenderSyncInfo(SyncSummary summary, string dryRunTag, string statusIcon, string statusText, string statusColor)
     {
-        var text = $"""
-            Sync #{summary.SyncNumber}{dryRunTag}
-            ⏱️  Duration: [cyan]{summary.Duration.TotalSeconds:F1}s[/]
-            🎯 Status: [{statusColor}]{statusIcon} {statusText}[/]
-            📦 Items: [cyan]{summary.TotalItemsFromVaultwarden}[/]
-            🌐 Namespaces: [cyan]{summary.TotalNamespaces}[/]
-            🔄 Changes: [cyan]{(summary.HasChanges ? "Yes" : "No")}[/]
-            """;
-        return new Markup(text);
+        AnsiConsole.MarkupLine($"  Sync #{summary.SyncNumber}{dryRunTag}");
+        AnsiConsole.MarkupLine($"  ⏱️  Duration: [cyan]{summary.Duration.TotalSeconds:F1}s[/]");
+        AnsiConsole.MarkupLine($"  🎯 Status: [{statusColor}]{statusIcon} {statusText}[/]");
+        AnsiConsole.MarkupLine($"  📦 Items: [cyan]{summary.TotalItemsFromVaultwarden}[/]");
+        AnsiConsole.MarkupLine($"  🌐 Namespaces: [cyan]{summary.TotalNamespaces}[/]");
+        AnsiConsole.MarkupLine($"  🔄 Changes: [cyan]{(summary.HasChanges ? "Yes" : "No")}[/]");
     }
 
-    private static Table BuildQuickStats(SyncSummary summary, bool isNarrow = false)
+    private static void RenderQuickStats(SyncSummary summary)
     {
-        var table = new Table
-        {
-            Border = TableBorder.None,
-            UseSafeBorder = true,
-            Expand = true
-        };
-        
-        table.HideHeaders();
-        table.AddColumn(new TableColumn("Label").LeftAligned());
-        table.AddColumn(new TableColumn("Value").RightAligned());
-        
-        // Use shorter labels in narrow mode
-        if (isNarrow)
-        {
-            table.AddRow("🆕 New", $"[green]{summary.TotalSecretsCreated}[/]");
-            table.AddRow("🔄 Upd", $"[yellow]{summary.TotalSecretsUpdated}[/]");
-            table.AddRow("✅ OK", $"[blue]{summary.TotalSecretsSkipped}[/]");
-            table.AddRow("❌ Err", $"[red]{summary.TotalSecretsFailed}[/]");
-            table.AddRow("🧹 Del", $"[magenta]{summary.OrphanCleanup?.TotalOrphansDeleted ?? 0}[/]");
-            table.AddRow("───────", "────");
-            table.AddRow("[bold]TOTAL[/]", $"[bold]{summary.TotalSecretsProcessed}[/]");
-        }
-        else
-        {
-            table.AddRow("🆕 Created", $"[green]{summary.TotalSecretsCreated}[/]");
-            table.AddRow("🔄 Updated", $"[yellow]{summary.TotalSecretsUpdated}[/]");
-            table.AddRow("✅ Up-To-Date", $"[blue]{summary.TotalSecretsSkipped}[/]");
-            table.AddRow("❌ Failed", $"[red]{summary.TotalSecretsFailed}[/]");
-            table.AddRow("🧹 Orphans", $"[magenta]{summary.OrphanCleanup?.TotalOrphansDeleted ?? 0}[/]");
-            table.AddRow("[dim]───────────[/]", "[dim]────[/]");
-            table.AddRow("[bold]➤  Total[/]", $"[bold]{summary.TotalSecretsProcessed}[/]");
-        }
-        
-        return table;
+        AnsiConsole.MarkupLine($"  🆕 Created: [green]{summary.TotalSecretsCreated}[/]");
+        AnsiConsole.MarkupLine($"  🔄 Updated: [yellow]{summary.TotalSecretsUpdated}[/]");
+        AnsiConsole.MarkupLine($"  ✅ Up-To-Date: [blue]{summary.TotalSecretsSkipped}[/]");
+        AnsiConsole.MarkupLine($"  ❌ Failed: [red]{summary.TotalSecretsFailed}[/]");
+        AnsiConsole.MarkupLine($"  🧹 Orphans: [magenta]{summary.OrphanCleanup?.TotalOrphansDeleted ?? 0}[/]");
+        AnsiConsole.MarkupLine($"  [bold]➤ Total: {summary.TotalSecretsProcessed}[/]");
     }
 
-    private static Markup BuildIssuesAndOrphans(SyncSummary summary, bool isDryRun, bool isNarrow = false)
+    private static void RenderIssuesAndOrphans(SyncSummary summary, bool isDryRun)
     {
-        var lines = new List<string>();
+        var hasContent = false;
 
         // Orphan cleanup
         if (summary.OrphanCleanup?.Enabled == true && summary.OrphanCleanup.TotalOrphansFound > 0)
         {
             var orphanIcon = summary.OrphanCleanup.GetStatusIcon();
             var dryRunText = isDryRun ? " (would delete)" : "";
-            lines.Add($"[bold]🧹 Orphan Cleanup[/]");
-            lines.Add($"{orphanIcon} {summary.OrphanCleanup.TotalOrphansDeleted}/{summary.OrphanCleanup.TotalOrphansFound} deleted{dryRunText}");
-            lines.Add("");
+            AnsiConsole.MarkupLine($"  [bold]🧹 Orphan Cleanup:[/]");
+            AnsiConsole.MarkupLine($"  {orphanIcon} {summary.OrphanCleanup.TotalOrphansDeleted}/{summary.OrphanCleanup.TotalOrphansFound} deleted{dryRunText}");
+            hasContent = true;
         }
 
         // Errors
         if (summary.Errors?.Any() == true)
         {
-            lines.Add("[bold red]Errors:[/]");
+            if (hasContent) AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("  [bold red]Errors:[/]");
             foreach (var error in summary.Errors.Take(3))
             {
-                lines.Add($"[red]❌ {Markup.Escape(error)}[/]");
+                AnsiConsole.MarkupLine($"    [red]❌ {Markup.Escape(error)}[/]");
             }
             if (summary.Errors.Count > 3)
             {
-                lines.Add($"[dim]... and {summary.Errors.Count - 3} more[/]");
+                AnsiConsole.MarkupLine($"    [dim]... and {summary.Errors.Count - 3} more[/]");
             }
-            lines.Add("");
+            hasContent = true;
         }
 
         // Warnings
         if (summary.Warnings?.Any() == true)
         {
-            lines.Add("[bold yellow]Warnings:[/]");
+            if (hasContent) AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("  [bold yellow]Warnings:[/]");
             foreach (var warning in summary.Warnings.Take(3))
             {
-                lines.Add($"[yellow]⚠️  {Markup.Escape(warning)}[/]");
+                AnsiConsole.MarkupLine($"    [yellow]⚠️  {Markup.Escape(warning)}[/]");
             }
             if (summary.Warnings.Count > 3)
             {
-                lines.Add($"[dim]... and {summary.Warnings.Count - 3} more[/]");
+                AnsiConsole.MarkupLine($"    [dim]... and {summary.Warnings.Count - 3} more[/]");
             }
+            hasContent = true;
         }
 
-        if (!lines.Any())
+        if (!hasContent)
         {
-            lines.Add("[dim]No issues[/]");
+            AnsiConsole.MarkupLine("  [dim]No issues[/]");
         }
-
-        return new Markup(string.Join("\n", lines));
     }
 
     private static void RenderNamespaceDetails(List<NamespaceSummary> namespaces)
@@ -267,140 +182,81 @@ public static class SpectreConsoleSummaryFormatter
     
     private static void RenderSuccessTable(List<NamespaceSummary> created, List<NamespaceSummary> updated, List<NamespaceSummary> upToDate)
     {
-        var isNarrow = Console.WindowWidth > 0 && Console.WindowWidth < 100;
+        var groups = new List<(string Header, string Icon, List<NamespaceSummary> Namespaces)>();
+        if (created.Any()) groups.Add(("Created", "🆕", created));
+        if (updated.Any()) groups.Add(("Updated", "🔄", updated));
+        if (upToDate.Any()) groups.Add(("Up-To-Date", "✅", upToDate));
         
-        var table = new Table()
-            .Border(isNarrow ? TableBorder.Simple : TableBorder.Rounded);
+        foreach (var (header, icon, namespaces) in groups)
+        {
+            AnsiConsole.MarkupLine($"[bold]{icon} {header}:[/]");
             
-        if (!isNarrow)
-        {
-            table.ShowRowSeparators();
-        }
-        
-        var groups = new List<(string Header, List<NamespaceSummary> Namespaces)>();
-        if (created.Any()) groups.Add(("🆕 Created", created));
-        if (updated.Any()) groups.Add(("🔄 Updated", updated));
-        if (upToDate.Any()) groups.Add(("✅ Up-To-Date", upToDate));
-        
-        // Add columns
-        foreach (var (header, _) in groups)
-        {
-            table.AddColumn(new TableColumn($"[bold]{header}[/]").Centered());
-        }
-
-        // Find max rows needed
-        int maxRows = groups.Max(g => g.Namespaces.Count);
-
-        // Add rows
-        for (int i = 0; i < maxRows; i++)
-        {
-            var rowCells = new List<string>();
-
-            foreach (var (_, groupNamespaces) in groups)
+            foreach (var ns in namespaces)
             {
-                if (i < groupNamespaces.Count)
-                {
-                    var ns = groupNamespaces[i];
-                    var stats = new List<string>();
-                    if (ns.Created > 0) stats.Add($"[green]{ns.Created} created[/]");
-                    if (ns.Updated > 0) stats.Add($"[yellow]{ns.Updated} updated[/]");
-                    if (ns.Skipped > 0) stats.Add($"[blue]{ns.Skipped} skipped[/]");
-                    if (ns.Failed > 0) stats.Add($"[red]{ns.Failed} failed[/]");
+                // Build stats
+                var stats = new List<string>();
+                if (ns.Created > 0) stats.Add($"[green]{ns.Created} new[/]");
+                if (ns.Updated > 0) stats.Add($"[yellow]{ns.Updated} upd[/]");
+                if (ns.Skipped > 0) stats.Add($"[blue]{ns.Skipped} ok[/]");
+                var statsText = stats.Any() ? $" ({string.Join(", ", stats)})" : "";
+                
+                // Show first 3 secret names
+                var secretNames = ns.Secrets?
+                    .Take(3)
+                    .Select(s => Markup.Escape(s.Name))
+                    .ToList() ?? new List<string>();
+                
+                var secretsText = secretNames.Any() 
+                    ? $" - [dim]{string.Join(", ", secretNames)}{(ns.Secrets?.Count > 3 ? "..." : "")}[/]" 
+                    : "";
 
-                    var statsText = stats.Any() ? $"\n[dim]{string.Join(", ", stats)}[/]" : "";
-                    
-                    // Show limited secret names with truncation
-                    var maxSecrets = isNarrow ? 2 : 3;
-                    var secretNames = ns.Secrets?.Take(maxSecrets).Select(s => 
-                    {
-                        var name = s.Name;
-                        if (isNarrow && name.Length > 12)
-                            name = name.Substring(0, 9) + "...";
-                        return Markup.Escape(name);
-                    }).ToList() ?? new List<string>();
-                    
-                    var secretsText = secretNames.Any() 
-                        ? $"\n[dim italic grey]{string.Join(", ", secretNames)}{(ns.Secrets?.Count > maxSecrets ? "..." : "")}[/]" 
-                        : "";
-                    
-                    var errorText = ns.Errors.Any() ? $"\n[dim italic red]{Markup.Escape(ns.Errors.First().Substring(0, Math.Min(35, ns.Errors.First().Length)))}...[/]" : "";
-
-                    rowCells.Add($"[bold]{Markup.Escape(ns.Name)}[/]{statsText}{secretsText}{errorText}");
-                }
-                else
-                {
-                    rowCells.Add("");
-                }
+                AnsiConsole.MarkupLine($"  • [bold]{Markup.Escape(ns.Name)}[/]{statsText}{secretsText}");
             }
-
-            table.AddRow(rowCells.ToArray());
+            
+            AnsiConsole.WriteLine();
         }
-
-        AnsiConsole.Write(table);
     }
     
-    private static void RenderFailedTable(List<NamespaceSummary> failed, bool isNarrow = false)
+    private static void RenderFailedTable(List<NamespaceSummary> failed)
     {
-        var table = new Table
-        {
-            Border = isNarrow ? TableBorder.Simple : TableBorder.Rounded,
-            UseSafeBorder = true,
-            Expand = true
-        };
-        
-        if (!isNarrow)
-        {
-            table.ShowRowSeparators();
-        }
-        table.Title("[bold red]❌ Failed Namespaces[/]");
-        
-        table.AddColumn(new TableColumn("[bold]Namespace[/]").LeftAligned().Width(25));
-        table.AddColumn(new TableColumn("[bold]Stats[/]").LeftAligned().Width(12));
-        table.AddColumn(new TableColumn("[bold]Errors[/]").LeftAligned());
+        AnsiConsole.MarkupLine("[bold red]❌ Failed Namespaces:[/]");
         
         foreach (var ns in failed.OrderBy(n => n.Name))
         {
             // Build stats
             var stats = new List<string>();
-            if (ns.Created > 0) stats.Add($"[green]{ns.Created} created[/]");
-            if (ns.Updated > 0) stats.Add($"[yellow]{ns.Updated} updated[/]");
-            if (ns.Skipped > 0) stats.Add($"[blue]{ns.Skipped} skipped[/]");
+            if (ns.Created > 0) stats.Add($"[green]{ns.Created} new[/]");
+            if (ns.Updated > 0) stats.Add($"[yellow]{ns.Updated} upd[/]");
+            if (ns.Skipped > 0) stats.Add($"[blue]{ns.Skipped} ok[/]");
             if (ns.Failed > 0) stats.Add($"[red]{ns.Failed} failed[/]");
-            var statsText = stats.Any() ? string.Join("\n", stats) : "[dim]none[/]";
+            var statsText = stats.Any() ? $" ({string.Join(", ", stats)})" : "";
             
-            // Truncate error messages for display
-            var maxErrorLength = isNarrow ? 40 : 60;
-            var errors = ns.Errors
-                .Take(3)
-                .Select(e => 
-                {
-                    var error = e.Length > maxErrorLength 
-                        ? e.Substring(0, maxErrorLength - 3) + "..." 
-                        : e;
-                    return $"[red]• {Markup.Escape(error)}[/]";
-                })
-                .ToList();
-                
+            AnsiConsole.MarkupLine($"  • [bold]{Markup.Escape(ns.Name)}[/]{statsText}");
+            
+            // Show first 3 errors
+            var errors = ns.Errors.Take(3).ToList();
+            foreach (var error in errors)
+            {
+                var truncated = error.Length > 80 ? error.Substring(0, 77) + "..." : error;
+                AnsiConsole.MarkupLine($"    [red]→ {Markup.Escape(truncated)}[/]");
+            }
+            
             if (ns.Errors.Count > 3)
             {
-                errors.Add($"[dim]... and {ns.Errors.Count - 3} more[/]");
+                AnsiConsole.MarkupLine($"    [dim]... and {ns.Errors.Count - 3} more error(s)[/]");
             }
-            var errorsText = errors.Any() ? string.Join("\n", errors) : "[dim]no error details[/]";
             
             // Show secret names if any
-            var secretNames = ns.Secrets?.Take(5).Select(s => Markup.Escape(s.Name)).ToList() ?? new List<string>();
-            var secretsText = secretNames.Any() 
-                ? $"\n[dim italic]{string.Join(", ", secretNames)}{(ns.Secrets?.Count > 5 ? "..." : "")}[/]" 
-                : "";
+            var secretNames = ns.Secrets?.Take(5).Select(s => s.Name).ToList() ?? new List<string>();
+            if (secretNames.Any())
+            {
+                var secretsList = string.Join(", ", secretNames.Select(Markup.Escape));
+                var more = ns.Secrets?.Count > 5 ? "..." : "";
+                AnsiConsole.MarkupLine($"    [dim]Secrets: {secretsList}{more}[/]");
+            }
             
-            table.AddRow(
-                $"[bold]{Markup.Escape(ns.Name)}[/]{secretsText}",
-                statsText,
-                errorsText
-            );
+            AnsiConsole.WriteLine();
         }
-        
-        AnsiConsole.Write(table);
     }
 }
 

@@ -1,4 +1,5 @@
 using Spectre.Console;
+using Spectre.Console.Testing;
 using VaultwardenK8sSync.Models;
 using VaultwardenK8sSync.Services;
 using Xunit;
@@ -17,8 +18,9 @@ public class SpectreConsoleStressTest
     [InlineData(true)]   // Test narrow width
     public void DisplayWithManyNamespacesAndSecrets(bool useNarrowWidth)
     {
-        // Store original console
-        var originalConsole = AnsiConsole.Console;
+        // Use test console to avoid duplication
+        var testConsole = new TestConsole();
+        AnsiConsole.Console = testConsole;
         
         try
         {
@@ -160,8 +162,8 @@ public class SpectreConsoleStressTest
         }
         finally
         {
-            // Restore original console
-            AnsiConsole.Console = originalConsole;
+            // TestConsole captures output - no need to print again
+            // The test framework will show the output automatically
         }
     }
 }

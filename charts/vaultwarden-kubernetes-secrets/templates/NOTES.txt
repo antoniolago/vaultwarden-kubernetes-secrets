@@ -1,0 +1,92 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named {{ .Release.Name }}.
+
+To learn more about the release, try:
+
+  $ helm status {{ .Release.Name }} -n {{ .Release.Namespace }}
+  $ helm get all {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+{{- if .Values.api.enabled }}
+
+=======================================================================
+🔐 API AUTHENTICATION
+=======================================================================
+
+{{- if .Values.api.auth.enabled }}
+The API is protected with token authentication.
+
+To retrieve your authentication token:
+
+  kubectl get secret {{ include "vaultwarden-kubernetes-secrets.fullname" . }}-auth \
+    -n {{ .Release.Namespace }} \
+    -o jsonpath='{.data.token}' | base64 -d && echo
+
+Save this token to access the dashboard and API.
+{{- else }}
+⚠️  WARNING: API authentication is DISABLED. This is not recommended for production!
+{{- end }}
+
+{{- end }}
+
+{{- if .Values.dashboard.enabled }}
+
+=======================================================================
+📊 DASHBOARD ACCESS
+=======================================================================
+
+{{- if .Values.ingress.enabled }}
+Dashboard is available at:
+{{- range .Values.ingress.hosts }}
+  https://{{ .host }}
+{{- end }}
+
+{{- else }}
+Dashboard is not exposed via Ingress. To access locally:
+
+  kubectl port-forward -n {{ .Release.Namespace }} \
+    svc/{{ include "vaultwarden-kubernetes-secrets.fullname" . }}-dashboard 3000:80
+
+Then open: http://localhost:3000
+
+{{- end }}
+
+{{- if .Values.api.auth.enabled }}
+⚠️  You will need the authentication token (see above) to login.
+{{- end }}
+
+{{- end }}
+
+=======================================================================
+📈 RESOURCE MONITORING
+=======================================================================
+
+{{- if .Values.api.enabled }}
+Monitor API and Sync service resources at:
+  {{- if .Values.ingress.enabled }}
+  https://{{ (index .Values.ingress.hosts 0).host }}/resources
+  {{- else }}
+  http://localhost:3000/resources (after port-forward)
+  {{- end }}
+
+If CPU usage is high (100-300%):
+  - Increase SYNC__SYNCINTERVALSECONDS in sync service config
+  - Use SYNC__CONTINUOUSSYNC=false for one-time syncs
+  - Filter synced items by Organization/Collection ID
+{{- end }}
+
+=======================================================================
+🔍 TROUBLESHOOTING
+=======================================================================
+
+View logs:
+  kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "vaultwarden-kubernetes-secrets.name" . }}
+
+Check sync status:
+  kubectl exec -n {{ .Release.Namespace }} -it deploy/{{ include "vaultwarden-kubernetes-secrets.fullname" . }} -- /bin/sh
+
+API health check:
+  curl http://{{ include "vaultwarden-kubernetes-secrets.fullname" . }}-api:8080/health
+
+For more information, visit:
+  https://github.com/antoniolago/vaultwarden-kubernetes-secrets

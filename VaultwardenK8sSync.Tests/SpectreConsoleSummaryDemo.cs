@@ -1,3 +1,5 @@
+using Spectre.Console;
+using Spectre.Console.Testing;
 using VaultwardenK8sSync.Models;
 using VaultwardenK8sSync.Services;
 using Xunit;
@@ -13,11 +15,23 @@ public class SpectreConsoleSummaryDemo
     [Fact]
     public void DisplaySpectreConsoleSummaryDemo()
     {
-        // Create a comprehensive mock summary
-        var summary = CreateMockSummary();
+        // Use test console to avoid duplication
+        var testConsole = new TestConsole();
+        AnsiConsole.Console = testConsole;
         
-        // Render using Spectre.Console
-        SpectreConsoleSummaryFormatter.RenderSummary(summary);
+        try
+        {
+            // Create a comprehensive mock summary
+            var summary = CreateMockSummary();
+            
+            // Render using Spectre.Console
+            SpectreConsoleSummaryFormatter.RenderSummary(summary);
+        }
+        finally
+        {
+            // TestConsole captures output - no need to print again
+            // The test framework will show the output automatically
+        }
     }
     
     private static SyncSummary CreateMockSummary()

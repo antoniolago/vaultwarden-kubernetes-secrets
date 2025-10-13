@@ -1,0 +1,175 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - heading "🔐 Vaultwarden K8s" [level=4] [ref=e7]
+      - generic [ref=e8]: Secret Sync Dashboard
+    - list [ref=e9]:
+      - listitem [ref=e10]:
+        - button "📊 Dashboard" [ref=e11] [cursor=pointer]
+      - listitem [ref=e12]:
+        - button "🔑 Secrets" [ref=e13] [cursor=pointer]
+      - listitem [ref=e14]:
+        - button "📜 Sync Logs" [ref=e15] [cursor=pointer]
+      - listitem [ref=e16]:
+        - button "🔍 Discovery" [ref=e17] [cursor=pointer]
+    - generic [ref=e19]: 🔓 Loginless Mode
+  - generic [ref=e22]:
+    - heading "📊 Dashboard Overview" [level=2] [ref=e23]
+    - generic [ref=e24]:
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - generic [ref=e30]:
+            - paragraph [ref=e31]: Active Secrets
+            - generic "Number of Kubernetes secrets successfully synced from Vaultwarden" [ref=e32]: ⓘ
+          - heading "7" [level=1] [ref=e33]
+          - generic [ref=e34]: 3 namespaces have active secrets
+        - generic [ref=e35]: 🔐
+      - generic [ref=e39]:
+        - generic [ref=e40]:
+          - generic [ref=e41]:
+            - paragraph [ref=e42]: Total Data Keys
+            - generic "Total number of key-value pairs stored across all secrets" [ref=e43]: ⓘ
+          - heading "20" [level=1] [ref=e44]
+          - generic [ref=e45]: Across 5 namespaces
+        - generic [ref=e46]: 🔑
+      - generic [ref=e50]:
+        - generic [ref=e51]:
+          - generic [ref=e52]:
+            - paragraph [ref=e53]: Namespaces
+            - generic "Number of Kubernetes namespaces with synced secrets" [ref=e54]: ⓘ
+          - heading "5" [level=1] [ref=e55]
+          - generic [ref=e56]: Managing 9 total secrets
+        - generic [ref=e57]: 📂
+      - generic [ref=e61]:
+        - generic [ref=e62]:
+          - generic [ref=e63]:
+            - paragraph [ref=e64]: Sync Performance
+            - generic "Average time to complete a sync operation and overall success rate" [ref=e65]: ⓘ
+          - heading "0.8s" [level=1] [ref=e66]
+          - generic [ref=e67]: 0.0% success • 28 total syncs
+        - generic [ref=e68]: ⚡
+    - generic [ref=e70]:
+      - paragraph [ref=e71]: 📁 Namespaces
+      - table [ref=e73]:
+        - rowgroup [ref=e74]:
+          - row "Namespace Total Active With Errors Data Keys Success Rate Last Sync" [ref=e75]:
+            - cell "Namespace" [ref=e76]
+            - cell "Total" [ref=e77]
+            - cell "Active" [ref=e78]
+            - cell "With Errors" [ref=e79]
+            - cell "Data Keys" [ref=e80]
+            - cell "Success Rate" [ref=e81]
+            - cell "Last Sync" [ref=e82]
+        - rowgroup [ref=e83]:
+          - row "dayz 2 0 2 5 0% in about 3 hours" [ref=e84]:
+            - cell "dayz" [ref=e85]:
+              - paragraph [ref=e86]: dayz
+            - cell "2" [ref=e87]:
+              - generic [ref=e88] [cursor=pointer]:
+                - button "2" [ref=e89]
+                - generic: "2"
+            - cell "0" [ref=e90]:
+              - generic [ref=e91]:
+                - button "0" [ref=e92] [cursor=pointer]
+                - generic: "0"
+            - cell "2" [ref=e93]:
+              - generic [ref=e94] [cursor=pointer]:
+                - button "2" [ref=e95]
+                - generic: "2"
+            - cell "5" [ref=e96]:
+              - generic [ref=e97] [cursor=pointer]:
+                - button "5" [ref=e98]
+                - generic: "5"
+            - cell "0%" [ref=e99]:
+              - paragraph [ref=e102]: 0%
+            - cell "in about 3 hours" [ref=e103]:
+              - paragraph [ref=e104]: in about 3 hours
+          - row "default 5 5 0 12 100% in about 3 hours" [ref=e105]:
+            - cell "default" [ref=e106]:
+              - paragraph [ref=e107]: default
+            - cell "5" [ref=e108]:
+              - generic [ref=e109] [cursor=pointer]:
+                - button "5" [ref=e110]
+                - generic: "5"
+            - cell "5" [ref=e111]:
+              - generic [ref=e112] [cursor=pointer]:
+                - button "5" [ref=e113]
+                - generic: "5"
+            - cell "0" [ref=e114]:
+              - paragraph [ref=e115]: "0"
+            - cell "12" [ref=e116]:
+              - generic [ref=e117] [cursor=pointer]:
+                - button "12" [ref=e118]
+                - generic: "12"
+            - cell "100%" [ref=e119]:
+              - paragraph [ref=e123]: 100%
+            - cell "in about 3 hours" [ref=e124]:
+              - paragraph [ref=e125]: in about 3 hours
+          - row "external-secrets 1 1 0 2 100% in about 3 hours" [ref=e126]:
+            - cell "external-secrets" [ref=e127]:
+              - paragraph [ref=e128]: external-secrets
+            - cell "1" [ref=e129]:
+              - generic [ref=e130] [cursor=pointer]:
+                - button "1" [ref=e131]
+                - generic: "1"
+            - cell "1" [ref=e132]:
+              - generic [ref=e133] [cursor=pointer]:
+                - button "1" [ref=e134]
+                - generic: "1"
+            - cell "0" [ref=e135]:
+              - paragraph [ref=e136]: "0"
+            - cell "2" [ref=e137]:
+              - generic [ref=e138] [cursor=pointer]:
+                - button "2" [ref=e139]
+                - generic: "2"
+            - cell "100%" [ref=e140]:
+              - paragraph [ref=e144]: 100%
+            - cell "in about 3 hours" [ref=e145]:
+              - paragraph [ref=e146]: in about 3 hours
+          - row "tailscale 1 1 0 1 100% in about 3 hours" [ref=e147]:
+            - cell "tailscale" [ref=e148]:
+              - paragraph [ref=e149]: tailscale
+            - cell "1" [ref=e150]:
+              - generic [ref=e151] [cursor=pointer]:
+                - button "1" [ref=e152]
+                - generic: "1"
+            - cell "1" [ref=e153]:
+              - generic [ref=e154] [cursor=pointer]:
+                - button "1" [ref=e155]
+                - generic: "1"
+            - cell "0" [ref=e156]:
+              - paragraph [ref=e157]: "0"
+            - cell "1" [ref=e158]:
+              - generic [ref=e159] [cursor=pointer]:
+                - button "1" [ref=e160]
+                - generic: "1"
+            - cell "100%" [ref=e161]:
+              - paragraph [ref=e165]: 100%
+            - cell "in about 3 hours" [ref=e166]:
+              - paragraph [ref=e167]: in about 3 hours
+        - rowgroup [ref=e168]:
+          - row "TOTAL 9 7 2 20 4 namespaces" [ref=e169]:
+            - cell "TOTAL" [ref=e170]:
+              - paragraph [ref=e171]: TOTAL
+            - cell "9" [ref=e172]:
+              - paragraph [ref=e173]: "9"
+            - cell "7" [ref=e174]:
+              - paragraph [ref=e175]: "7"
+            - cell "2" [ref=e176]:
+              - paragraph [ref=e177]: "2"
+            - cell "20" [ref=e178]:
+              - paragraph [ref=e179]: "20"
+            - cell "4 namespaces" [ref=e180]:
+              - paragraph [ref=e181]: 4 namespaces
+    - alert [ref=e182]:
+      - generic [ref=e184]:
+        - paragraph [ref=e185]: ❌ Issues detected
+        - paragraph [ref=e186]:
+          - text: "Last sync: in about 3 hours •"
+          - strong [ref=e187]: 2 secrets with errors
+          - text: (need attention)
+        - generic [ref=e188]: "Sync operations: 0 successful, 28 failed"
+```

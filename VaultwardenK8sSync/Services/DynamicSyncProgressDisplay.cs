@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
-using System.Text;
+using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Extensions.Logging;
 using VaultwardenK8sSync.Models;
 
@@ -12,66 +13,24 @@ namespace VaultwardenK8sSync.Services;
 public class DynamicSyncProgressDisplay : IDisposable
 {
     private readonly object _lock = new();
-    private readonly Timer? _updateTimer;
     private readonly ConcurrentDictionary<string, SyncItemStatus> _items = new();
     private readonly ILogger? _logger;
-    private bool _disposed = false;
-    private bool _isActive = false;
-    private int _lastRenderedLines = 0;
+    private bool _disposed;
+    private bool _isActive;
     private DateTime _startTime;
     private string _currentPhase = "";
-    private bool _supportsAdvancedConsole = true;
 
     // Sync statistics
-    private int _totalItems = 0;
-    private int _processedItems = 0;
-    private int _createdSecrets = 0;
-    private int _updatedSecrets = 0;
-    private int _skippedSecrets = 0;
-    private int _failedSecrets = 0;
+    private int _totalItems;
+    private int _processedItems;
+    private int _createdSecrets;
+    private int _updatedSecrets;
+    private int _skippedSecrets;
+    private int _failedSecrets;
 
     public DynamicSyncProgressDisplay(ILogger? logger = null)
     {
         _logger = logger;
-        
-        // Test if console supports advanced features
-        try
-        {
-            // Test cursor visibility support (Windows-specific feature)
-            if (OperatingSystem.IsWindows())
-            {
-                var originalCursor = Console.CursorVisible;
-                Console.CursorVisible = false;
-                Console.CursorVisible = originalCursor;
-            }
-            
-            // Check multiple conditions for console support
-            _supportsAdvancedConsole = 
-                Console.IsOutputRedirected == false &&
-                Console.IsErrorRedirected == false &&
-                !IsRunningInDebugConsole() &&
-                !IsRunningInCI();
-        }
-        catch
-        {
-            _supportsAdvancedConsole = false;
-        }
-        
-        if (_supportsAdvancedConsole)
-        {
-            try 
-            { 
-                if (OperatingSystem.IsWindows())
-                {
-                    Console.CursorVisible = false; 
-                }
-                _updateTimer = new Timer(UpdateDisplay, null, TimeSpan.Zero, TimeSpan.FromMilliseconds(500));
-            } 
-            catch 
-            { 
-                _supportsAdvancedConsole = false;
-            }
-        }
     }
 
     public void Start(string phase, int totalItems = 0)
@@ -82,7 +41,18 @@ public class DynamicSyncProgressDisplay : IDisposable
             _startTime = DateTime.UtcNow;
             _currentPhase = phase;
             _totalItems = totalItems;
-            
+            _processedItems = 0;
+            _createdSecrets = 0;
+            _updatedSecrets = 0;
+            _skippedSecrets = 0;
+            _failedSecrets = 0;
+            _items.Clear();
+
+            WriteLine($"=== Sync started: {phase} ===");
+            if (totalItems > 0)
+            {
+                WriteLine($"Total items to process: {totalItems}");
+            }
         }
     }
 
@@ -91,10 +61,7 @@ public class DynamicSyncProgressDisplay : IDisposable
         lock (_lock)
         {
             _currentPhase = phase;
-            if (!_supportsAdvancedConsole)
-            {
-                Console.WriteLine($"🔄 {phase}");
-            }
+            WriteLine($"--- Phase: {phase}");
         }
     }
 
@@ -119,53 +86,62 @@ public class DynamicSyncProgressDisplay : IDisposable
 
     public void UpdateItem(string key, string status, string? details = null, SyncItemOutcome? outcome = null)
     {
-        _items.AddOrUpdate(key, 
-            new SyncItemStatus 
-            { 
-                Key = key, 
-                Status = status, 
-                Details = details,
-                Outcome = outcome,
-                UpdateTime = DateTime.UtcNow 
-            },
-            (k, existing) => 
-            {
-                existing.Status = status;
-                existing.Details = details;
-                existing.Outcome = outcome;
-                existing.UpdateTime = DateTime.UtcNow;
-                
-                // Update statistics
-                if (outcome.HasValue && !existing.Counted)
-                {
-                    existing.Counted = true;
-                    _processedItems++;
-                    
-                    switch (outcome.Value)
-                    {
-                        case SyncItemOutcome.Created:
-                            _createdSecrets++;
-                            break;
-                        case SyncItemOutcome.Updated:
-                            _updatedSecrets++;
-                            break;
-                        case SyncItemOutcome.Skipped:
-                            _skippedSecrets++;
-                            break;
-                        case SyncItemOutcome.Failed:
-                            _failedSecrets++;
-                            break;
-                    }
-                }
-                
-                return existing;
-            });
-        
-        if (!_supportsAdvancedConsole)
+        SyncItemStatus updatedItem;
+
+        lock (_lock)
         {
-            // Fallback to simple logging
-            var icon = GetOutcomeIcon(outcome);
-            Console.WriteLine($"  {icon} {status}");
+            updatedItem = _items.AddOrUpdate(
+                key,
+                _ => new SyncItemStatus
+                {
+                    Key = key,
+                    Name = string.Empty,
+                    Status = status,
+                    Details = details,
+                    Outcome = outcome,
+                    UpdateTime = DateTime.UtcNow
+                },
+                (_, existing) =>
+                {
+                    existing.Status = status;
+                    existing.Details = details;
+                    existing.Outcome = outcome ?? existing.Outcome;
+                    existing.UpdateTime = DateTime.UtcNow;
+                    return existing;
+                });
+
+            updatedItem.Status = status;
+            updatedItem.Details = details;
+            updatedItem.Outcome = outcome ?? updatedItem.Outcome;
+
+            if (!string.IsNullOrWhiteSpace(updatedItem.Name))
+            {
+                // Preserve stored name; AddItem may have set it earlier.
+            }
+
+            if (outcome.HasValue && !updatedItem.Counted)
+            {
+                updatedItem.Counted = true;
+                _processedItems++;
+
+                switch (outcome.Value)
+                {
+                    case SyncItemOutcome.Created:
+                        _createdSecrets++;
+                        break;
+                    case SyncItemOutcome.Updated:
+                        _updatedSecrets++;
+                        break;
+                    case SyncItemOutcome.Skipped:
+                        _skippedSecrets++;
+                        break;
+                    case SyncItemOutcome.Failed:
+                        _failedSecrets++;
+                        break;
+                }
+            }
+
+            LogItemUpdate(updatedItem, status, details);
         }
     }
 
@@ -176,12 +152,6 @@ public class DynamicSyncProgressDisplay : IDisposable
             if (!_isActive) return;
             
             _isActive = false;
-            
-            if (_supportsAdvancedConsole)
-            {
-                ClearDisplay();
-            }
-            
             var duration = DateTime.UtcNow - _startTime;
             var durationText = $"({duration.TotalSeconds:F1}s)";
             
@@ -210,145 +180,52 @@ public class DynamicSyncProgressDisplay : IDisposable
                 statusText = "COMPLETED - NO CHANGES";
             }
             
-            // Show final summary
-            Console.WriteLine($"\n{statusIcon} {statusText} {durationText}");
-            
-            if (totalProcessed > 0)
+            WriteLine($"\n{statusIcon} {statusText} {durationText}");
+
+            var summaryParts = new List<string>();
+            if (_totalItems > 0)
             {
-                var stats = new List<string>();
-                if (_createdSecrets > 0) stats.Add($"{_createdSecrets} created");
-                if (_updatedSecrets > 0) stats.Add($"{_updatedSecrets} updated");
-                if (_skippedSecrets > 0) stats.Add($"{_skippedSecrets} up-to-date");
-                if (_failedSecrets > 0) stats.Add($"{_failedSecrets} failed");
-                
-                if (stats.Any())
+                summaryParts.Add($"processed {totalProcessed}/{_totalItems}");
+            }
+            else if (totalProcessed > 0)
+            {
+                summaryParts.Add($"processed {totalProcessed}");
+            }
+
+            if (_createdSecrets > 0) summaryParts.Add($"{_createdSecrets} created");
+            if (_updatedSecrets > 0) summaryParts.Add($"{_updatedSecrets} updated");
+            if (_skippedSecrets > 0) summaryParts.Add($"{_skippedSecrets} skipped");
+            if (_failedSecrets > 0) summaryParts.Add($"{_failedSecrets} failed");
+
+            if (summaryParts.Any())
+            {
+                WriteLine($"   Summary: {string.Join(", ", summaryParts)}");
+            }
+
+            var failedItems = _items.Values
+                .Where(item => item.Outcome == SyncItemOutcome.Failed)
+                .OrderBy(item => item.Name)
+                .ToList();
+
+            if (failedItems.Any())
+            {
+                WriteLine("   Failed items:");
+                foreach (var item in failedItems)
                 {
-                    Console.WriteLine($"   Secrets: {string.Join(", ", stats)}");
+                    var name = string.IsNullOrWhiteSpace(item.Name) ? item.Key : item.Name;
+                    var details = string.IsNullOrWhiteSpace(item.Details) ? "No additional details" : item.Details;
+                    WriteLine($"     • {name}: {details}");
                 }
             }
-            
+
             if (!string.IsNullOrEmpty(finalMessage))
             {
-                Console.WriteLine($"   {finalMessage}");
+                WriteLine($"   {finalMessage}");
             }
             
-            Console.WriteLine(); // Extra line for spacing
+            WriteLine(string.Empty);
         }
     }
-
-    private void UpdateDisplay(object? state)
-    {
-        lock (_lock)
-        {
-            if (!_isActive || _disposed || !_supportsAdvancedConsole) return;
-            
-            try
-            {
-                // During authentication/fetching phase with no items, update less frequently
-                if (_items.IsEmpty && _currentPhase.Contains("Authenticating"))
-                {
-                    // Skip some updates during auth phase to reduce console interference
-                    var elapsed = DateTime.UtcNow - _startTime;
-                    if (elapsed.TotalSeconds % 2 < 0.5) // Only update every ~2 seconds during auth
-                        return;
-                }
-                
-                var content = BuildDisplayContent();
-                RenderUpdate(content);
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogDebug(ex, "Failed to update dynamic display, falling back to simple mode");
-                _supportsAdvancedConsole = false;
-            }
-        }
-    }
-
-    private string BuildDisplayContent()
-    {
-        var sb = new StringBuilder();
-        var elapsed = DateTime.UtcNow - _startTime;
-        
-        // Header with current phase and elapsed time
-        sb.AppendLine($"🔄 {_currentPhase} ({elapsed.TotalSeconds:F1}s)");
-        
-        // Progress statistics
-        if (_totalItems > 0)
-        {
-            var progressPercentage = _totalItems > 0 ? (_processedItems * 100.0 / _totalItems) : 0;
-            var progressBar = CreateProgressBar(progressPercentage, 30);
-            sb.AppendLine($"   Progress: {progressBar} {_processedItems}/{_totalItems} ({progressPercentage:F0}%)");
-        }
-        
-        // Quick stats summary
-        if (_processedItems > 0)
-        {
-            var stats = new List<string>();
-            if (_createdSecrets > 0) stats.Add($"Created: {_createdSecrets}");
-            if (_updatedSecrets > 0) stats.Add($"Updated: {_updatedSecrets}");
-            if (_skippedSecrets > 0) stats.Add($"Skipped: {_skippedSecrets}");
-            if (_failedSecrets > 0) stats.Add($"Failed: {_failedSecrets}");
-            
-            if (stats.Any())
-            {
-                sb.AppendLine($"   Stats: {string.Join(", ", stats)}");
-            }
-        }
-        
-        sb.AppendLine(); // Separator
-        
-        // Item details (show most recent items, limit to fit screen)
-        var items = _items.Values
-            .OrderByDescending(x => x.UpdateTime)
-            .Take(15) // Limit to 15 most recent items
-            .ToList();
-            
-        if (items.Any())
-        {
-            foreach (var item in items)
-            {
-                var icon = GetStatusIcon(item);
-                var name = TruncateText(item.Name, 40);
-                var status = TruncateText(item.Status, 25);
-                
-                sb.AppendLine($"  {icon} {name,-40} {status}");
-                
-                if (!string.IsNullOrEmpty(item.Details))
-                {
-                    var details = TruncateText(item.Details, 60);
-                    sb.AppendLine($"     └─ {details}");
-                }
-            }
-        }
-        else
-        {
-            sb.AppendLine("  Initializing...");
-        }
-        
-        return sb.ToString().TrimEnd();
-    }
-
-    private string CreateProgressBar(double percentage, int width)
-    {
-        var filled = (int)(percentage / 100.0 * width);
-        var empty = width - filled;
-        
-        return $"[{new string('█', filled)}{new string('░', empty)}]";
-    }
-
-    private string GetStatusIcon(SyncItemStatus item)
-    {
-        if (item.Outcome.HasValue)
-        {
-            return GetOutcomeIcon(item.Outcome.Value);
-        }
-        
-        // Default spinner for in-progress items
-        var chars = new[] { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
-        var index = (int)(DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond / 150) % chars.Length;
-        return chars[index];
-    }
-
     private string GetOutcomeIcon(SyncItemOutcome? outcome)
     {
         return outcome switch
@@ -361,187 +238,47 @@ public class DynamicSyncProgressDisplay : IDisposable
         };
     }
 
-    private string TruncateText(string text, int maxLength)
+    private void LogItemUpdate(SyncItemStatus item, string status, string? details)
     {
-        if (string.IsNullOrEmpty(text)) return "";
-        return text.Length <= maxLength ? text : text.Substring(0, maxLength - 3) + "...";
+        var timestamp = DateTime.UtcNow.ToString("HH:mm:ss");
+        var icon = GetStatusIcon(item);
+        var name = string.IsNullOrWhiteSpace(item.Name) ? item.Key : item.Name;
+        var keySuffix = !string.IsNullOrWhiteSpace(item.Key) && item.Key != name ? $" [{item.Key}]" : string.Empty;
+        var detailText = string.IsNullOrWhiteSpace(details) ? string.Empty : $" - {details}";
+
+        WriteLine($"[{timestamp}] {icon} {name}{keySuffix}: {status}{detailText}");
     }
 
-    private void RenderUpdate(string content)
+    private string GetStatusIcon(SyncItemStatus item)
     {
-        try
+        if (item.Outcome.HasValue)
         {
-            // Get current cursor position to be safer
-            var currentTop = Console.CursorTop;
-            var newLineCount = content.Split('\n').Length;
-            
-            // Only clear if we have previously rendered content and cursor position makes sense
-            if (_lastRenderedLines > 0 && currentTop >= _lastRenderedLines)
-            {
-                // Move cursor to start of our display area
-                Console.SetCursorPosition(0, currentTop - _lastRenderedLines);
-                
-                // Clear only our previous content, line by line
-                for (int i = 0; i < _lastRenderedLines; i++)
-                {
-                    // Get actual console width, with safety bounds
-                    var width = Math.Max(20, Math.Min(Console.WindowWidth - 1, 120));
-                    Console.Write(new string(' ', width));
-                    
-                    // Only add newline if not on last line to avoid scrolling
-                    if (i < _lastRenderedLines - 1)
-                    {
-                        Console.WriteLine();
-                    }
-                }
-                
-                // Move cursor back to start position
-                Console.SetCursorPosition(0, currentTop - _lastRenderedLines);
-            }
-            
-            // Write new content
-            Console.Write(content);
-            
-            // Update line count for next render
-            _lastRenderedLines = newLineCount;
-            
-            // Ensure cursor is positioned correctly
-            if (!content.EndsWith('\n'))
-            {
-                Console.WriteLine();
-                _lastRenderedLines++;
-            }
+            return GetOutcomeIcon(item.Outcome);
         }
-        catch (Exception ex)
-        {
-            // If console manipulation fails, fall back to simple mode
-            _logger?.LogDebug(ex, "Console manipulation failed, switching to simple mode");
-            _supportsAdvancedConsole = false;
-            
-            // Just write the content normally
-            Console.WriteLine(content);
-        }
+
+        return "•";
     }
 
-    private void ClearDisplay()
+    private void WriteLine(string message)
     {
-        try
+        if (_logger != null)
         {
-            if (_lastRenderedLines > 0)
-            {
-                Console.SetCursorPosition(0, Console.CursorTop - _lastRenderedLines);
-                for (int i = 0; i < _lastRenderedLines; i++)
-                {
-                    var width = Math.Min(Console.WindowWidth - 1, 100);
-                    Console.Write(new string(' ', width));
-                    Console.WriteLine();
-                }
-                Console.SetCursorPosition(0, Console.CursorTop - _lastRenderedLines);
-            }
+            _logger.LogInformation("{Message}", message);
         }
-        catch {         }
-    }
-
-    private static bool IsRunningInDebugConsole()
-    {
-        // Check for common debug environment indicators
-        try
+        else
         {
-            // VS Code Debug Console often has limited window width
-            if (Console.WindowWidth <= 1 || Console.WindowHeight <= 1)
-                return true;
-                
-            // Check for debug-specific environment variables
-            var debugVars = new[] { 
-                "VSCODE_INSPECTOR_OPTIONS", 
-                "DOTNET_RUNNING_IN_CONTAINER",
-                "VSCODE_PID",           // VS Code process
-                "TERM_PROGRAM",         // Terminal program identifier
-                "VSCODE_CWD",           // VS Code working directory
-                "VSCODE_GIT_ASKPASS_NODE",
-                "VSCODE_GIT_ASKPASS_EXTRA_ARGS"
-            };
-            foreach (var debugVar in debugVars)
-            {
-                if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable(debugVar)))
-                    return true;
-            }
-            
-            // Check if we're in a debugger
-            if (System.Diagnostics.Debugger.IsAttached)
-                return true;
-                
-            // Check if output is redirected (common in debug consoles)
-            if (Console.IsOutputRedirected || Console.IsErrorRedirected)
-                return true;
-                
-            // Check for small console window (typical of debug consoles)
-            if (Console.WindowWidth < 80 || Console.WindowHeight < 20)
-                return true;
-                
-            return false;
+            Console.WriteLine(message);
         }
-        catch
-        {
-            return true; // If we can't determine, assume we're in a limited environment
-        }
-    }
-
-    private static bool IsRunningInCI()
-    {
-        // Check for common CI environment variables
-        var ciVars = new[] 
-        { 
-            "CI", "CONTINUOUS_INTEGRATION", "GITHUB_ACTIONS", 
-            "AZURE_PIPELINES", "JENKINS_URL", "GITLAB_CI",
-            "TEAMCITY_VERSION", "BAMBOO_BUILD_NUMBER"
-        };
-        
-        return ciVars.Any(var => !string.IsNullOrEmpty(Environment.GetEnvironmentVariable(var)));
-    }
-
-    private static string GetDebugEnvironmentReason()
-    {
-        if (System.Diagnostics.Debugger.IsAttached)
-            return "Debugger attached";
-            
-        if (Console.IsOutputRedirected)
-            return "Output redirected";
-            
-        if (IsRunningInCI())
-            return "CI environment detected";
-            
-        try
-        {
-            if (Console.WindowWidth <= 1 || Console.WindowHeight <= 1)
-                return "Limited console";
-        }
-        catch { }
-        
-        return "Simple mode";
     }
 
     public void Dispose()
     {
         if (_disposed) return;
-        
+
         lock (_lock)
         {
             _disposed = true;
             _isActive = false;
-            _updateTimer?.Dispose();
-            
-            if (_supportsAdvancedConsole)
-            {
-                try
-                {
-                    if (OperatingSystem.IsWindows())
-                    {
-                        Console.CursorVisible = true;
-                    }
-                }
-                catch { }
-            }
         }
     }
 }

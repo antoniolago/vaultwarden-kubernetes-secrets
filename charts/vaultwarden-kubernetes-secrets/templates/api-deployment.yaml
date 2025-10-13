@@ -1,0 +1,69 @@
+{{- if .Values.api.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vaultwarden-kubernetes-secrets.fullname" . }}-api
+  labels:
+    {{- include "vaultwarden-kubernetes-secrets.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "vaultwarden-kubernetes-secrets.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        {{- include "vaultwarden-kubernetes-secrets.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+    spec:
+      serviceAccountName: {{ include "vaultwarden-kubernetes-secrets.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      containers:
+      - name: api
+        image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        env:
+        - name: DatabasePath
+          value: {{ .Values.api.databasePath }}
+        - name: DashboardUrl
+          value: {{ .Values.dashboard.url }}
+        {{- if .Values.api.auth.enabled }}
+        - name: AuthToken
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "vaultwarden-kubernetes-secrets.fullname" . }}-auth
+              key: token
+        {{- end }}
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          {{- toYaml .Values.api.resources | nindent 10 }}
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        {{- if .Values.api.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ include "vaultwarden-kubernetes-secrets.fullname" . }}-api-data
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+{{- end }}

@@ -14,20 +14,20 @@ public static class SyncSummaryFormatter
         
         var sb = new StringBuilder();
         
-        // Header with ASCII art
+        // Header
         sb.AppendLine();
-        sb.AppendLine("╔══════════════════════════════════════════════════════════════╗");
-        sb.AppendLine("║              🔄 VAULTWARDEN K8S SYNC SUMMARY 🔄               ║");
-        sb.AppendLine("╚══════════════════════════════════════════════════════════════╝");
+        sb.AppendLine("=============================================================");
+        sb.AppendLine("         🔄 VAULTWARDEN K8S SYNC SUMMARY 🔄");
+        sb.AppendLine("=============================================================");
         sb.AppendLine();
         
-        // Compact overview (all on fewer lines)
-        AppendCompactOverview(sb, summary, isDryRun);
+        // Overview
+        AppendOverview(sb, summary, isDryRun);
         
-        // Namespace details (more compact)
+        // Namespace details
         if (summary.Namespaces?.Any() == true)
         {
-            AppendCompactNamespaceDetails(sb, summary.Namespaces, isDryRun);
+            AppendNamespaceDetails(sb, summary.Namespaces, isDryRun);
         }
         
         // Footer
@@ -36,68 +36,50 @@ public static class SyncSummaryFormatter
         return sb.ToString();
     }
     
-    private static void AppendCompactOverview(StringBuilder sb, SyncSummary summary, bool isDryRun)
+    private static void AppendOverview(StringBuilder sb, SyncSummary summary, bool isDryRun)
     {
-        // Build all sections side by side in columns
-        RenderAllSections(sb, summary, isDryRun);
-        sb.AppendLine();
-    }
-    
-    private static void RenderAllSections(StringBuilder sb, SyncSummary summary, bool isDryRun)
-    {
-        const int col1Width = 45;  // Sync Info
-        const int col2Width = 45;  // Quick Stats
-        
         var dryRunTag = isDryRun ? " [DRY RUN]" : "";
         var statusIcon = summary.GetStatusIcon();
         var statusText = summary.GetStatusText();
         
-        // Build column 1 (Sync Info)
-        var col1Lines = new List<string>();
-        col1Lines.Add($"📊 Sync #{summary.SyncNumber}{dryRunTag}");
-        col1Lines.Add($"⏱️  Duration: {summary.Duration.TotalSeconds:F1}s");
-        col1Lines.Add($"🎯 Status: {statusIcon} {statusText}");
-        col1Lines.Add($"📦 Items from Vaultwarden: {summary.TotalItemsFromVaultwarden}");
-        col1Lines.Add($"🌐 Namespaces processed: {summary.TotalNamespaces}");
-        col1Lines.Add($"🔄 Changes detected: {(summary.HasChanges ? "Yes" : "No")}");
+        sb.AppendLine($"📊 Sync #{summary.SyncNumber}{dryRunTag}");
+        sb.AppendLine($"⏱️  Duration: {summary.Duration.TotalSeconds:F1}s");
+        sb.AppendLine($"🎯 Status: {statusIcon} {statusText}");
+        sb.AppendLine($"📦 Items from Vaultwarden: {summary.TotalItemsFromVaultwarden}");
+        sb.AppendLine($"🌐 Namespaces processed: {summary.TotalNamespaces}");
+        sb.AppendLine($"🔄 Changes detected: {(summary.HasChanges ? "Yes" : "No")}");
+        sb.AppendLine();
         
-        // Build column 2 (Quick Stats)
-        var col2Lines = new List<string>();
-        col2Lines.Add("📈 QUICK STATS");
-        col2Lines.Add("├─────────────────────────────────────────");
-        col2Lines.Add($"│ 🆕 Created: {summary.TotalSecretsCreated,4}");
-        col2Lines.Add($"│ 🔄 Updated: {summary.TotalSecretsUpdated,4}");
-        col2Lines.Add($"│ ✅ Up-To-Date: {summary.TotalSecretsSkipped,4}");
-        col2Lines.Add($"│ ❌ Failed:  {summary.TotalSecretsFailed,4}");
-        col2Lines.Add($"│ 🧹 Orphans: {summary.OrphanCleanup?.TotalOrphansDeleted ?? 0,4}");
-        col2Lines.Add($"│ ➤  Total:   {summary.TotalSecretsProcessed,4}");
-        col2Lines.Add("└─────────────────────────────────────────");
+        // Stats
+        sb.AppendLine("📈 STATISTICS:");
+        sb.AppendLine($"   🆕 Created: {summary.TotalSecretsCreated}");
+        sb.AppendLine($"   🔄 Updated: {summary.TotalSecretsUpdated}");
+        sb.AppendLine($"   ✅ Up-to-date: {summary.TotalSecretsSkipped}");
+        sb.AppendLine($"   ❌ Failed: {summary.TotalSecretsFailed}");
+        sb.AppendLine($"   🧹 Orphans deleted: {summary.OrphanCleanup?.TotalOrphansDeleted ?? 0}");
+        sb.AppendLine($"   ➤  Total processed: {summary.TotalSecretsProcessed}");
+        sb.AppendLine();
         
-        // Build column 3 (Orphan Cleanup + Issues)
-        var col3Lines = new List<string>();
-        
-        // Orphan cleanup section
+        // Orphan cleanup
         if (summary.OrphanCleanup?.Enabled == true && summary.OrphanCleanup.TotalOrphansFound > 0)
         {
             var orphanStatusIcon = summary.OrphanCleanup.GetStatusIcon();
             var dryRunText = isDryRun ? " (would delete)" : "";
-            col3Lines.Add("🧹 ORPHAN CLEANUP");
-            col3Lines.Add($"  {orphanStatusIcon} {summary.OrphanCleanup.TotalOrphansDeleted}/{summary.OrphanCleanup.TotalOrphansFound} deleted{dryRunText}");
-            col3Lines.Add("");
+            sb.AppendLine("🧹 ORPHAN CLEANUP:");
+            sb.AppendLine($"   {orphanStatusIcon} {summary.OrphanCleanup.TotalOrphansDeleted}/{summary.OrphanCleanup.TotalOrphansFound} deleted{dryRunText}");
+            sb.AppendLine();
         }
         
-        // Issues section
+        // Issues
         if (summary?.Errors?.Any() == true || summary?.Warnings?.Any() == true)
         {
-            col3Lines.Add("⚠️  ISSUES");
-            col3Lines.Add("├────────────────────────────────────────────────────────────────────────────");
+            sb.AppendLine("⚠️  ISSUES:");
             
             if (summary.Errors?.Any() == true)
             {
                 foreach (var error in summary.Errors)
                 {
-                    var shortError = error.Length > 70 ? error.Substring(0, 67) + "..." : error;
-                    col3Lines.Add($"│ ❌ {shortError}");
+                    sb.AppendLine($"   ❌ {error}");
                 }
             }
             
@@ -105,42 +87,20 @@ public static class SyncSummaryFormatter
             {
                 foreach (var warning in summary.Warnings)
                 {
-                    var shortWarning = warning.Length > 70 ? warning.Substring(0, 67) + "..." : warning;
-                    col3Lines.Add($"│ ⚠️  {shortWarning}");
+                    sb.AppendLine($"   ⚠️  {warning}");
                 }
             }
             
-            col3Lines.Add("└────────────────────────────────────────────────────────────────────────────");
-        }
-        
-        // Render all columns side by side
-        int maxLines = Math.Max(col1Lines.Count, Math.Max(col2Lines.Count, col3Lines.Count));
-        
-        for (int i = 0; i < maxLines; i++)
-        {
-            var line1 = i < col1Lines.Count ? col1Lines[i] : "";
-            var line2 = i < col2Lines.Count ? col2Lines[i] : "";
-            var line3 = i < col3Lines.Count ? col3Lines[i] : "";
-            
-            // Pad columns
-            var paddedLine1 = line1.PadRight(col1Width);
-            var paddedLine2 = line2.PadRight(col2Width);
-            
-            sb.Append(paddedLine1);
-            sb.Append("  ");
-            sb.Append(paddedLine2);
-            sb.Append("  ");
-            sb.AppendLine(line3);
+            sb.AppendLine();
         }
     }
     
-    
-    private static void AppendCompactNamespaceDetails(StringBuilder sb, List<NamespaceSummary> namespaces, bool isDryRun)
+    private static void AppendNamespaceDetails(StringBuilder sb, List<NamespaceSummary> namespaces, bool isDryRun)
     {
         if (namespaces == null || !namespaces.Any()) return;
         
-        sb.AppendLine("🌐 NAMESPACE DETAILS");
-        sb.AppendLine("├─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────");
+        sb.AppendLine("🌐 NAMESPACE DETAILS:");
+        sb.AppendLine();
         
         // Group namespaces by status
         var created = namespaces.Where(n => n.Created > 0 && n.Failed == 0).ToList();
@@ -149,100 +109,88 @@ public static class SyncSummaryFormatter
         var failed = namespaces.Where(n => n.Failed > 0 || !n.Success).ToList();
         var notFound = namespaces.Where(n => n.Errors.Any(e => e.Contains("not found") || e.Contains("does not exist"))).ToList();
         
-        // Build column data
-        var columns = new List<ColumnData>();
-        if (created.Any()) columns.Add(new ColumnData { Header = "🆕 CREATED", Namespaces = created });
-        if (updated.Any()) columns.Add(new ColumnData { Header = "🔄 UPDATED", Namespaces = updated });
-        if (upToDate.Any()) columns.Add(new ColumnData { Header = "✅ UP-TO-DATE", Namespaces = upToDate });
-        if (failed.Any()) columns.Add(new ColumnData { Header = "❌ FAILED", Namespaces = failed });
-        if (notFound.Any()) columns.Add(new ColumnData { Header = "⚠️  NOT FOUND", Namespaces = notFound });
-        
-        if (!columns.Any()) return;
-        
-        // Render columns side by side
-        RenderColumnsHorizontally(sb, columns);
-        
-        sb.AppendLine("└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────");
-        sb.AppendLine();
-    }
-    
-    private static void RenderColumnsHorizontally(StringBuilder sb, List<ColumnData> columns)
-    {
-        const int columnWidth = 40;
-        
-        // Prepare all column lines
-        var columnLines = new List<List<string>>();
-        int maxLines = 0;
-        
-        foreach (var column in columns)
+        // Render each group
+        if (created.Any())
         {
-            var lines = new List<string>();
-            lines.Add(column.Header);
-            
-            foreach (var ns in column.Namespaces.OrderBy(n => n.Name))
+            sb.AppendLine("🆕 CREATED:");
+            foreach (var ns in created.OrderBy(n => n.Name))
             {
-                if (ns == null) continue;
-                
-                // Build stats string
-                var stats = new List<string>();
-                if (ns.Created > 0) stats.Add($"C:{ns.Created}");
-                if (ns.Updated > 0) stats.Add($"U:{ns.Updated}");
-                if (ns.Skipped > 0) stats.Add($"S:{ns.Skipped}");
-                if (ns.Failed > 0) stats.Add($"F:{ns.Failed}");
-                
-                var statsText = stats.Any() ? $" [{string.Join(", ", stats)}]" : "";
-                var namespaceLine = $"  • {ns.Name}{statsText}";
-                lines.Add(namespaceLine);
-                
-                // Show errors if any
-                if (ns.Errors.Any())
+                var stats = GetNamespaceStatsText(ns);
+                sb.AppendLine($"   • {ns.Name}{stats}");
+                foreach (var error in ns.Errors)
                 {
-                    foreach (var error in ns.Errors.Take(1)) // Limit to 1 error per namespace for space
-                    {
-                        var shortError = error.Length > 32 ? error.Substring(0, 29) + "..." : error;
-                        lines.Add($"    ↳ {shortError}");
-                    }
+                    sb.AppendLine($"     ↳ {error}");
                 }
             }
-            
-            columnLines.Add(lines);
-            maxLines = Math.Max(maxLines, lines.Count);
+            sb.AppendLine();
         }
         
-        // Render lines horizontally
-        for (int lineIndex = 0; lineIndex < maxLines; lineIndex++)
+        if (updated.Any())
         {
-            sb.Append("│ ");
-            
-            for (int colIndex = 0; colIndex < columns.Count; colIndex++)
+            sb.AppendLine("🔄 UPDATED:");
+            foreach (var ns in updated.OrderBy(n => n.Name))
             {
-                var lines = columnLines[colIndex];
-                var line = lineIndex < lines.Count ? lines[lineIndex] : "";
-                
-                // Pad to column width
-                var paddedLine = line.PadRight(columnWidth);
-                if (paddedLine.Length > columnWidth)
+                var stats = GetNamespaceStatsText(ns);
+                sb.AppendLine($"   • {ns.Name}{stats}");
+                foreach (var error in ns.Errors)
                 {
-                    paddedLine = paddedLine.Substring(0, columnWidth - 3) + "...";
-                }
-                
-                sb.Append(paddedLine);
-                
-                // Add separator between columns (except last)
-                if (colIndex < columns.Count - 1)
-                {
-                    sb.Append(" │ ");
+                    sb.AppendLine($"     ↳ {error}");
                 }
             }
-            
+            sb.AppendLine();
+        }
+        
+        if (upToDate.Any())
+        {
+            sb.AppendLine("✅ UP-TO-DATE:");
+            foreach (var ns in upToDate.OrderBy(n => n.Name))
+            {
+                var stats = GetNamespaceStatsText(ns);
+                sb.AppendLine($"   • {ns.Name}{stats}");
+            }
+            sb.AppendLine();
+        }
+        
+        if (failed.Any())
+        {
+            sb.AppendLine("❌ FAILED:");
+            foreach (var ns in failed.OrderBy(n => n.Name))
+            {
+                var stats = GetNamespaceStatsText(ns);
+                sb.AppendLine($"   • {ns.Name}{stats}");
+                foreach (var error in ns.Errors)
+                {
+                    sb.AppendLine($"     ↳ {error}");
+                }
+            }
+            sb.AppendLine();
+        }
+        
+        if (notFound.Any())
+        {
+            sb.AppendLine("⚠️  NOT FOUND:");
+            foreach (var ns in notFound.OrderBy(n => n.Name))
+            {
+                var stats = GetNamespaceStatsText(ns);
+                sb.AppendLine($"   • {ns.Name}{stats}");
+                foreach (var error in ns.Errors)
+                {
+                    sb.AppendLine($"     ↳ {error}");
+                }
+            }
             sb.AppendLine();
         }
     }
     
-    private class ColumnData
+    private static string GetNamespaceStatsText(NamespaceSummary ns)
     {
-        public string Header { get; set; } = string.Empty;
-        public List<NamespaceSummary> Namespaces { get; set; } = new();
+        var stats = new List<string>();
+        if (ns.Created > 0) stats.Add($"C:{ns.Created}");
+        if (ns.Updated > 0) stats.Add($"U:{ns.Updated}");
+        if (ns.Skipped > 0) stats.Add($"S:{ns.Skipped}");
+        if (ns.Failed > 0) stats.Add($"F:{ns.Failed}");
+        
+        return stats.Any() ? $" [{string.Join(", ", stats)}]" : "";
     }
     
     private static void AppendFooter(StringBuilder sb, SyncSummary summary)
@@ -252,8 +200,8 @@ public static class SyncSummaryFormatter
         var statusIcon = summary.GetStatusIcon();
         var endTime = summary.EndTime.ToString("HH:mm:ss");
         
-        sb.AppendLine("╔══════════════════════════════════════════════════════════════╗");
-        sb.AppendLine($"║ {statusIcon} Sync completed at {endTime} - Next sync in configured interval ║");
-        sb.AppendLine("╚══════════════════════════════════════════════════════════════╝");
+        sb.AppendLine("=============================================================");
+        sb.AppendLine($"{statusIcon} Sync completed at {endTime} - Next sync in configured interval");
+        sb.AppendLine("=============================================================");
     }
 }
