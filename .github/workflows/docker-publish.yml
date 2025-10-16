@@ -403,38 +403,4 @@ jobs:
         env:
           PR_TAG: ${{ steps.vars.outputs.pr_tag }}
 
-      - name: Add PR image info to PR description
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const dockerInfoSection = `## Docker Image for Testing
-
-            This PR includes a pre-built Docker image for easy testing:
-
-            Image: ghcr.io/${context.repo.owner}/vaultwarden-kubernetes-secrets:${process.env.PR_TAG}
-
-            Quick Test Command:
-            kubectl set image deployment/vaultwarden-kubernetes-secrets vaultwarden-kubernetes-secrets=ghcr.io/${context.repo.owner}/vaultwarden-kubernetes-secrets:${process.env.PR_TAG}
-
-            ---
-            `;
-            
-            // Add a summary to the PR description if it doesn't already have Docker info
-            const pr = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.issue.number
-            });
-            
-            if (!pr.data.body || !pr.data.body.includes('Docker Image for Testing')) {
-              const newBody = pr.data.body ? `${pr.data.body}\n\n${dockerInfoSection}` : dockerInfoSection;
-              
-              await github.rest.pulls.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: context.issue.number,
-                body: newBody
-              });
-            }
-        env:
-          PR_TAG: ${{ steps.vars.outputs.pr_tag }}
+      
