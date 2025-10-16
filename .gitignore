@@ -407,3 +407,6 @@ FodyWeavers.xsd
 
 # Act secrets file
 .secrets.tmp
+
+data
+dashboard/test-results/.last-run.json
