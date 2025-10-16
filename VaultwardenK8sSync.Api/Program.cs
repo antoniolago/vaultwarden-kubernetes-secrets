@@ -37,13 +37,19 @@ builder.Services.AddDbContext<SyncDbContext>(options =>
 // Register repositories
 builder.Services.AddScoped<ISyncLogRepository, SyncLogRepository>();
 builder.Services.AddScoped<ISecretStateRepository, SecretStateRepository>();
+builder.Services.AddScoped<IVaultwardenItemRepository, VaultwardenItemRepository>();
 
-// Add Vaultwarden service and dependencies
+// Add Vaultwarden and Kubernetes services
 var appSettings = AppSettings.FromEnvironment();
 builder.Services.AddSingleton(appSettings.Vaultwarden);
-builder.Services.AddScoped<IProcessFactory, ProcessFactory>();
-builder.Services.AddScoped<IProcessRunner, ProcessRunner>();
-builder.Services.AddScoped<IVaultwardenService, VaultwardenService>();
+builder.Services.AddSingleton(appSettings.Kubernetes);
+// Make these singleton to work with VaultwardenService singleton
+builder.Services.AddSingleton<IProcessFactory, ProcessFactory>();
+builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
+// Make VaultwardenService singleton to preserve authentication state across requests
+builder.Services.AddSingleton<IVaultwardenService, VaultwardenService>();
+// Make KubernetesService singleton to preserve client connection across requests
+builder.Services.AddSingleton<IKubernetesService, KubernetesService>();
 
 // Add CORS
 builder.Services.AddCors(options =>
@@ -81,11 +87,59 @@ builder.Services.AddHealthChecks()
 
 var app = builder.Build();
 
-// Ensure database is created
+// Ensure database is created and migrated
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<SyncDbContext>();
     await db.Database.EnsureCreatedAsync();
+    
+    // Migrate schema: Create VaultwardenItems table if it doesn't exist
+    try
+    {
+        var connection = db.Database.GetDbConnection();
+        await connection.OpenAsync();
+        
+        // Check if VaultwardenItems table exists
+        using (var checkCmd = connection.CreateCommand())
+        {
+            checkCmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='VaultwardenItems';";
+            var tableExists = await checkCmd.ExecuteScalarAsync();
+            
+            if (tableExists == null)
+            {
+                Console.WriteLine("⚙️  Creating VaultwardenItems table...");
+                using var createCmd = connection.CreateCommand();
+                createCmd.CommandText = @"
+                    CREATE TABLE VaultwardenItems (
+                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ItemId TEXT NOT NULL UNIQUE,
+                        Name TEXT NOT NULL,
+                        FolderId TEXT,
+                        OrganizationId TEXT,
+                        OrganizationName TEXT,
+                        Owner TEXT,
+                        FieldCount INTEGER NOT NULL DEFAULT 0,
+                        FieldNamesJson TEXT,
+                        Notes TEXT,
+                        LastFetched TEXT NOT NULL,
+                        HasNamespacesField INTEGER NOT NULL DEFAULT 0,
+                        NamespacesJson TEXT
+                    );
+                    CREATE UNIQUE INDEX IX_VaultwardenItems_ItemId ON VaultwardenItems (ItemId);
+                    CREATE INDEX IX_VaultwardenItems_LastFetched ON VaultwardenItems (LastFetched);
+                    CREATE INDEX IX_VaultwardenItems_HasNamespacesField ON VaultwardenItems (HasNamespacesField);
+                ";
+                await createCmd.ExecuteNonQueryAsync();
+                Console.WriteLine("✅ VaultwardenItems table created");
+            }
+        }
+        
+        await connection.CloseAsync();
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"⚠️  Warning: Could not migrate database schema: {ex.Message}");
+    }
 }
 
 // Configure the HTTP request pipeline

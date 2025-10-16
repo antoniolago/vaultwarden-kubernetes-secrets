@@ -8,16 +8,19 @@ namespace VaultwardenK8sSync.Api.Controllers;
 [Route("api/[controller]")]
 public class DiscoveryController : ControllerBase
 {
-    private readonly ISecretStateRepository _repository;
+    private readonly ISecretStateRepository _secretStateRepository;
+    private readonly IVaultwardenItemRepository _vaultwardenItemRepository;
     private readonly IVaultwardenService _vaultwardenService;
     private readonly ILogger<DiscoveryController> _logger;
 
     public DiscoveryController(
-        ISecretStateRepository repository, 
+        ISecretStateRepository secretStateRepository,
+        IVaultwardenItemRepository vaultwardenItemRepository,
         IVaultwardenService vaultwardenService,
         ILogger<DiscoveryController> logger)
     {
-        _repository = repository;
+        _secretStateRepository = secretStateRepository;
+        _vaultwardenItemRepository = vaultwardenItemRepository;
         _vaultwardenService = vaultwardenService;
         _logger = logger;
     }
@@ -30,10 +33,24 @@ public class DiscoveryController : ControllerBase
     {
         try
         {
-            var syncedSecrets = await _repository.GetAllAsync();
+            var syncedSecrets = await _secretStateRepository.GetAllAsync();
             
-            // Fetch Vaultwarden items using existing service
-            var vaultwardenItems = await GetVaultwardenItemsAsync();
+            // Read cached Vaultwarden items from database (populated by sync service)
+            var cachedItems = await _vaultwardenItemRepository.GetAllAsync();
+            var lastFetch = await _vaultwardenItemRepository.GetLastFetchTimeAsync();
+            
+            var vaultwardenItems = cachedItems.Select(item => new VaultwardenItem
+            {
+                Id = item.ItemId,
+                Name = item.Name,
+                Folder = item.FolderId,
+                OrganizationId = item.OrganizationId,
+                OrganizationName = item.OrganizationName,
+                Owner = item.Owner,
+                Fields = item.FieldCount,
+                Notes = item.Notes,
+                HasNamespacesField = item.HasNamespacesField
+            }).ToList();
             
             var response = new DiscoveryData
             {
@@ -48,7 +65,7 @@ public class DiscoveryController : ControllerBase
                     Status = s.Status
                 }).ToList(),
                 
-                LastScanTime = DateTime.UtcNow
+                LastScanTime = lastFetch ?? DateTime.UtcNow
             };
             
             return Ok(response);
@@ -56,45 +73,49 @@ public class DiscoveryController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching discovery data");
-            return StatusCode(500, "Error fetching discovery data");
+            return StatusCode(500, new { 
+                error = "Error fetching discovery data", 
+                message = ex.Message,
+                details = ex.InnerException?.Message 
+            });
         }
     }
 
-    private async Task<List<VaultwardenItem>> GetVaultwardenItemsAsync()
+    /// <summary>
+    /// Get custom field names for a Vaultwarden item from cache
+    /// </summary>
+    [HttpGet("/api/vaultwarden/items/{itemId}/fields")]
+    public async Task<ActionResult<List<string>>> GetItemFields(string itemId)
     {
         try
         {
-            // Try to authenticate if not already authenticated
-            try
+            var cachedItem = await _vaultwardenItemRepository.GetByItemIdAsync(itemId);
+            
+            if (cachedItem == null)
             {
-                await _vaultwardenService.AuthenticateAsync();
-            }
-            catch (Exception authEx)
-            {
-                _logger.LogWarning(authEx, "Failed to authenticate with Vaultwarden");
-                return new List<VaultwardenItem>();
+                return NotFound(new { error = "Item not found in cache", itemId });
             }
             
-            // Use the existing Vaultwarden service
-            var items = await _vaultwardenService.GetItemsAsync();
-            
-            // Convert to API model
-            return items.Select(item => new VaultwardenItem
+            if (string.IsNullOrEmpty(cachedItem.FieldNamesJson))
             {
-                Id = item.Id,
-                Name = item.Name,
-                Folder = item.FolderId,
-                OrganizationId = item.OrganizationId,
-                Fields = item.Fields?.Count ?? 0,
-                Notes = item.Notes
-            }).ToList();
+                return Ok(new List<string>());
+            }
+            
+            var fieldNames = System.Text.Json.JsonSerializer.Deserialize<List<string>>(cachedItem.FieldNamesJson) 
+                ?? new List<string>();
+            
+            return Ok(fieldNames);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Unable to fetch Vaultwarden items");
-            return new List<VaultwardenItem>();
+            _logger.LogError(ex, "Error fetching fields for item {ItemId}", itemId);
+            return StatusCode(500, new { 
+                error = "Error fetching item fields", 
+                message = ex.Message 
+            });
         }
     }
+
 }
 
 public class DiscoveryData
@@ -110,8 +131,11 @@ public class VaultwardenItem
     public string Name { get; set; } = string.Empty;
     public string? Folder { get; set; }
     public string? OrganizationId { get; set; }
+    public string? OrganizationName { get; set; }
+    public string? Owner { get; set; }
     public int Fields { get; set; }
     public string? Notes { get; set; }
+    public bool HasNamespacesField { get; set; }
 }
 
 public class SyncedSecret

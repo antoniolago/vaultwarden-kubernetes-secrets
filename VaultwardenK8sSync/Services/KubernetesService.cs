@@ -20,6 +20,12 @@ public class KubernetesService : IKubernetesService
 
     public async Task<bool> InitializeAsync()
     {
+        // Skip if already initialized
+        if (_client != null)
+        {
+            return true;
+        }
+
         try
         {
             _logger.LogDebug("Initializing Kubernetes client...");

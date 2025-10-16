@@ -138,7 +138,14 @@ echo ""
 # Step 2: Run sync service (one-time)
 echo -e "${BLUE}Step 2: Running sync service...${NC}"
 cd "$SYNC_DIR"
-dotnet run -c Release sync > /tmp/sync.log 2>&1 &
+echo "Rebuilding sync service with latest code..."
+dotnet build -c Release > /dev/null 2>&1
+if [ $? -ne 0 ]; then
+    echo -e "${RED}✗ Sync service rebuild failed${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✓ Sync service rebuilt with latest code${NC}"
+dotnet run -c Release --no-build sync > /tmp/sync.log 2>&1 &
 SYNC_PID=$!
 echo "Sync service started (PID: $SYNC_PID)"
 echo "Log file: /tmp/sync.log"
@@ -182,7 +189,14 @@ echo ""
 # Step 3: Start API service
 echo -e "${BLUE}Step 3: Starting API service...${NC}"
 cd "$API_DIR"
-dotnet run -c Release > /tmp/api.log 2>&1 &
+echo "Rebuilding API with latest code..."
+dotnet build -c Release > /dev/null 2>&1
+if [ $? -ne 0 ]; then
+    echo -e "${RED}✗ API rebuild failed${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✓ API rebuilt with latest code${NC}"
+dotnet run -c Release --no-build > /tmp/api.log 2>&1 &
 API_PID=$!
 echo "API service started (PID: $API_PID)"
 
@@ -283,6 +297,21 @@ echo -e "${BLUE}Step 5: Starting dashboard...${NC}"
 cd "$DASHBOARD_DIR"
 echo "Dashboard directory: $DASHBOARD_DIR"
 
+# Build dashboard with latest code
+echo "Building dashboard with latest code..."
+if command -v bun > /dev/null 2>&1; then
+    bun run build > /dev/null 2>&1
+else
+    npm run build > /dev/null 2>&1
+fi
+if [ $? -eq 0 ]; then
+    echo -e "${GREEN}✓ Dashboard built with latest code${NC}"
+else
+    echo -e "${RED}✗ Dashboard build failed${NC}"
+    exit 1
+fi
+
+# Start dev server
 if command -v bun > /dev/null 2>&1; then
     echo "Using Bun for development server"
     bun run dev > /tmp/dashboard.log 2>&1 &

@@ -43,10 +43,18 @@ if [ ! -f "$DB_PATH" ]; then
     echo ""
 fi
 
-# Start API
-echo -e "${BLUE}🌐 Starting API...${NC}"
+# Build and start API
+echo -e "${BLUE}🌐 Building and starting API...${NC}"
 cd "$PROJECT_ROOT/VaultwardenK8sSync.Api"
-dotnet run > /tmp/vk8s-api.log 2>&1 &
+echo "Building API with latest code..."
+dotnet build -c Release > /dev/null 2>&1
+if [ $? -eq 0 ]; then
+    echo -e "${GREEN}✓ API built successfully${NC}"
+else
+    echo -e "${RED}✗ API build failed${NC}"
+    exit 1
+fi
+dotnet run -c Release --no-build > /tmp/vk8s-api.log 2>&1 &
 API_PID=$!
 echo "API started (PID: $API_PID)"
 
@@ -62,9 +70,23 @@ for i in {1..30}; do
 done
 echo ""
 
-# Start dashboard
-echo -e "${BLUE}💻 Starting Dashboard...${NC}"
+# Build and start dashboard
+echo -e "${BLUE}💻 Building and starting Dashboard...${NC}"
 cd "$PROJECT_ROOT/dashboard"
+echo "Building dashboard with latest code..."
+if [ -f "bun.lockb" ]; then
+    bun run build > /dev/null 2>&1
+else
+    npm run build > /dev/null 2>&1
+fi
+if [ $? -eq 0 ]; then
+    echo -e "${GREEN}✓ Dashboard built successfully${NC}"
+else
+    echo -e "${RED}✗ Dashboard build failed${NC}"
+    exit 1
+fi
+
+# Start dev server
 if [ -f "bun.lockb" ]; then
     bun run dev > /tmp/vk8s-dashboard.log 2>&1 &
 else

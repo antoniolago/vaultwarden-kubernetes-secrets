@@ -650,6 +650,100 @@ public class VaultwardenService : IVaultwardenService
         }
     }
 
+    public async Task<Dictionary<string, string>> GetOrganizationsMapAsync()
+    {
+        var orgMap = new Dictionary<string, string>();
+        
+        try
+        {
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "bw",
+                    Arguments = $"list organizations --raw{GetSessionArgs()}",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+            ApplyCommonEnv(process.StartInfo);
+
+            process.Start();
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode != 0)
+            {
+                var error = await errorTask;
+                _logger.LogWarning("Failed to list organizations: {Error}", error);
+                return orgMap;
+            }
+
+            var output = await outputTask;
+            var organizations = JsonSerializer.Deserialize<List<OrganizationInfo>>(output, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            }) ?? new List<OrganizationInfo>();
+
+            foreach (var org in organizations)
+            {
+                orgMap[org.Id] = org.Name;
+            }
+            
+            _logger.LogInformation("Fetched {Count} organizations", orgMap.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error fetching organizations map");
+        }
+        
+        return orgMap;
+    }
+
+    public async Task<string?> GetCurrentUserEmailAsync()
+    {
+        try
+        {
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "bw",
+                    Arguments = "status",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+            ApplyCommonEnv(process.StartInfo);
+
+            process.Start();
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode == 0)
+            {
+                var output = await outputTask;
+                var status = JsonSerializer.Deserialize<JsonElement>(output);
+                
+                if (status.TryGetProperty("userEmail", out var emailElement))
+                {
+                    return emailElement.GetString();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error fetching current user email");
+        }
+        
+        return null;
+    }
+
     private async Task<string?> ResolveFolderIdAsync()
     {
         if (!string.IsNullOrWhiteSpace(_config.FolderId))
@@ -750,11 +844,7 @@ public class VaultwardenService : IVaultwardenService
         }
     }
 
-    private class OrganizationInfo
-    {
-        public string Id { get; set; } = string.Empty;
-        public string Name { get; set; } = string.Empty;
-    }
+    // OrganizationInfo is now defined in IVaultwardenService.cs
 
     private class FolderInfo
     {

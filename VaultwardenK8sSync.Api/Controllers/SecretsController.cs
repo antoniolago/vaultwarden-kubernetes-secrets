@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using VaultwardenK8sSync.Database.Models;
 using VaultwardenK8sSync.Database.Repositories;
+using VaultwardenK8sSync.Services;
 
 namespace VaultwardenK8sSync.Api.Controllers;
 
@@ -9,11 +10,16 @@ namespace VaultwardenK8sSync.Api.Controllers;
 public class SecretsController : ControllerBase
 {
     private readonly ISecretStateRepository _repository;
+    private readonly IKubernetesService _kubernetesService;
     private readonly ILogger<SecretsController> _logger;
 
-    public SecretsController(ISecretStateRepository repository, ILogger<SecretsController> logger)
+    public SecretsController(
+        ISecretStateRepository repository, 
+        IKubernetesService kubernetesService,
+        ILogger<SecretsController> logger)
     {
         _repository = repository;
+        _kubernetesService = kubernetesService;
         _logger = logger;
     }
 
@@ -113,8 +119,8 @@ public class SecretsController : ControllerBase
 
     /// <summary>
     /// Get data keys for a specific secret
-    /// Note: This requires the sync service to store key names in the database
-    /// For now, returns mock data based on the secret's data key count
+    /// Returns actual key names from Kubernetes for active secrets,
+    /// or Vaultwarden custom field names for failed secrets
     /// </summary>
     [HttpGet("{namespaceName}/{secretName}/keys")]
     public async Task<ActionResult<List<string>>> GetSecretDataKeys(string namespaceName, string secretName)
@@ -128,16 +134,69 @@ public class SecretsController : ControllerBase
                 return NotFound($"Secret {namespaceName}/{secretName} not found");
             }
 
-            // TODO: Implement actual key storage in database
-            // For now, return generic key names based on data keys count
-            var keys = new List<string>();
+            // For failed secrets, try to get field names from Vaultwarden item
+            if (secret.Status.Equals("Failed", StringComparison.OrdinalIgnoreCase) && 
+                !string.IsNullOrEmpty(secret.VaultwardenItemId))
+            {
+                try
+                {
+                    // Use the existing endpoint to get field names from cached Vaultwarden item
+                    var itemRepository = HttpContext.RequestServices.GetRequiredService<Database.Repositories.IVaultwardenItemRepository>();
+                    var cachedItem = await itemRepository.GetByItemIdAsync(secret.VaultwardenItemId);
+                    
+                    if (cachedItem != null && !string.IsNullOrEmpty(cachedItem.FieldNamesJson))
+                    {
+                        var fieldNames = System.Text.Json.JsonSerializer.Deserialize<List<string>>(cachedItem.FieldNamesJson);
+                        if (fieldNames != null && fieldNames.Count > 0)
+                        {
+                            _logger.LogInformation("Returning {Count} field names from Vaultwarden for failed secret {Namespace}/{Name}", 
+                                fieldNames.Count, namespaceName, secretName);
+                            return Ok(fieldNames);
+                        }
+                    }
+                }
+                catch (Exception vwEx)
+                {
+                    _logger.LogWarning(vwEx, "Could not fetch field names from Vaultwarden for failed secret {Namespace}/{Name}", 
+                        namespaceName, secretName);
+                }
+            }
+
+            // For active secrets, fetch actual keys from Kubernetes
+            if (secret.Status.Equals("Active", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    // Initialize Kubernetes client if needed
+                    await _kubernetesService.InitializeAsync();
+                    
+                    var secretData = await _kubernetesService.GetSecretDataAsync(namespaceName, secretName);
+                    if (secretData != null && secretData.Count > 0)
+                    {
+                        var keys = secretData.Keys.ToList();
+                        _logger.LogInformation("Returning {Count} actual keys for secret {Namespace}/{Name}", keys.Count, namespaceName, secretName);
+                        return Ok(keys);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Secret {Namespace}/{Name} not found in Kubernetes or has no data", namespaceName, secretName);
+                    }
+                }
+                catch (Exception k8sEx)
+                {
+                    _logger.LogWarning(k8sEx, "Could not fetch actual keys from Kubernetes for {Namespace}/{Name}", namespaceName, secretName);
+                }
+            }
+
+            // Fallback: return generic key names based on data keys count
+            var fallbackKeys = new List<string>();
             for (int i = 1; i <= secret.DataKeysCount; i++)
             {
-                keys.Add($"key{i}");
+                fallbackKeys.Add($"key{i}");
             }
             
-            _logger.LogInformation("Returning {Count} keys for secret {Namespace}/{Name}", keys.Count, namespaceName, secretName);
-            return Ok(keys);
+            _logger.LogInformation("Returning {Count} fallback keys for secret {Namespace}/{Name}", fallbackKeys.Count, namespaceName, secretName);
+            return Ok(fallbackKeys);
         }
         catch (Exception ex)
         {

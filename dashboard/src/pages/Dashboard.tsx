@@ -11,13 +11,11 @@ import {
   Alert,
   Table,
   Sheet,
-  Modal,
-  ModalDialog,
-  IconButton,
 } from '@mui/joy'
 import { api, SecretState } from '../lib/api'
 import { formatRelative, formatDuration } from '../lib/utils'
 import SecretsModal from '../components/SecretsModal'
+import KeysModal from '../components/KeysModal'
 
 function StatCard({ title, value, emoji, subtitle, helpText, testId, color = 'primary' }: any) {
   const colorMap: Record<string, any> = {
@@ -138,7 +136,7 @@ export default function Dashboard() {
   const [modalNamespace, setModalNamespace] = useState('')
   const [loadingSecrets, setLoadingSecrets] = useState(false)
   const [dataKeysModalOpen, setDataKeysModalOpen] = useState(false)
-  const [selectedDataKeys, setSelectedDataKeys] = useState<Array<{secretName: string, keys: string[]}>>([])
+  const [selectedDataKeys, setSelectedDataKeys] = useState<Array<{label: string, keys: string[]}>>([])
   const [loadingDataKeys, setLoadingDataKeys] = useState(false)
 
   const { data: overview, isLoading, error } = useQuery({
@@ -217,7 +215,12 @@ export default function Dashboard() {
       })
       const allKeys = await Promise.all(keysPromises)
       // Show all secrets, even if we couldn't fetch their keys
-      setSelectedDataKeys(allKeys)
+      // Convert to KeysModal format
+      const formattedKeys = allKeys.map(item => ({
+        label: item.secretName,
+        keys: item.keys
+      }))
+      setSelectedDataKeys(formattedKeys)
     } catch (err) {
       console.error('Failed to load secrets:', err)
       setSelectedDataKeys([])
@@ -236,9 +239,16 @@ export default function Dashboard() {
 
   if (error) {
     return (
-      <Alert color="danger">
-        Failed to load dashboard: {(error as Error).message}
-      </Alert>
+      <Box sx={{ p: 3 }}>
+        <Alert color="danger" variant="soft">
+          <Typography level="body-sm">
+            <strong>❌ Error:</strong> Failed to load dashboard: {(error as Error).message}
+          </Typography>
+          <Typography level="body-xs" sx={{ mt: 1 }}>
+            Please check that the API is running at http://localhost:8080 and is accessible. The page will retry automatically.
+          </Typography>
+        </Alert>
+      </Box>
     )
   }
 
@@ -268,17 +278,17 @@ export default function Dashboard() {
             emoji="🔑"
             color="primary"
             helpText="Total number of key-value pairs stored across all secrets"
-            subtitle={`Across ${overview?.totalNamespaces || 0} namespaces`}
+            subtitle={`Across ${namespaces?.length || 0} namespaces`}
             testId="stat-total-keys"
           />
         </Grid>
         <Grid xs={12} sm={6} lg={3}>
           <StatCard
             title="Namespaces"
-            value={overview?.totalNamespaces || 0}
+            value={namespaces?.length || 0}
             emoji="📂"
             color="neutral"
-            helpText="Number of Kubernetes namespaces with synced secrets"
+            helpText="Number of Kubernetes namespaces with active or failed secrets"
             subtitle={`Managing ${namespaces?.reduce((sum, ns) => sum + ns.secretCount, 0) || 0} total secrets`}
             testId="stat-namespaces"
           />
@@ -496,51 +506,15 @@ export default function Dashboard() {
       />
 
       {/* Data Keys Modal */}
-      <Modal open={dataKeysModalOpen} onClose={() => setDataKeysModalOpen(false)}>
-        <ModalDialog sx={{ minWidth: 500, maxWidth: '80vw', maxHeight: '80vh' }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Typography level="h4">Data Keys in {modalNamespace}</Typography>
-            <IconButton onClick={() => setDataKeysModalOpen(false)} variant="plain" color="neutral">
-              ✕
-            </IconButton>
-          </Box>
-          {loadingDataKeys ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-              <CircularProgress />
-            </Box>
-          ) : (
-            <Box sx={{ overflow: 'auto' }}>
-              {selectedDataKeys.length > 0 ? (
-                selectedDataKeys.map((item, idx) => (
-                  <Box key={idx} sx={{ mb: 3 }}>
-                    <Typography level="title-sm" sx={{ mb: 1 }}>
-                      🔑 {item.secretName}
-                    </Typography>
-                    <Box sx={{ 
-                      display: 'flex', 
-                      flexWrap: 'wrap', 
-                      gap: 1,
-                      p: 2,
-                      backgroundColor: 'neutral.50',
-                      borderRadius: 'md'
-                    }}>
-                      {item.keys.map((key, keyIdx) => (
-                        <Chip key={keyIdx} variant="soft" color="primary" size="sm">
-                          {key}
-                        </Chip>
-                      ))}
-                    </Box>
-                  </Box>
-                ))
-              ) : (
-                <Typography level="body-sm" sx={{ color: 'text.tertiary', textAlign: 'center', p: 4 }}>
-                  No data keys found
-                </Typography>
-              )}
-            </Box>
-          )}
-        </ModalDialog>
-      </Modal>
+      <KeysModal
+        open={dataKeysModalOpen}
+        onClose={() => setDataKeysModalOpen(false)}
+        title={`Data Keys in ${modalNamespace}`}
+        subtitle={`${selectedDataKeys.length} ${selectedDataKeys.length === 1 ? 'secret' : 'secrets'}`}
+        loading={loadingDataKeys}
+        items={selectedDataKeys}
+        emptyMessage="No data keys found in this namespace"
+      />
     </Box>
   )
 }

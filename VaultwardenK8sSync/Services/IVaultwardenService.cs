@@ -10,4 +10,12 @@ public interface IVaultwardenService
     Task<string> GetItemPasswordAsync(string id);
     Task<bool> IsAuthenticatedAsync();
     Task LogoutAsync();
+    Task<Dictionary<string, string>> GetOrganizationsMapAsync();
+    Task<string?> GetCurrentUserEmailAsync();
+}
+
+public class OrganizationInfo
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
 } 

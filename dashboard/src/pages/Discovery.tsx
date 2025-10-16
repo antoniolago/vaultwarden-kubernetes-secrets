@@ -16,14 +16,18 @@ import {
   TabPanel,
   Input,
 } from '@mui/joy'
+import KeysModal from '../components/KeysModal'
 
 interface VaultwardenItem {
   id: string
   name: string
   folder: string | null
   organizationId: string | null
+  organizationName: string | null
+  owner: string | null
   fields: number
   notes: string | null
+  hasNamespacesField: boolean
 }
 
 interface DiscoveryData {
@@ -41,18 +45,41 @@ interface DiscoveryData {
 export default function Discovery() {
   const [searchTerm, setSearchTerm] = useState('')
   const [activeTab, setActiveTab] = useState(0)
+  const [dataKeysModalOpen, setDataKeysModalOpen] = useState(false)
+  const [selectedDataKeys, setSelectedDataKeys] = useState<Array<{label: string, keys: string[]}>>([])  
+  const [loadingDataKeys, setLoadingDataKeys] = useState(false)
+  const [dataKeysModalTitle, setDataKeysModalTitle] = useState('')
+  const [dataKeysModalSubtitle, setDataKeysModalSubtitle] = useState('')
+  const [fieldsModalOpen, setFieldsModalOpen] = useState(false)
+  const [selectedFields, setSelectedFields] = useState<Array<{label: string, keys: string[]}>>([])  
+  const [loadingFields, setLoadingFields] = useState(false)
+  const [fieldsModalTitle, setFieldsModalTitle] = useState('')
 
   // Fetch discovery data from API
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ['discovery'],
     queryFn: async (): Promise<DiscoveryData> => {
       const response = await fetch('http://localhost:8080/api/discovery')
       if (!response.ok) {
-        throw new Error('Failed to fetch discovery data')
+        let errorMessage = `Failed to fetch discovery data (HTTP ${response.status})`
+        try {
+          const errorData = await response.json()
+          if (errorData.message) {
+            errorMessage = errorData.message
+          } else if (errorData.error) {
+            errorMessage = errorData.error
+          }
+        } catch {
+          // If JSON parsing fails, try text
+          const errorText = await response.text().catch(() => '')
+          if (errorText) errorMessage += `: ${errorText}`
+        }
+        throw new Error(errorMessage)
       }
       return response.json()
     },
     refetchInterval: 60000,
+    retry: 2,
   })
 
   // Filter out deleted secrets
@@ -75,6 +102,49 @@ export default function Discovery() {
       secret.secretName.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
+  const handleShowDataKeys = async (namespace: string, secretName: string, itemName: string) => {
+    setLoadingDataKeys(true)
+    setDataKeysModalTitle(itemName)
+    setDataKeysModalSubtitle(`${namespace}/${secretName}`)
+    setDataKeysModalOpen(true)
+    
+    try {
+      const response = await fetch(`http://localhost:8080/api/secrets/${namespace}/${secretName}/keys`)
+      if (response.ok) {
+        const keys = await response.json()
+        setSelectedDataKeys([{ label: secretName, keys }])
+      } else {
+        setSelectedDataKeys([{ label: secretName, keys: ['Unable to fetch key names'] }])
+      }
+    } catch (error) {
+      console.error(`Error fetching keys:`, error)
+      setSelectedDataKeys([{ label: secretName, keys: ['Error fetching keys'] }])
+    } finally {
+      setLoadingDataKeys(false)
+    }
+  }
+
+  const handleShowFields = async (itemId: string, itemName: string) => {
+    setLoadingFields(true)
+    setFieldsModalTitle(itemName)
+    setFieldsModalOpen(true)
+    
+    try {
+      const response = await fetch(`http://localhost:8080/api/vaultwarden/items/${itemId}/fields`)
+      if (response.ok) {
+        const fields = await response.json()
+        setSelectedFields([{ label: 'Custom Fields', keys: fields }])
+      } else {
+        setSelectedFields([{ label: 'Custom Fields', keys: ['Unable to fetch field names'] }])
+      }
+    } catch (error) {
+      console.error(`Error fetching fields:`, error)
+      setSelectedFields([{ label: 'Custom Fields', keys: ['Error fetching fields'] }])
+    } finally {
+      setLoadingFields(false)
+    }
+  }
+
   if (isLoading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
@@ -94,6 +164,18 @@ export default function Discovery() {
         </Typography>
       </Box>
 
+      {/* Error Alert */}
+      {error && (
+        <Alert color="danger" variant="soft" sx={{ mb: 3 }}>
+          <Typography level="body-sm">
+            <strong>❌ Error:</strong> {(error as Error).message}
+          </Typography>
+          <Typography level="body-xs" sx={{ mt: 1 }}>
+            Please check that the API is running and accessible. The page will retry automatically.
+          </Typography>
+        </Alert>
+      )}
+
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box>
           {data?.lastScanTime && (
@@ -112,10 +194,11 @@ export default function Discovery() {
 
       {/* Info Alert */}
       {(!data?.vaultwardenItems || data.vaultwardenItems.length === 0) && (
-        <Alert color="primary" variant="soft" sx={{ mb: 3 }}>
+        <Alert color="warning" variant="soft" sx={{ mb: 3 }}>
           <Typography level="body-sm">
-            <strong>Note:</strong> Vaultwarden items data is not yet available. Currently showing synced secrets from the database.
-            To enable full discovery (including non-synced VW items), implement Vaultwarden API integration in the backend.
+            <strong>⚠️ Authentication Issue:</strong> Vaultwarden items could not be loaded. 
+            The API may not be authenticated or the Vaultwarden service is unavailable. 
+            Check API logs for authentication errors.
           </Typography>
         </Alert>
       )}
@@ -180,7 +263,7 @@ export default function Discovery() {
                   <tr>
                     <th>Item Name</th>
                     <th>Folder</th>
-                    <th>Organization</th>
+                    <th>Owner</th>
                     <th>Fields</th>
                     <th>Reason Not Synced</th>
                   </tr>
@@ -206,23 +289,39 @@ export default function Discovery() {
                           )}
                         </td>
                         <td>
-                          {item.organizationId ? (
-                            <Chip variant="soft" size="sm" color="primary">
-                              Org
+                          <Chip 
+                            variant="soft" 
+                            size="sm" 
+                            color={item.organizationId ? "primary" : "neutral"}
+                          >
+                            {item.owner || (item.organizationId ? 'Organization' : 'Personal')}
+                          </Chip>
+                        </td>
+                        <td>
+                          <Chip 
+                            size="sm" 
+                            variant="outlined"
+                            sx={{ 
+                              cursor: item.fields > 0 ? 'pointer' : 'default',
+                              '&:hover': item.fields > 0 ? {
+                                textDecoration: 'underline'
+                              } : {}
+                            }}
+                            onClick={() => item.fields > 0 && handleShowFields(item.id, item.name)}
+                          >
+                            {item.fields} {item.fields === 1 ? 'field' : 'fields'}
+                          </Chip>
+                        </td>
+                        <td>
+                          {!item.hasNamespacesField ? (
+                            <Chip variant="soft" size="sm" color="warning">
+                              Missing 'namespaces' field
                             </Chip>
                           ) : (
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                              Personal
-                            </Typography>
+                            <Chip variant="soft" size="sm" color="danger">
+                              Sync failed or inactive
+                            </Chip>
                           )}
-                        </td>
-                        <td>
-                          <Typography level="body-sm">{item.fields}</Typography>
-                        </td>
-                        <td>
-                          <Chip variant="soft" size="sm" color="warning">
-                            Missing custom field
-                          </Chip>
                         </td>
                       </tr>
                     ))
@@ -250,44 +349,69 @@ export default function Discovery() {
                     <th>Folder</th>
                     <th>Synced To</th>
                     <th>Status</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredSynced.length > 0 ? (
-                    filteredSynced.map((secret) => (
-                      <tr key={`${secret.namespace}-${secret.secretName}`}>
-                        <td>
-                          <Typography level="body-sm" fontWeight="medium">
-                            🔐 {secret.vaultwardenItemName}
-                          </Typography>
-                          <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                            ID: {secret.vaultwardenItemId.substring(0, 8)}...
-                          </Typography>
-                        </td>
-                        <td>
-                          <Chip variant="soft" size="sm" color="neutral">
-                            📁 {secret.namespace}
-                          </Chip>
-                        </td>
-                        <td>
-                          <Typography level="body-sm">
-                            {secret.namespace}/{secret.secretName}
-                          </Typography>
-                        </td>
-                        <td>
-                          <Chip 
-                            variant="soft" 
-                            size="sm" 
-                            color={secret.status === 'Active' ? 'success' : 'danger'}
-                          >
-                            {secret.status}
-                          </Chip>
-                        </td>
-                      </tr>
-                    ))
+                    filteredSynced.map((secret) => {
+                      const vaultwardenItem = syncedItems.find(item => item.id === secret.vaultwardenItemId)
+                      return (
+                        <tr key={`${secret.namespace}-${secret.secretName}`}>
+                          <td>
+                            <Typography level="body-sm" fontWeight="medium">
+                              🔐 {secret.vaultwardenItemName}
+                            </Typography>
+                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                              ID: {secret.vaultwardenItemId.substring(0, 8)}...
+                            </Typography>
+                          </td>
+                          <td>
+                            {vaultwardenItem?.folder ? (
+                              <Chip variant="soft" size="sm" color="neutral">
+                                📁 {vaultwardenItem.folder}
+                              </Chip>
+                            ) : (
+                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                                -
+                              </Typography>
+                            )}
+                          </td>
+                          <td>
+                            <Typography level="body-sm">
+                              {secret.namespace}/{secret.secretName}
+                            </Typography>
+                          </td>
+                          <td>
+                            <Chip 
+                              variant="soft" 
+                              size="sm" 
+                              color={secret.status === 'Active' ? 'success' : 'danger'}
+                            >
+                              {secret.status}
+                            </Chip>
+                          </td>
+                          <td>
+                            <Chip 
+                              size="sm" 
+                              variant="outlined"
+                              sx={{ 
+                                cursor: 'pointer',
+                                '&:hover': {
+                                  textDecoration: 'underline'
+                                }
+                              }}
+                              onClick={() => handleShowDataKeys(secret.namespace, secret.secretName, secret.vaultwardenItemName)}
+                            >
+                              🔑 View Keys
+                            </Chip>
+                          </td>
+                        </tr>
+                      )
+                    })
                   ) : (
                     <tr>
-                      <td colSpan={4} style={{ textAlign: 'center', padding: '2rem' }}>
+                      <td colSpan={5} style={{ textAlign: 'center', padding: '2rem' }}>
                         <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
                           {searchTerm ? 'No items found matching your search' : 'No synced items found'}
                         </Typography>
@@ -331,7 +455,7 @@ export default function Discovery() {
                       via environment variable (VAULTWARDEN_CUSTOM_FIELD_NAME).
                     </Typography>
                     <Typography level="body-sm" sx={{ color: 'text.secondary', mt: 2 }}>
-                      To sync an item, add a custom field to your Vaultwarden item:
+                      To sync an item, add a custom field to your Vaultwarden item with the namespace name:
                     </Typography>
                     <Box sx={{ 
                       p: 2, 
@@ -342,10 +466,10 @@ export default function Discovery() {
                       fontSize: '0.875rem'
                     }}>
                       Field Name: namespaces<br/>
-                      Field Value: namespace/secret-name
+                      Field Value: namespace-name (e.g., "default" or "prod")
                     </Box>
                     <Typography level="body-sm" sx={{ color: 'text.secondary', mt: 2 }}>
-                      The custom field name can be configured via the <strong>VAULTWARDEN_CUSTOM_FIELD_NAME</strong> environment variable.
+                      You can also specify multiple namespaces separated by commas. The secret name will be derived from the item name.
                     </Typography>
                   </CardContent>
                 </Card>
@@ -362,6 +486,28 @@ export default function Discovery() {
           </TabPanel>
         </Tabs>
       </Card>
+
+      {/* Data Keys Modal */}
+      <KeysModal
+        open={dataKeysModalOpen}
+        onClose={() => setDataKeysModalOpen(false)}
+        title={dataKeysModalTitle}
+        subtitle={dataKeysModalSubtitle}
+        loading={loadingDataKeys}
+        items={selectedDataKeys}
+        emptyMessage="No data keys found"
+      />
+
+      {/* Fields Modal */}
+      <KeysModal
+        open={fieldsModalOpen}
+        onClose={() => setFieldsModalOpen(false)}
+        title={fieldsModalTitle}
+        subtitle="Custom fields from Vaultwarden"
+        loading={loadingFields}
+        items={selectedFields}
+        emptyMessage="No custom fields found"
+      />
     </Box>
   )
 }

@@ -2,6 +2,8 @@ using Microsoft.Extensions.Logging;
 using VaultwardenK8sSync.Database;
 using VaultwardenK8sSync.Database.Models;
 using VaultwardenK8sSync.Database.Repositories;
+using VaultwardenK8sSync.Models;
+using System.Text.Json;
 
 namespace VaultwardenK8sSync.Services;
 
@@ -10,6 +12,7 @@ public class DatabaseLoggerService : IDatabaseLoggerService
     private readonly SyncDbContext? _context;
     private readonly ISyncLogRepository? _syncLogRepository;
     private readonly ISecretStateRepository? _secretStateRepository;
+    private readonly IVaultwardenService? _vaultwardenService;
     private readonly ILogger<DatabaseLoggerService> _logger;
     private readonly bool _isEnabled;
     private readonly Dictionary<long, SyncLog> _activeSyncLogs = new();
@@ -19,12 +22,14 @@ public class DatabaseLoggerService : IDatabaseLoggerService
         ILogger<DatabaseLoggerService> logger,
         SyncDbContext? context = null,
         ISyncLogRepository? syncLogRepository = null,
-        ISecretStateRepository? secretStateRepository = null)
+        ISecretStateRepository? secretStateRepository = null,
+        IVaultwardenService? vaultwardenService = null)
     {
         _logger = logger;
         _context = context;
         _syncLogRepository = syncLogRepository;
         _secretStateRepository = secretStateRepository;
+        _vaultwardenService = vaultwardenService;
         _isEnabled = context != null && syncLogRepository != null && secretStateRepository != null;
 
         if (!_isEnabled)
@@ -204,6 +209,113 @@ public class DatabaseLoggerService : IDatabaseLoggerService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to upsert secret state for {Namespace}/{SecretName}", namespaceName, secretName);
+        }
+    }
+
+    public async Task CacheVaultwardenItemsAsync(List<Models.VaultwardenItem> items)
+    {
+        if (!_isEnabled || _context == null)
+        {
+            _logger.LogDebug("Skipping Vaultwarden items cache - database not enabled");
+            return;
+        }
+
+        try
+        {
+            var now = DateTime.UtcNow;
+            
+            // Fetch organization names mapping and current user email
+            Dictionary<string, string> orgMap = new();
+            string? userEmail = null;
+            
+            if (_vaultwardenService != null)
+            {
+                try
+                {
+                    orgMap = await _vaultwardenService.GetOrganizationsMapAsync();
+                    _logger.LogInformation("Fetched {Count} organization names for caching", orgMap.Count);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not fetch organization names, proceeding without them");
+                }
+                
+                try
+                {
+                    userEmail = await _vaultwardenService.GetCurrentUserEmailAsync();
+                    _logger.LogInformation("Fetched current user email: {Email}", userEmail ?? "unknown");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not fetch user email, proceeding without it");
+                }
+            }
+            
+            // Clear old cached items
+            _context.VaultwardenItems.RemoveRange(_context.VaultwardenItems);
+            
+            // Add new items
+            foreach (var item in items)
+            {
+                var namespaces = item.ExtractNamespaces();
+                var hasNamespacesField = item.Fields?.Any(f => 
+                    f.Name?.Equals("namespaces", StringComparison.OrdinalIgnoreCase) == true) ?? false;
+                
+                // Resolve organization name from ID
+                string? orgName = null;
+                if (!string.IsNullOrEmpty(item.OrganizationId) && orgMap.ContainsKey(item.OrganizationId))
+                {
+                    orgName = orgMap[item.OrganizationId];
+                }
+                
+                // Determine owner: org name if org item, user email if personal
+                string? owner = null;
+                if (!string.IsNullOrEmpty(orgName))
+                {
+                    owner = orgName;
+                }
+                else if (!string.IsNullOrEmpty(item.OrganizationId))
+                {
+                    // Has org ID but no name resolved
+                    owner = $"Org ({item.OrganizationId.Substring(0, 8)})";
+                }
+                else
+                {
+                    // Personal item - use user email
+                    owner = userEmail ?? "Personal";
+                }
+                
+                // Extract field names
+                var fieldNames = item.Fields?
+                    .Select(f => f.Name)
+                    .Where(name => !string.IsNullOrEmpty(name))
+                    .ToList() ?? new List<string>();
+                
+                var dbItem = new Database.Models.VaultwardenItem
+                {
+                    ItemId = item.Id,
+                    Name = item.Name,
+                    FolderId = item.FolderId,
+                    OrganizationId = item.OrganizationId,
+                    OrganizationName = orgName,
+                    Owner = owner,
+                    FieldCount = item.Fields?.Count ?? 0,
+                    FieldNamesJson = fieldNames.Any() ? JsonSerializer.Serialize(fieldNames) : null,
+                    Notes = item.Notes,
+                    LastFetched = now,
+                    HasNamespacesField = hasNamespacesField,
+                    NamespacesJson = namespaces.Any() ? JsonSerializer.Serialize(namespaces) : null
+                };
+                
+                _context.VaultwardenItems.Add(dbItem);
+            }
+            
+            await _context.SaveChangesAsync();
+            _logger.LogInformation("Cached {Count} Vaultwarden items in database", items.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to cache Vaultwarden items");
         }
     }
 }

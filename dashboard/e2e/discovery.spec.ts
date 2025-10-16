@@ -163,7 +163,7 @@ test.describe('Discovery Page E2E Tests', () => {
     }
   })
 
-  test('should show "Missing custom field" in reason column', async ({ page }) => {
+  test('should show "Missing namespaces custom field" in reason column', async ({ page }) => {
     // Wait for page load
     await page.waitForTimeout(1000)
     
@@ -180,10 +180,10 @@ test.describe('Discovery Page E2E Tests', () => {
         const reasonCell = rows.first().locator('td').last()
         const reasonText = await reasonCell.textContent()
         
-        if (reasonText?.includes('Missing custom field')) {
-          console.log('✓ Reason shows "Missing custom field" (correct)')
+        if (reasonText?.includes('Missing namespaces custom field')) {
+          console.log('✓ Reason shows "Missing namespaces custom field" (correct)')
         } else if (reasonText?.includes('annotation')) {
-          console.log('❌ Reason still mentions "annotation" (should be "Missing custom field")')
+          console.log('❌ Reason still mentions "annotation" (should be "Missing namespaces custom field")')
         } else {
           console.log(`⚠️ Reason text: ${reasonText}`)
         }

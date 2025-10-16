@@ -13,6 +13,7 @@ public class SyncDbContext : DbContext
     public DbSet<SyncItem> SyncItems { get; set; }
     public DbSet<SecretState> SecretStates { get; set; }
     public DbSet<SystemMetric> SystemMetrics { get; set; }
+    public DbSet<VaultwardenItem> VaultwardenItems { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -54,6 +55,16 @@ public class SyncDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.MetricName, e.Timestamp });
             entity.HasIndex(e => e.Timestamp);
+        });
+
+        modelBuilder.Entity<VaultwardenItem>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.ItemId).IsUnique();
+            entity.HasIndex(e => e.LastFetched);
+            entity.HasIndex(e => e.HasNamespacesField);
+            entity.Property(e => e.ItemId).IsRequired();
+            entity.Property(e => e.Name).IsRequired();
         });
     }
 }

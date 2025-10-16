@@ -66,6 +66,9 @@ public class SyncService : ISyncService
             var items = await _vaultwardenService.GetItemsAsync();
             summary.TotalItemsFromVaultwarden = items.Count;
             
+            // Cache items in database for API to use (no auth needed in API)
+            await _dbLogger.CacheVaultwardenItemsAsync(items);
+            
             // Start sync log in database
             syncLogId = await _dbLogger.StartSyncLogAsync("Full Sync", items.Count);
             
