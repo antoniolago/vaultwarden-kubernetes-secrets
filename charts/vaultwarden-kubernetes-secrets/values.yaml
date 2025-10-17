@@ -49,9 +49,12 @@ api:
     storageClass: ""
   auth:
     enabled: true
-    # Leave empty to auto-generate random token on install
+    # Leave empty to auto-generate a random 32-character token
+    # The token is persisted in a Kubernetes secret and reused on upgrades
     # Or set explicitly: token: "your-secret-token-here"
     token: ""
+    # Loginless mode - disables authentication (NOT RECOMMENDED for production)
+    loginlessMode: false
 
 # Dashboard Configuration
 dashboard:
@@ -72,6 +75,8 @@ dashboard:
       cpu: 50m
       memory: 64Mi
   url: "http://localhost:3000"
+  # Loginless mode - should match api.auth.loginlessMode
+  loginlessMode: false
 
 # Ingress Configuration
 ingress:
@@ -174,3 +179,23 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+# Monitoring configuration
+monitoring:
+  # Enable Prometheus ServiceMonitor (requires Prometheus Operator)
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+    annotations: {}
+    metricRelabelings: []
+    relabelings: []
+  
+  # Enable Grafana dashboard ConfigMap
+  grafanaDashboard:
+    enabled: false
+    namespace: ""  # Leave empty to use release namespace
+    labels:
+      grafana_dashboard: "1"
+    annotations: {}

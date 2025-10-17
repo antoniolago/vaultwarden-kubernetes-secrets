@@ -57,10 +57,8 @@ public class SyncSummaryFormatterTests
         result.Should().Contain("Status:");
         result.Should().Contain("Changes detected: Yes");
         result.Should().Contain("default");
-        result.Should().Contain("Created:");
-        result.Should().Contain("Updated:");
-        result.Should().Contain("Up-To-Date:");
-        result.Should().Contain("Failed:");
+        result.Should().Contain("CREATED:"); // Namespace shows in CREATED because it has Created > 0
+        result.Should().Contain("[C:3, U:2, S:1]"); // Stats show all counts
     }
 
     [Fact]
@@ -376,8 +374,9 @@ public class SyncSummaryFormatterTests
 
         // Assert
         result.Should().Contain("Error 1: First error");
-        result.Should().NotContain("Error 2: Second error");
-        result.Should().NotContain("Error 3: Third error");
-        result.Should().NotContain("Error 4: Fourth error");
+        result.Should().Contain("Error 2: Second error");
+        result.Should().Contain("Error 3: Third error");
+        result.Should().NotContain("Error 4: Fourth error"); // Only first 3 shown
+        result.Should().Contain("and 1 more error(s)"); // Should indicate there are more
     }
 }

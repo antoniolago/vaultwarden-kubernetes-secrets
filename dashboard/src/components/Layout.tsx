@@ -24,8 +24,8 @@ export default function Layout({ children }: LayoutProps) {
   const navItems = [
     { path: '/', label: '📊 Dashboard' },
     { path: '/secrets', label: '🔑 Secrets' },
-    { path: '/logs', label: '📜 Sync Logs' },
     { path: '/discovery', label: '🔍 Discovery' },
+    { path: '/logs', label: '📜 Sync Logs' },
   ]
 
   const { loginlessMode } = useAuth()

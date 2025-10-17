@@ -1,0 +1,19 @@
+{{- if and .Values.api.enabled .Values.monitoring.grafanaDashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vaultwarden-kubernetes-secrets.fullname" . }}-dashboard
+  namespace: {{ .Values.monitoring.grafanaDashboard.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "vaultwarden-kubernetes-secrets.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.grafanaDashboard.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.monitoring.grafanaDashboard.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  vaultwarden-k8s-sync.json: |-
+{{ .Files.Get "dashboards/vaultwarden-k8s-sync.json" | indent 4 }}
+{{- end }}

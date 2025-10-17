@@ -61,13 +61,30 @@ echo "API started (PID: $API_PID)"
 # Wait for API
 echo -n "Waiting for API to be ready"
 for i in {1..30}; do
-    if curl -s -f http://localhost:8080/api/dashboard/overview > /dev/null 2>&1; then
+    # Check if process is still running
+    if ! kill -0 $API_PID 2>/dev/null; then
+        echo -e " ${RED}✗${NC}"
+        echo -e "${RED}API process died. Check logs: tail -f /tmp/vk8s-api.log${NC}"
+        cat /tmp/vk8s-api.log
+        exit 1
+    fi
+    
+    # Try health endpoint first
+    if curl -s -f http://localhost:8080/health > /dev/null 2>&1; then
         echo -e " ${GREEN}✓${NC}"
         break
     fi
     echo -n "."
     sleep 1
 done
+
+# Final check if we timed out
+if ! curl -s -f http://localhost:8080/health > /dev/null 2>&1; then
+    echo -e " ${RED}✗ Timeout${NC}"
+    echo -e "${YELLOW}API logs:${NC}"
+    tail -20 /tmp/vk8s-api.log
+    echo ""
+fi
 echo ""
 
 # Build and start dashboard

@@ -295,12 +295,12 @@ export default function Dashboard() {
         </Grid>
         <Grid xs={12} sm={6} lg={3}>
           <StatCard
-            title="Sync Performance"
+            title="Sync Avg Duration"
             value={formatDuration(overview?.averageSyncDuration || 0)}
             emoji="⚡"
             color="warning"
             helpText="Average time to complete a sync operation and overall success rate"
-            subtitle={`${(overview?.successRate ?? 0).toFixed(1)}% success • ${overview?.totalSyncs || 0} total syncs`}
+            // subtitle={`${(overview?.successRate ?? 0).toFixed(1)}% success • ${overview?.totalSyncs || 0} total syncs`}
             testId="stat-sync-performance"
           />
         </Grid>

@@ -31,6 +31,9 @@ spec:
         - name: http
           containerPort: 80
           protocol: TCP
+        env:
+        - name: VITE_LOGINLESS_MODE
+          value: {{ .Values.dashboard.loginlessMode | quote }}
         livenessProbe:
           httpGet:
             path: /

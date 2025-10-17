@@ -34,6 +34,8 @@ spec:
           value: {{ .Values.api.databasePath }}
         - name: DashboardUrl
           value: {{ .Values.dashboard.url }}
+        - name: LoginlessMode
+          value: {{ .Values.api.auth.loginlessMode | quote }}
         {{- if .Values.api.auth.enabled }}
         - name: AuthToken
           valueFrom:

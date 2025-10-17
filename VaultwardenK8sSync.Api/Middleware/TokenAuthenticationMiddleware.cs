@@ -3,6 +3,7 @@ namespace VaultwardenK8sSync.Database;
 public class AuthenticationConfig
 {
     public string Token { get; set; } = string.Empty;
+    public bool LoginlessMode { get; set; } = false;
 }
 
 public class TokenAuthenticationMiddleware : IMiddleware
@@ -21,6 +22,14 @@ public class TokenAuthenticationMiddleware : IMiddleware
         // Skip auth for health checks
         if (context.Request.Path.StartsWithSegments("/health"))
         {
+            await next(context);
+            return;
+        }
+
+        // Skip auth if loginless mode is enabled
+        if (_config.LoginlessMode)
+        {
+            _logger.LogDebug("Loginless mode enabled - skipping authentication");
             await next(context);
             return;
         }

@@ -158,9 +158,19 @@ public static class SyncSummaryFormatter
             {
                 var stats = GetNamespaceStatsText(ns);
                 sb.AppendLine($"   • {ns.Name}{stats}");
-                foreach (var error in ns.Errors)
+                
+                // Limit to first 3 errors per namespace and truncate long messages
+                var errorsToShow = ns.Errors.Take(3).ToList();
+                for (int i = 0; i < errorsToShow.Count; i++)
                 {
-                    sb.AppendLine($"     ↳ {error}");
+                    var error = errorsToShow[i];
+                    var truncatedError = error.Length > 100 ? error.Substring(0, 100) + "..." : error;
+                    sb.AppendLine($"     ↳ Error {i + 1}: {truncatedError}");
+                }
+                
+                if (ns.Errors.Count > 3)
+                {
+                    sb.AppendLine($"     ↳ ... and {ns.Errors.Count - 3} more error(s)");
                 }
             }
             sb.AppendLine();

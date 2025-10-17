@@ -5,7 +5,10 @@ using VaultwardenK8sSync.Database.Repositories;
 using VaultwardenK8sSync.Configuration;
 using VaultwardenK8sSync.Services;
 using VaultwardenK8sSync.Infrastructure;
+using VaultwardenK8sSync.Policies;
 using System.Diagnostics;
+using System.Threading.RateLimiting;
+using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -38,6 +41,12 @@ builder.Services.AddDbContext<SyncDbContext>(options =>
 builder.Services.AddScoped<ISyncLogRepository, SyncLogRepository>();
 builder.Services.AddScoped<ISecretStateRepository, SecretStateRepository>();
 builder.Services.AddScoped<IVaultwardenItemRepository, VaultwardenItemRepository>();
+
+// Add HTTP client with resilience policies
+builder.Services.AddHttpClient("VaultwardenClient")
+    .AddPolicyHandler(ResiliencePolicies.GetRetryPolicy())
+    .AddPolicyHandler(ResiliencePolicies.GetCircuitBreakerPolicy())
+    .AddPolicyHandler(ResiliencePolicies.GetTimeoutPolicy());
 
 // Add Vaultwarden and Kubernetes services
 var appSettings = AppSettings.FromEnvironment();
@@ -78,12 +87,52 @@ builder.Services.AddCors(options =>
 
 // Add authentication
 var authToken = builder.Configuration.GetValue<string>("AuthToken") ?? "";
-builder.Services.AddSingleton(new AuthenticationConfig { Token = authToken });
+var loginlessMode = builder.Configuration.GetValue<bool>("LoginlessMode", false);
+builder.Services.AddSingleton(new AuthenticationConfig 
+{ 
+    Token = authToken,
+    LoginlessMode = loginlessMode
+});
 builder.Services.AddScoped<TokenAuthenticationMiddleware>();
+
+// Log authentication mode on startup
+if (loginlessMode)
+{
+    Console.WriteLine("⚠️  LOGINLESS_MODE is enabled - API authentication is DISABLED");
+}
+else if (string.IsNullOrEmpty(authToken))
+{
+    Console.WriteLine("⚠️  No AuthToken configured - API authentication is DISABLED");
+}
+else
+{
+    Console.WriteLine("🔒 API authentication is enabled");
+}
 
 // Health checks
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<SyncDbContext>();
+
+// Rate limiting
+builder.Services.AddRateLimiter(options =>
+{
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 100,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 10
+            }));
+
+    options.OnRejected = async (context, token) =>
+    {
+        context.HttpContext.Response.StatusCode = 429;
+        await context.HttpContext.Response.WriteAsync("⚠️ Rate limit exceeded. Please try again later.", token);
+    };
+});
 
 var app = builder.Build();
 
@@ -150,8 +199,16 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("AllowDashboard");
+
+// Rate limiting
+app.UseRateLimiter();
+
 app.UseMiddleware<TokenAuthenticationMiddleware>();
 app.UseAuthorization();
+
+// Prometheus metrics endpoint
+app.MapMetrics();
+
 app.MapControllers();
 app.MapHealthChecks("/health");
 

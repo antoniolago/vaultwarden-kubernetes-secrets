@@ -8,10 +8,12 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VaultwardenK8sSync.Database", "VaultwardenK8sSync.Database\VaultwardenK8sSync.Database.csproj", "{C5B8E8A4-1A2F-4D3E-9F7C-8E3D4B5A6C7D}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VaultwardenK8sSync.Api", "VaultwardenK8sSync.Api\VaultwardenK8sSync.Api.csproj", "{D6C9F9B5-2B3F-4E4F-AF8D-9F4E5C6B7D8E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{AB5EFF3F-2E6B-446C-B57E-4FC5C71B7FBF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{AB5EFF3F-2E6B-446C-B57E-4FC5C71B7FBF}.Debug|Any CPU.Build.0 = Debug|Any CPU
