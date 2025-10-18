@@ -48,31 +48,22 @@ export default function Login() {
         alignItems: 'center',
         justifyContent: 'center',
         minHeight: '100vh',
-        background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%)',
+        width: '100%',
+        padding: 2,
+        bgcolor: 'background.body',
         position: 'relative',
-        '&::before': {
-          content: '""',
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'radial-gradient(circle at 20% 50%, rgba(59, 130, 246, 0.1) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.1) 0%, transparent 50%)',
-          pointerEvents: 'none',
-        },
+        overflow: 'hidden',
       }}
     >
       <Card
         variant="outlined"
+        color="primary"
         sx={{
           maxWidth: 440,
           width: '100%',
           mx: 2,
           p: 5,
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
-          bgcolor: 'rgba(15, 23, 42, 0.8)',
-          backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(148, 163, 184, 0.1)',
+          backdropFilter: 'blur(12px)',
           position: 'relative',
           zIndex: 1,
         }}
@@ -87,47 +78,44 @@ export default function Login() {
               width: 80,
               height: 80,
               borderRadius: '50%',
-              background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
+              bgcolor: 'primary.solidBg',
               mb: 2,
-              boxShadow: '0 10px 40px rgba(59, 130, 246, 0.3)',
             }}
           >
-            <Typography sx={{ fontSize: '2.5rem' }}>🔐</Typography>
+            {/* VKS.png logo */}
+            <img src="vks.png" alt="vks" width="80" height="80" style={{ borderRadius: '50%' }}/>
           </Box>
           
           <Typography 
             level="h2" 
             fontWeight="bold" 
             sx={{ 
-              color: '#f8fafc',
               mb: 1,
-              fontSize: '1.875rem',
+              fontSize: '1.2rem',
             }}
           >
-            Vaultwarden K8s Sync
+            VKS
+          </Typography>
+          <Typography 
+            level="body-xs" 
+            color="neutral"
+            sx={{ 
+              fontSize: '0.75rem',
+              lineHeight: 1.6,
+            }}
+          >
+            vaultwarden-kubernetes-secrets
           </Typography>
           
-          <Typography 
-            level="body-sm" 
-            sx={{ 
-              color: '#94a3b8',
-              fontSize: '0.875rem',
-            }}
-          >
-            Secure Secret Synchronization Dashboard
-          </Typography>
         </Box>
 
-        <Divider sx={{ my: 3, borderColor: 'rgba(148, 163, 184, 0.1)' }} />
+        <Divider sx={{ my: 3 }} />
 
         {error && (
           <Alert 
+            variant="soft"
             color="danger" 
-            sx={{ 
-              mb: 3,
-              bgcolor: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid rgba(239, 68, 68, 0.2)',
-            }}
+            sx={{ mb: 3 }}
           >
             {error}
           </Alert>
@@ -135,7 +123,7 @@ export default function Login() {
 
         <form onSubmit={handleSubmit}>
           <FormControl>
-            <FormLabel sx={{ color: '#e2e8f0', mb: 1, fontWeight: 500 }}>
+            <FormLabel sx={{ mb: 1 }}>
               Authentication Token
             </FormLabel>
             <Input
@@ -145,23 +133,8 @@ export default function Login() {
               onChange={(e) => setToken(e.target.value)}
               required
               autoFocus
-              sx={{
-                bgcolor: 'rgba(30, 41, 59, 0.5)',
-                border: '1px solid rgba(148, 163, 184, 0.2)',
-                color: '#f8fafc',
-                '&:hover': {
-                  bgcolor: 'rgba(30, 41, 59, 0.7)',
-                  borderColor: 'rgba(148, 163, 184, 0.3)',
-                },
-                '&:focus-within': {
-                  bgcolor: 'rgba(30, 41, 59, 0.7)',
-                  borderColor: '#3b82f6',
-                  boxShadow: '0 0 0 3px rgba(59, 130, 246, 0.1)',
-                },
-                '& input::placeholder': {
-                  color: '#64748b',
-                },
-              }}
+              color="primary"
+              variant="soft"
             />
           </FormControl>
 
@@ -169,70 +142,29 @@ export default function Login() {
             type="submit"
             fullWidth
             loading={loading}
+            color="primary"
             size="lg"
-            sx={{
-              mt: 3,
-              background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
-              color: '#fff',
-              fontWeight: 600,
-              py: 1.5,
-              '&:hover': {
-                background: 'linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)',
-                boxShadow: '0 10px 40px rgba(59, 130, 246, 0.3)',
-              },
-              '&:active': {
-                transform: 'scale(0.98)',
-              },
-            }}
+            sx={{ mt: 3 }}
           >
-            🔓 Sign In
+            Sign In
           </Button>
         </form>
 
-        <Divider sx={{ my: 3, borderColor: 'rgba(148, 163, 184, 0.1)' }} />
+        <Divider sx={{ my: 3 }} />
 
         <Box sx={{ textAlign: 'center' }}>
           <Typography 
-            level="body-xs" 
+            level="body-xs"
+            color="neutral"
             sx={{ 
-              color: '#64748b',
               fontSize: '0.75rem',
               lineHeight: 1.6,
             }}
           >
-            🔑 Token is securely stored in Kubernetes secrets
-            <br />
-            Configured during Helm chart installation
-          </Typography>
-        </Box>
-
-        {/* Footer hint */}
-        <Box 
-          sx={{ 
-            mt: 3, 
-            pt: 3, 
-            borderTop: '1px solid rgba(148, 163, 184, 0.1)',
-            textAlign: 'center',
-          }}
-        >
-          <Typography 
-            level="body-xs" 
-            sx={{ 
-              color: '#475569',
-              fontSize: '0.7rem',
-            }}
-          >
-            💡 Tip: Set <code style={{ 
-              background: 'rgba(59, 130, 246, 0.1)', 
-              padding: '2px 6px', 
-              borderRadius: '4px',
-              color: '#60a5fa',
-            }}>VITE_LOGINLESS_MODE=true</code> to skip authentication
+            If not provided on install, app will generate and store token in Kubernetes secret "vaultwarden-kubernetes-secrets"
           </Typography>
         </Box>
       </Card>
     </Box>
   )
 }
-
-// export default Login

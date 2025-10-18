@@ -38,11 +38,14 @@ export class ErrorBoundary extends Component<Props, State> {
             alignItems: 'center',
             justifyContent: 'center',
             minHeight: '100vh',
+            width: '100%',
             p: 3,
+            bgcolor: 'background.body',
           }}
         >
           <Box sx={{ maxWidth: 500, width: '100%' }}>
             <Alert
+              variant="soft"
               color="danger"
               sx={{ mb: 2 }}
             >
@@ -56,7 +59,12 @@ export class ErrorBoundary extends Component<Props, State> {
               </Box>
             </Alert>
 
-            <Button fullWidth onClick={this.handleReset}>
+            <Button 
+              fullWidth 
+              onClick={this.handleReset}
+              color="primary"
+              size="lg"
+            >
               Go to Dashboard
             </Button>
           </Box>

@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { Box } from '@mui/joy'
+import { Box, useColorScheme } from '@mui/joy'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import Secrets from './pages/Secrets'
@@ -9,6 +9,7 @@ import Discovery from './pages/Discovery'
 import Login from './pages/Login'
 import { AuthProvider, useAuth } from './lib/auth'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { useEffect } from 'react'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -16,11 +17,15 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
+  const { setMode } = useColorScheme();
+  useEffect(() => {
+    setMode('dark');
+  }, [setMode]);
   return (
     <ErrorBoundary>
       <BrowserRouter>
         <AuthProvider>
-          <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+          <Box sx={{ display: 'flex', minHeight: '100vh', minWidth: '99dvw' }}>
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route

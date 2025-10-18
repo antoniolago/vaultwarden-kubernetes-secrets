@@ -8,8 +8,10 @@ import {
   ListItemButton,
   Typography,
   IconButton,
+  Chip,
 } from '@mui/joy'
 import { useAuth } from '../lib/auth'
+import SyncProgressBar from './SyncProgressBar'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -22,10 +24,10 @@ export default function Layout({ children }: LayoutProps) {
   const { logout } = useAuth()
 
   const navItems = [
-    { path: '/', label: '📊 Dashboard' },
-    { path: '/secrets', label: '🔑 Secrets' },
-    { path: '/discovery', label: '🔍 Discovery' },
-    { path: '/logs', label: '📜 Sync Logs' },
+    { path: '/', label: 'Dashboard' },
+    { path: '/secrets', label: 'Secrets' },
+    { path: '/discovery', label: 'Discovery' },
+    { path: '/logs', label: 'Sync Logs' },
   ]
 
   const { loginlessMode } = useAuth()
@@ -36,9 +38,10 @@ export default function Layout({ children }: LayoutProps) {
   }
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+    <Box sx={{ display: 'flex', height: '100vh', width: '100%' }}>
       {/* Sidebar */}
       <Sheet
+        variant="soft"
         sx={{
           width: 240,
           p: 2,
@@ -47,23 +50,37 @@ export default function Layout({ children }: LayoutProps) {
           flexDirection: 'column',
           borderRight: '1px solid',
           borderColor: 'divider',
+          bgcolor: 'background.surface',
         }}
       >
-        <Box sx={{ mb: 3 }}>
-          <Typography level="h4" fontWeight="bold" sx={{ color: 'primary.500' }}>
-            🔐 Vaultwarden K8s
-          </Typography>
-          <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-            Secret Sync Dashboard
-          </Typography>
+        <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <img 
+            src="/vks.png" 
+            alt="VKS Logo" 
+            style={{ 
+              width: 40, 
+              height: 40, 
+              borderRadius: '8px',
+              objectFit: 'cover',
+            }} 
+          />
+          <Box>
+            <Typography level="h4" fontWeight="bold" color="primary">
+              VKS
+            </Typography>
+            <Typography level="body-xs" color="neutral">
+              Secret Sync
+            </Typography>
+          </Box>
         </Box>
 
-        <List sx={{ flexGrow: 1 }}>
+        <List sx={{ flexGrow: 1, '--List-gap': '8px' }}>
           {navItems.map((item) => (
             <ListItem key={item.path}>
               <ListItemButton
                 selected={location.pathname === item.path}
                 onClick={() => navigate(item.path)}
+                color={location.pathname === item.path ? 'primary' : 'neutral'}
               >
                 {item.label}
               </ListItemButton>
@@ -72,16 +89,34 @@ export default function Layout({ children }: LayoutProps) {
         </List>
 
         {!loginlessMode && (
-          <ListItemButton onClick={handleLogout} color="danger">
-            🚪 Logout
+          <ListItemButton 
+            onClick={handleLogout}
+            color="danger"
+            variant="soft"
+          >
+            Logout
           </ListItemButton>
         )}
         
+          {/* Sync Progress Bar - Sticky at top */}
+          <Box sx={{ 
+            position: 'sticky', 
+            top: 0, 
+            zIndex: 10,
+            pb: 0,
+            bgcolor: 'background.body',
+          }}>
+            <SyncProgressBar />
+          </Box>
         {loginlessMode && (
-          <Box sx={{ p: 2, textAlign: 'center' }}>
-            <Typography level="body-xs" sx={{ color: 'success.500' }}>
-              🔓 Loginless Mode
-            </Typography>
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
+            <Chip 
+              size="sm" 
+              variant="soft" 
+              color="danger"
+            >
+              Loginless Mode!
+            </Chip>
           </Box>
         )}
       </Sheet>
@@ -90,6 +125,7 @@ export default function Layout({ children }: LayoutProps) {
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         {/* Mobile header */}
         <Sheet
+          variant="soft"
           sx={{
             display: { xs: 'flex', md: 'none' },
             alignItems: 'center',
@@ -97,23 +133,49 @@ export default function Layout({ children }: LayoutProps) {
             p: 2,
             borderBottom: '1px solid',
             borderColor: 'divider',
+            bgcolor: 'background.surface',
           }}
         >
           <IconButton
             variant="outlined"
+            color="neutral"
             size="sm"
             onClick={() => setDrawerOpen(!drawerOpen)}
           >
             ☰
           </IconButton>
-          <Typography level="title-lg" fontWeight="bold">
-            Vaultwarden K8s
+          <img 
+            src="/vks.png" 
+            alt="VKS Logo" 
+            style={{ 
+              width: 32, 
+              height: 32, 
+              borderRadius: '6px',
+              objectFit: 'cover'
+            }} 
+          />
+          <Typography level="title-lg" fontWeight="bold" color="primary">
+            VKS
           </Typography>
         </Sheet>
 
         {/* Content */}
-        <Box sx={{ flex: 1, p: { xs: 2, md: 3 }, overflow: 'auto' }}>
-          {children}
+        <Box sx={{ 
+          flex: 1, 
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'auto',
+          bgcolor: 'background.body',
+        }}>
+          
+          {/* Main Content */}
+          <Box sx={{ 
+            flex: 1,
+            p: { xs: 2, md: 3 },
+            pt: { xs: 1, md: 2 },
+          }}>
+            {children}
+          </Box>
         </Box>
       </Box>
     </Box>

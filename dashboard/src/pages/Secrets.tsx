@@ -16,14 +16,25 @@ import {
 import { api } from '../lib/api'
 import { formatRelative, getStatusColor } from '../lib/utils'
 import { useState } from 'react'
+import KeysModal from '../components/KeysModal'
 
 export default function Secrets() {
   const [searchTerm, setSearchTerm] = useState('')
   const [errorModalOpen, setErrorModalOpen] = useState(false)
   const [selectedError, setSelectedError] = useState<string | null>(null)
   const [dataKeysModalOpen, setDataKeysModalOpen] = useState(false)
-  const [selectedDataKeys, setSelectedDataKeys] = useState<string[]>([])
-  const [selectedSecretName, setSelectedSecretName] = useState('')
+  const [selectedDataKeys, setSelectedDataKeys] = useState<Array<{label: string, keys: string[]}>>([])
+  const [loadingDataKeys, setLoadingDataKeys] = useState(false)
+  const [dataKeysModalTitle, setDataKeysModalTitle] = useState('')
+  
+  const handleShowKeys = (keys: string[], namespace: string, secretName: string) => {
+    setSelectedDataKeys([{
+      label: `${namespace}/${secretName}`,
+      keys: keys
+    }])
+    setDataKeysModalTitle(`${namespace}/${secretName}`)
+    setDataKeysModalOpen(true)
+  }
   
   const { data: secrets, isLoading, error } = useQuery({
     queryKey: ['secrets'],
@@ -71,9 +82,9 @@ export default function Secrets() {
         />
       </Box>
 
-      <Card variant="outlined">
+      <Card variant="outlined" sx={{ bgcolor: 'background.surface' }}>
         <Sheet sx={{ overflow: 'auto' }}>
-          <Table stripe="odd" hoverRow>
+          <Table hoverRow>
             <thead>
               <tr>
                 <th style={{ width: 200 }}>Namespace</th>
@@ -96,7 +107,7 @@ export default function Secrets() {
                     </td>
                     <td data-testid="secret-name">
                       <Typography level="body-sm" fontWeight="medium">
-                        🔑 {secret.secretName}
+                        {secret.secretName}
                       </Typography>
                     </td>
                     <td data-testid="secret-vaultwarden-item">
@@ -123,23 +134,22 @@ export default function Secrets() {
                         }}
                         onClick={async () => {
                           if (secret.dataKeysCount > 0) {
+                            setLoadingDataKeys(true)
                             try {
                               // Fetch actual data keys from K8s secret
                               const response = await fetch(`http://localhost:8080/api/secrets/${secret.namespace}/${secret.secretName}/keys`)
                               if (response.ok) {
                                 const keys = await response.json()
-                                setSelectedDataKeys(keys)
+                                handleShowKeys(keys, secret.namespace, secret.secretName)
                               } else {
                                 // Fallback: show count only
-                                setSelectedDataKeys([`${secret.dataKeysCount} keys (unable to fetch names)`])
+                                handleShowKeys([`${secret.dataKeysCount} keys (error fetching names)`], secret.namespace, secret.secretName)
                               }
-                              setSelectedSecretName(`${secret.namespace}/${secret.secretName}`)
-                              setDataKeysModalOpen(true)
                             } catch (err) {
                               console.error('Failed to fetch data keys:', err)
-                              setSelectedDataKeys([`${secret.dataKeysCount} keys (error fetching names)`])
-                              setSelectedSecretName(`${secret.namespace}/${secret.secretName}`)
-                              setDataKeysModalOpen(true)
+                              handleShowKeys([`${secret.dataKeysCount} keys (error fetching names)`], secret.namespace, secret.secretName)
+                            } finally {
+                              setLoadingDataKeys(false)
                             }
                           }
                         }}
@@ -222,41 +232,15 @@ export default function Secrets() {
       </Modal>
 
       {/* Data Keys Modal */}
-      <Modal open={dataKeysModalOpen} onClose={() => setDataKeysModalOpen(false)}>
-        <ModalDialog sx={{ minWidth: 400, maxWidth: '80vw' }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Typography level="h4">Data Keys</Typography>
-            <IconButton onClick={() => setDataKeysModalOpen(false)} variant="plain" color="neutral">
-              ✕
-            </IconButton>
-          </Box>
-          <Typography level="body-sm" sx={{ mb: 2, color: 'text.secondary' }}>
-            Secret: <strong>{selectedSecretName}</strong>
-          </Typography>
-          <Box sx={{ 
-            display: 'flex', 
-            flexWrap: 'wrap', 
-            gap: 1,
-            p: 2,
-            backgroundColor: 'neutral.50',
-            borderRadius: 'md',
-            maxHeight: '60vh',
-            overflow: 'auto'
-          }}>
-            {selectedDataKeys.length > 0 ? (
-              selectedDataKeys.map((key, idx) => (
-                <Chip key={idx} variant="soft" color="primary" size="sm">
-                  🔑 {key}
-                </Chip>
-              ))
-            ) : (
-              <Typography level="body-sm" sx={{ color: 'text.tertiary' }}>
-                No keys available
-              </Typography>
-            )}
-          </Box>
-        </ModalDialog>
-      </Modal>
+      <KeysModal
+        open={dataKeysModalOpen}
+        onClose={() => setDataKeysModalOpen(false)}
+        title="Data Keys"
+        subtitle={dataKeysModalTitle}
+        loading={loadingDataKeys}
+        items={selectedDataKeys}
+        emptyMessage="No data keys found"
+      />
     </Box>
   )
 }

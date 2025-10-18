@@ -18,50 +18,17 @@ import SecretsModal from '../components/SecretsModal'
 import KeysModal from '../components/KeysModal'
 
 function StatCard({ title, value, emoji, subtitle, helpText, testId, color = 'primary' }: any) {
-  const colorMap: Record<string, any> = {
-    success: {
-      bg: 'success.50',
-      iconBg: 'success.100',
-      icon: 'success.600',
-      value: 'success.700',
-      border: 'success.200'
-    },
-    primary: {
-      bg: 'primary.50',
-      iconBg: 'primary.100',
-      icon: 'primary.600',
-      value: 'primary.700',
-      border: 'primary.200'
-    },
-    neutral: {
-      bg: 'neutral.50',
-      iconBg: 'neutral.100',
-      icon: 'neutral.600',
-      value: 'neutral.700',
-      border: 'neutral.200'
-    },
-    warning: {
-      bg: 'warning.50',
-      iconBg: 'warning.100',
-      icon: 'warning.600',
-      value: 'warning.700',
-      border: 'warning.200'
-    }
-  }
-
-  const colors = colorMap[color] || colorMap.primary
-
   return (
     <Card 
       variant="outlined" 
+      color={color}
       data-testid={testId}
       sx={{
-        backgroundColor: colors.bg,
-        borderColor: colors.border,
+        bgcolor: `${color}.softBg`,
         transition: 'all 0.2s',
         '&:hover': {
           boxShadow: 'md',
-          transform: 'translateY(-2px)'
+          transform: 'translateY(-2px)',
         }
       }}
     >
@@ -69,13 +36,13 @@ function StatCard({ title, value, emoji, subtitle, helpText, testId, color = 'pr
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
           <Box sx={{ flex: 1 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
-              <Typography level="body-sm" sx={{ color: 'text.secondary', fontWeight: 600 }}>
+              <Typography level="title-md" fontWeight="md">
                 {title}
               </Typography>
               {helpText && (
                 <Typography 
                   level="body-xs" 
-                  sx={{ color: 'text.tertiary', cursor: 'help' }}
+                  sx={{ cursor: 'help' }}
                   title={helpText}
                 >
                   ⓘ
@@ -84,8 +51,8 @@ function StatCard({ title, value, emoji, subtitle, helpText, testId, color = 'pr
             </Box>
             <Typography 
               level="h1" 
+              color={color}
               sx={{ 
-                color: colors.value,
                 fontWeight: 700,
                 fontSize: '2.5rem',
                 lineHeight: 1,
@@ -98,7 +65,6 @@ function StatCard({ title, value, emoji, subtitle, helpText, testId, color = 'pr
             <Typography 
               level="body-xs" 
               sx={{ 
-                color: 'text.tertiary', 
                 minHeight: '1.2em',
                 display: 'block'
               }} 
@@ -109,8 +75,8 @@ function StatCard({ title, value, emoji, subtitle, helpText, testId, color = 'pr
           </Box>
           <Box 
             sx={{ 
-              backgroundColor: colors.iconBg,
-              color: colors.icon,
+              bgcolor: `${color}.softBg`,
+              color: `${color}.solidColor`,
               borderRadius: 'lg',
               width: 64,
               height: 64,
@@ -255,11 +221,11 @@ export default function Dashboard() {
   return (
     <Box>
       <Typography level="h2" sx={{ mb: 3 }}>
-        📊 Dashboard Overview
+        Dashboard Overview
       </Typography>
 
       {/* Stats Grid */}
-      <Grid container spacing={2} sx={{ mb: 4 }} data-testid="stats-grid">
+      <Grid container spacing={2} sx={{ mb: '0px' }} data-testid="stats-grid">
         <Grid xs={12} sm={6} lg={3}>
           <StatCard
             title="Active Secrets"
@@ -267,7 +233,7 @@ export default function Dashboard() {
             emoji="🔐"
             color="success"
             helpText="Number of Kubernetes secrets successfully synced from Vaultwarden"
-            subtitle={`${namespaces?.filter(ns => ns.activeSecrets > 0).length || 0} namespaces have active secrets`}
+            subtitle={`${namespaces?.filter(ns => ns.activeSecrets > 0).length || 0} namespaces w/ active secrets`}
             testId="stat-active-secrets"
           />
         </Grid>
@@ -307,14 +273,22 @@ export default function Dashboard() {
       </Grid>
 
       {/* Namespaces Table */}
-      <Card variant="outlined" sx={{ mb: 3 }} data-testid="namespaces-table-card">
+      <Card 
+        variant="outlined" 
+        sx={{ mb: 1, bgcolor: 'background.surface' }} 
+        data-testid="namespaces-table-card"
+      >
         <CardContent>
-          <Typography level="title-lg" sx={{ mb: 2 }}>
-            📁 Namespaces
+          <Typography level="title-lg" sx={{ mb: 2 }} color="primary">
+            Namespaces
           </Typography>
           {namespaces && namespaces.length > 0 ? (
-            <Sheet sx={{ overflow: 'auto' }}>
-              <Table stripe="odd" hoverRow data-testid="namespaces-table">
+            <Sheet variant="soft" sx={{ overflow: 'auto' }}>
+              <Table 
+                stripe="odd" 
+                hoverRow 
+                data-testid="namespaces-table"
+              >
                 <thead>
                   <tr>
                     <th>Namespace</th>
@@ -335,9 +309,11 @@ export default function Dashboard() {
                       <td data-testid="namespace-total-secrets">
                         <Chip 
                           variant="soft" 
-                          color="neutral" 
+                          color="neutral"
                           size="sm"
-                          sx={{ cursor: ns.secretCount > 0 ? 'pointer' : 'default' }}
+                          sx={{ 
+                            cursor: ns.secretCount > 0 ? 'pointer' : 'default',
+                          }}
                           onClick={() => ns.secretCount > 0 && handleShowAllSecrets(ns.namespace)}
                           data-testid="chip-total-secrets"
                         >
@@ -347,9 +323,11 @@ export default function Dashboard() {
                       <td data-testid="namespace-active-secrets">
                         <Chip 
                           size="sm" 
-                          color="success" 
                           variant="soft"
-                          sx={{ cursor: ns.activeSecrets > 0 ? 'pointer' : 'default' }}
+                          color="success"
+                          sx={{ 
+                            cursor: ns.activeSecrets > 0 ? 'pointer' : 'default',
+                          }}
                           onClick={() => handleShowSecrets(ns.namespace, 'Active', ns.activeSecrets)}
                           data-testid="chip-active-secrets"
                         >
@@ -360,16 +338,18 @@ export default function Dashboard() {
                         {ns.failedSecrets > 0 ? (
                           <Chip 
                             size="sm" 
-                            color="warning" 
                             variant="soft"
-                            sx={{ cursor: 'pointer' }}
+                            color="warning"
+                            sx={{ 
+                              cursor: 'pointer',
+                            }}
                             onClick={() => handleShowSecrets(ns.namespace, 'Failed', ns.failedSecrets)}
                             data-testid="chip-failed-secrets"
                           >
                             {ns.failedSecrets}
                           </Chip>
                         ) : (
-                          <Typography level="body-sm" sx={{ color: 'text.tertiary' }} data-testid="chip-failed-secrets">
+                          <Typography level="body-sm" color="neutral" data-testid="chip-failed-secrets">
                             0
                           </Typography>
                         )}
@@ -378,12 +358,9 @@ export default function Dashboard() {
                         <Chip 
                           size="sm" 
                           variant="outlined"
+                          color={ns.totalDataKeys > 0 ? 'primary' : 'neutral'}
                           sx={{ 
                             cursor: ns.totalDataKeys > 0 ? 'pointer' : 'default',
-                            color: ns.totalDataKeys > 0 ? 'primary.600' : 'text.primary',
-                            '&:hover': ns.totalDataKeys > 0 ? {
-                              textDecoration: 'underline'
-                            } : {}
                           }}
                           onClick={() => ns.totalDataKeys > 0 && handleShowDataKeys(ns.namespace)}
                           data-testid="chip-data-keys"
@@ -397,7 +374,7 @@ export default function Dashboard() {
                             sx={{
                               width: 60,
                               height: 6,
-                              bgcolor: 'neutral.200',
+                              bgcolor: 'neutral.softBg',
                               borderRadius: 'sm',
                               overflow: 'hidden',
                             }}
@@ -408,10 +385,10 @@ export default function Dashboard() {
                                 width: `${ns.successRate}%`,
                                 bgcolor:
                                   ns.successRate > 90
-                                    ? 'success.500'
+                                    ? 'success.solidBg'
                                     : ns.successRate > 70
-                                    ? 'warning.500'
-                                    : 'danger.500',
+                                    ? 'warning.solidBg'
+                                    : 'danger.solidBg',
                               }}
                             />
                           </Box>
@@ -461,7 +438,10 @@ export default function Dashboard() {
               </Table>
             </Sheet>
           ) : (
-            <Alert color="neutral">
+            <Alert 
+              variant="soft"
+              color="neutral"
+            >
               No namespaces found. Run a sync to populate data.
             </Alert>
           )}
@@ -472,7 +452,6 @@ export default function Dashboard() {
       {overview?.lastSyncTime && (
         <Alert 
           color={overview.successRate > 80 ? 'success' : overview.successRate > 50 ? 'warning' : 'danger'}
-          sx={{ mb: 3 }}
           data-testid="sync-status-alert"
         >
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
@@ -488,7 +467,7 @@ export default function Dashboard() {
                   <> • <strong>{namespaces.reduce((sum, ns) => sum + ns.failedSecrets, 0)} secrets with errors</strong> (need attention)</>
                 )}
               </Typography>
-              <Typography level="body-xs" sx={{ mt: 0.5, color: 'text.tertiary' }}>
+              <Typography level="body-xs" sx={{ mt: 0.5}}>
                 Sync operations: {overview.successfulSyncs} successful, {overview.failedSyncs} failed
               </Typography>
             </Box>

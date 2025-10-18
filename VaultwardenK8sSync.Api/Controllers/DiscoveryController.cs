@@ -62,7 +62,8 @@ public class DiscoveryController : ControllerBase
                     VaultwardenItemName = s.VaultwardenItemName,
                     Namespace = s.Namespace,
                     SecretName = s.SecretName,
-                    Status = s.Status
+                    Status = s.Status,
+                    DataKeysCount = s.DataKeysCount
                 }).ToList(),
                 
                 LastScanTime = lastFetch ?? DateTime.UtcNow
@@ -145,4 +146,5 @@ public class SyncedSecret
     public string Namespace { get; set; } = string.Empty;
     public string SecretName { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
+    public int DataKeysCount { get; set; }
 }

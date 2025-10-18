@@ -119,8 +119,7 @@ public class SecretsController : ControllerBase
 
     /// <summary>
     /// Get data keys for a specific secret
-    /// Returns actual key names from Kubernetes for active secrets,
-    /// or Vaultwarden custom field names for failed secrets
+    /// Always returns actual key names from Kubernetes secret
     /// </summary>
     [HttpGet("{namespaceName}/{secretName}/keys")]
     public async Task<ActionResult<List<string>>> GetSecretDataKeys(string namespaceName, string secretName)
@@ -134,69 +133,30 @@ public class SecretsController : ControllerBase
                 return NotFound($"Secret {namespaceName}/{secretName} not found");
             }
 
-            // For failed secrets, try to get field names from Vaultwarden item
-            if (secret.Status.Equals("Failed", StringComparison.OrdinalIgnoreCase) && 
-                !string.IsNullOrEmpty(secret.VaultwardenItemId))
+            // Always try to fetch actual keys from Kubernetes (regardless of status)
+            try
             {
-                try
+                // Initialize Kubernetes client if needed
+                await _kubernetesService.InitializeAsync();
+                
+                var secretData = await _kubernetesService.GetSecretDataAsync(namespaceName, secretName);
+                if (secretData != null && secretData.Count > 0)
                 {
-                    // Use the existing endpoint to get field names from cached Vaultwarden item
-                    var itemRepository = HttpContext.RequestServices.GetRequiredService<Database.Repositories.IVaultwardenItemRepository>();
-                    var cachedItem = await itemRepository.GetByItemIdAsync(secret.VaultwardenItemId);
-                    
-                    if (cachedItem != null && !string.IsNullOrEmpty(cachedItem.FieldNamesJson))
-                    {
-                        var fieldNames = System.Text.Json.JsonSerializer.Deserialize<List<string>>(cachedItem.FieldNamesJson);
-                        if (fieldNames != null && fieldNames.Count > 0)
-                        {
-                            _logger.LogInformation("Returning {Count} field names from Vaultwarden for failed secret {Namespace}/{Name}", 
-                                fieldNames.Count, namespaceName, secretName);
-                            return Ok(fieldNames);
-                        }
-                    }
+                    var keys = secretData.Keys.ToList();
+                    _logger.LogInformation("Returning {Count} actual Kubernetes keys for secret {Namespace}/{Name}", keys.Count, namespaceName, secretName);
+                    return Ok(keys);
                 }
-                catch (Exception vwEx)
+                else
                 {
-                    _logger.LogWarning(vwEx, "Could not fetch field names from Vaultwarden for failed secret {Namespace}/{Name}", 
-                        namespaceName, secretName);
+                    _logger.LogWarning("Secret {Namespace}/{Name} not found in Kubernetes or has no data", namespaceName, secretName);
+                    return NotFound($"Secret {namespaceName}/{secretName} not found in Kubernetes");
                 }
             }
-
-            // For active secrets, fetch actual keys from Kubernetes
-            if (secret.Status.Equals("Active", StringComparison.OrdinalIgnoreCase))
+            catch (Exception k8sEx)
             {
-                try
-                {
-                    // Initialize Kubernetes client if needed
-                    await _kubernetesService.InitializeAsync();
-                    
-                    var secretData = await _kubernetesService.GetSecretDataAsync(namespaceName, secretName);
-                    if (secretData != null && secretData.Count > 0)
-                    {
-                        var keys = secretData.Keys.ToList();
-                        _logger.LogInformation("Returning {Count} actual keys for secret {Namespace}/{Name}", keys.Count, namespaceName, secretName);
-                        return Ok(keys);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Secret {Namespace}/{Name} not found in Kubernetes or has no data", namespaceName, secretName);
-                    }
-                }
-                catch (Exception k8sEx)
-                {
-                    _logger.LogWarning(k8sEx, "Could not fetch actual keys from Kubernetes for {Namespace}/{Name}", namespaceName, secretName);
-                }
+                _logger.LogError(k8sEx, "Could not fetch actual keys from Kubernetes for {Namespace}/{Name}", namespaceName, secretName);
+                return StatusCode(500, $"Error fetching keys from Kubernetes: {k8sEx.Message}");
             }
-
-            // Fallback: return generic key names based on data keys count
-            var fallbackKeys = new List<string>();
-            for (int i = 1; i <= secret.DataKeysCount; i++)
-            {
-                fallbackKeys.Add($"key{i}");
-            }
-            
-            _logger.LogInformation("Returning {Count} fallback keys for secret {Namespace}/{Name}", fallbackKeys.Count, namespaceName, secretName);
-            return Ok(fallbackKeys);
         }
         catch (Exception ex)
         {

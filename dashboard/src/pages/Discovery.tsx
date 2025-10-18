@@ -17,6 +17,7 @@ import {
   Input,
 } from '@mui/joy'
 import KeysModal from '../components/KeysModal'
+import NamespacesModal from '../components/NamespacesModal'
 
 interface VaultwardenItem {
   id: string
@@ -38,6 +39,7 @@ interface DiscoveryData {
     namespace: string
     secretName: string
     status: string
+    dataKeysCount: number
   }>
   lastScanTime: string
 }
@@ -54,6 +56,9 @@ export default function Discovery() {
   const [selectedFields, setSelectedFields] = useState<Array<{label: string, keys: string[]}>>([])  
   const [loadingFields, setLoadingFields] = useState(false)
   const [fieldsModalTitle, setFieldsModalTitle] = useState('')
+  const [namespacesModalOpen, setNamespacesModalOpen] = useState(false)
+  const [selectedNamespaces, setSelectedNamespaces] = useState<Array<{namespace: string, secretName: string, status: string}>>([])
+  const [namespacesModalItemName, setNamespacesModalItemName] = useState('')
 
   // Fetch discovery data from API
   const { data, isLoading, error } = useQuery({
@@ -91,15 +96,43 @@ export default function Discovery() {
   
   // Use active secrets only (exclude deleted)
   const syncedSecrets = activeSecrets
+  
+  // Deduplicate synced secrets by grouping namespaces
+  const groupedSyncedSecrets = syncedSecrets.reduce((acc, secret) => {
+    const key = secret.vaultwardenItemId
+    if (!acc[key]) {
+      acc[key] = {
+        vaultwardenItemId: secret.vaultwardenItemId,
+        vaultwardenItemName: secret.vaultwardenItemName,
+        secretName: secret.secretName,
+        totalDataKeys: secret.dataKeysCount,
+        namespaces: []
+      }
+    } else {
+      acc[key].totalDataKeys += secret.dataKeysCount
+    }
+    acc[key].namespaces.push({
+      namespace: secret.namespace,
+      secretName: secret.secretName,
+      status: secret.status,
+      dataKeysCount: secret.dataKeysCount
+    })
+    return acc
+  }, {} as Record<string, { vaultwardenItemId: string, vaultwardenItemName: string, secretName: string, totalDataKeys: number, namespaces: Array<{namespace: string, secretName: string, status: string, dataKeysCount: number}> }>)
+  
+  const dedupedSyncedSecrets = Object.values(groupedSyncedSecrets)
+  
   const filteredNotSynced = notSyncedItems.filter(
     item => item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
            (item.folder?.toLowerCase().includes(searchTerm.toLowerCase()) || false)
   )
 
-  const filteredSynced = syncedSecrets.filter(
-    secret => secret.vaultwardenItemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      secret.namespace.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      secret.secretName.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredSynced = dedupedSyncedSecrets.filter(
+    item => item.vaultwardenItemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.namespaces.some(ns => 
+        ns.namespace.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        ns.secretName.toLowerCase().includes(searchTerm.toLowerCase())
+      )
   )
 
   const handleShowDataKeys = async (namespace: string, secretName: string, itemName: string) => {
@@ -143,6 +176,12 @@ export default function Discovery() {
     } finally {
       setLoadingFields(false)
     }
+  }
+
+  const handleShowNamespaces = (itemName: string, namespaces: Array<{namespace: string, secretName: string, status: string, dataKeysCount?: number}>) => {
+    setNamespacesModalItemName(itemName)
+    setSelectedNamespaces(namespaces)
+    setNamespacesModalOpen(true)
   }
 
   if (isLoading) {
@@ -205,60 +244,129 @@ export default function Discovery() {
 
       {/* Summary Cards */}
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 2, mb: 3 }}>
-        <Card variant="outlined" sx={{ backgroundColor: 'success.50' }}>
+        <Card variant="outlined" color="success" sx={{ bgcolor: 'success.softBg' }}>
           <CardContent>
-            <Typography level="body-sm" sx={{ color: 'text.secondary' }}>Synced to K8s</Typography>
-            <Typography level="h2" sx={{ color: 'success.700' }}>{syncedSecrets.length}</Typography>
-            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Active secrets</Typography>
+            <Typography level="body-sm" color="neutral">Synced to K8s</Typography>
+            <Typography level="h2" color="success">{dedupedSyncedSecrets.length}</Typography>
+            <Typography level="body-xs" color="neutral">Unique items</Typography>
           </CardContent>
         </Card>
         
-        <Card variant="outlined" sx={{ backgroundColor: 'warning.50' }}>
+        <Card variant="outlined" color="warning" sx={{ bgcolor: 'warning.softBg' }}>
           <CardContent>
-            <Typography level="body-sm" sx={{ color: 'text.secondary' }}>Not Synced</Typography>
-            <Typography level="h2" sx={{ color: 'warning.700' }}>{notSyncedItems.length}</Typography>
-            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Available in VW</Typography>
+            <Typography level="body-sm" color="neutral">Not Synced</Typography>
+            <Typography level="h2" color="warning">{notSyncedItems.length}</Typography>
+            <Typography level="body-xs" color="neutral">Available in VW</Typography>
           </CardContent>
         </Card>
         
-        <Card variant="outlined" sx={{ backgroundColor: 'primary.50' }}>
+        <Card variant="outlined" color="primary" sx={{ bgcolor: 'primary.softBg' }}>
           <CardContent>
-            <Typography level="body-sm" sx={{ color: 'text.secondary' }}>Total Items</Typography>
-            <Typography level="h2" sx={{ color: 'primary.700' }}>{data?.vaultwardenItems.length || 0}</Typography>
-            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>In Vaultwarden</Typography>
+            <Typography level="body-sm" color="neutral">Total Items</Typography>
+            <Typography level="h2" color="primary">{data?.vaultwardenItems.length || 0}</Typography>
+            <Typography level="body-xs" color="neutral">In Vaultwarden</Typography>
           </CardContent>
         </Card>
         
-        <Card variant="outlined" sx={{ backgroundColor: 'neutral.50' }}>
+        <Card variant="outlined" color="neutral" sx={{ bgcolor: 'neutral.softBg' }}>
           <CardContent>
-            <Typography level="body-sm" sx={{ color: 'text.secondary' }}>Sync Rate</Typography>
-            <Typography level="h2" sx={{ color: 'neutral.700' }}>
-              {data?.vaultwardenItems.length ? Math.round((syncedSecrets.length / data.vaultwardenItems.length) * 100) : 0}%
+            <Typography level="body-sm" color="neutral">Sync Rate</Typography>
+            <Typography level="h2" color="neutral">
+              {data?.vaultwardenItems.length ? Math.round((dedupedSyncedSecrets.length / data.vaultwardenItems.length) * 100) : 0}%
             </Typography>
-            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>Coverage</Typography>
+            <Typography level="body-xs" color="neutral">Coverage</Typography>
           </CardContent>
         </Card>
       </Box>
 
       {/* Tabs */}
-      <Card variant="outlined">
+      <Card variant="outlined" sx={{ bgcolor: 'background.surface' }}>
         <Tabs value={activeTab} onChange={(_, value) => setActiveTab(value as number)}>
           <TabList>
             <Tab>
-              Not Synced ({notSyncedItems.length})
+              Synced ({dedupedSyncedSecrets.length})
             </Tab>
             <Tab>
-              Synced ({syncedSecrets.length})
+              Not Synced ({notSyncedItems.length})
             </Tab>
             <Tab>
               Statistics
             </Tab>
           </TabList>
           
-          {/* Not Synced Tab */}
+          {/* Synced Tab */}
           <TabPanel value={0}>
-            <Sheet sx={{ overflow: 'auto' }}>
+            <Sheet variant="soft" sx={{ overflow: 'auto' }}>
               <Table stripe="odd" hoverRow>
+                <thead>
+                  <tr>
+                    <th>Item Name</th>
+                    <th>Secret Name</th>
+                    <th>Namespaces</th>
+                    <th>Data Keys</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSynced.length > 0 ? (
+                    filteredSynced.map((item) => {
+                      // const vaultwardenItem = syncedItems.find(vwItem => vwItem.id === item.vaultwardenItemId)
+                      return (
+                        <tr key={item.vaultwardenItemId}>
+                          <td>
+                            <Typography level="body-sm" fontWeight="medium">
+                              {item.vaultwardenItemName}
+                            </Typography>
+                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
+                              ID: {item.vaultwardenItemId.substring(0, 8)}...
+                            </Typography>
+                          </td>
+                          <td>
+                            <Typography level="body-sm">
+                              {item.secretName}
+                            </Typography>
+                          </td>
+                          <td>
+                            <Chip 
+                              size="sm" 
+                              variant="soft"
+                              color="primary"
+                              sx={{ 
+                                cursor: item.namespaces.length > 4 ? 'pointer' : 'default',
+                                '&:hover': item.namespaces.length > 4 ? {
+                                  bgcolor: 'primary.solidHoverBg'
+                                } : {}
+                              }}
+                              onClick={() => item.namespaces.length > 4 && handleShowNamespaces(item.vaultwardenItemName, item.namespaces)}
+                            >
+                              {item.namespaces.slice(0, 4).map(ns => ns.namespace).join(', ')}{item.namespaces.length > 4 ? `, +${item.namespaces.length - 4} more` : ''}
+                            </Chip>
+                          </td>
+                          <td>
+                            <Typography level="body-sm">
+                              {item.totalDataKeys}
+                            </Typography>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={5} style={{ textAlign: 'center', padding: '2rem' }}>
+                        <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
+                          {searchTerm ? 'No items found matching your search' : 'No synced items found'}
+                        </Typography>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </Table>
+            </Sheet>
+          </TabPanel>
+
+          {/* Not Synced Tab */}
+          <TabPanel value={1}>
+            <Sheet sx={{ overflow: 'auto' }}>
+              <Table hoverRow>
                 <thead>
                   <tr>
                     <th>Item Name</th>
@@ -339,97 +447,13 @@ export default function Discovery() {
             </Sheet>
           </TabPanel>
 
-          {/* Synced Tab */}
-          <TabPanel value={1}>
-            <Sheet sx={{ overflow: 'auto' }}>
-              <Table stripe="odd" hoverRow>
-                <thead>
-                  <tr>
-                    <th>Item Name</th>
-                    <th>Folder</th>
-                    <th>Synced To</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredSynced.length > 0 ? (
-                    filteredSynced.map((secret) => {
-                      const vaultwardenItem = syncedItems.find(item => item.id === secret.vaultwardenItemId)
-                      return (
-                        <tr key={`${secret.namespace}-${secret.secretName}`}>
-                          <td>
-                            <Typography level="body-sm" fontWeight="medium">
-                              🔐 {secret.vaultwardenItemName}
-                            </Typography>
-                            <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                              ID: {secret.vaultwardenItemId.substring(0, 8)}...
-                            </Typography>
-                          </td>
-                          <td>
-                            {vaultwardenItem?.folder ? (
-                              <Chip variant="soft" size="sm" color="neutral">
-                                📁 {vaultwardenItem.folder}
-                              </Chip>
-                            ) : (
-                              <Typography level="body-xs" sx={{ color: 'text.tertiary' }}>
-                                -
-                              </Typography>
-                            )}
-                          </td>
-                          <td>
-                            <Typography level="body-sm">
-                              {secret.namespace}/{secret.secretName}
-                            </Typography>
-                          </td>
-                          <td>
-                            <Chip 
-                              variant="soft" 
-                              size="sm" 
-                              color={secret.status === 'Active' ? 'success' : 'danger'}
-                            >
-                              {secret.status}
-                            </Chip>
-                          </td>
-                          <td>
-                            <Chip 
-                              size="sm" 
-                              variant="outlined"
-                              sx={{ 
-                                cursor: 'pointer',
-                                '&:hover': {
-                                  textDecoration: 'underline'
-                                }
-                              }}
-                              onClick={() => handleShowDataKeys(secret.namespace, secret.secretName, secret.vaultwardenItemName)}
-                            >
-                              🔑 View Keys
-                            </Chip>
-                          </td>
-                        </tr>
-                      )
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan={5} style={{ textAlign: 'center', padding: '2rem' }}>
-                        <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-                          {searchTerm ? 'No items found matching your search' : 'No synced items found'}
-                        </Typography>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </Table>
-            </Sheet>
-          </TabPanel>
-
           {/* Statistics Tab */}
           <TabPanel value={2}>
             <Box sx={{ p: 3 }}>
               <Typography level="h4" sx={{ mb: 3 }}>📊 Sync Statistics</Typography>
               
               <Box sx={{ display: 'grid', gap: 3 }}>
-                <Card variant="outlined">
+                <Card variant="outlined" sx={{ bgcolor: 'background.surface' }}>
                   <CardContent>
                     <Typography level="title-md" sx={{ mb: 1 }}>Coverage Analysis</Typography>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
@@ -447,7 +471,7 @@ export default function Discovery() {
                   </CardContent>
                 </Card>
 
-                <Card variant="outlined">
+                <Card variant="outlined" sx={{ bgcolor: 'background.surface' }}>
                   <CardContent>
                     <Typography level="title-md" sx={{ mb: 1 }}>Why Items Aren't Synced</Typography>
                     <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
@@ -507,6 +531,15 @@ export default function Discovery() {
         loading={loadingFields}
         items={selectedFields}
         emptyMessage="No custom fields found"
+      />
+
+      {/* Namespaces Modal */}
+      <NamespacesModal
+        open={namespacesModalOpen}
+        onClose={() => setNamespacesModalOpen(false)}
+        itemName={namespacesModalItemName}
+        namespaces={selectedNamespaces}
+        onViewKeys={handleShowDataKeys}
       />
     </Box>
   )

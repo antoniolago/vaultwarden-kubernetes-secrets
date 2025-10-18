@@ -94,6 +94,18 @@ public class SyncService : ISyncService
                 _logger.LogDebug("No changes detected in Vaultwarden items - skipping reconciliation");
                 summary.HasChanges = false;
                 summary.EndTime = DateTime.UtcNow;
+                
+                // Update progress to reflect that items were checked (all skipped since no changes)
+                await _dbLogger.UpdateSyncProgressAsync(
+                    syncLogId,
+                    processedItems: items.Count,
+                    created: 0,
+                    updated: 0,
+                    skipped: items.Count,
+                    failed: 0,
+                    deleted: 0
+                );
+                
                 await _dbLogger.CompleteSyncLogAsync(syncLogId, "Success", "No changes detected");
                 progress.Complete("No changes detected - all secrets up to date");
                 return summary;
@@ -202,6 +214,20 @@ public class SyncService : ISyncService
             else
             {
                 summary.OrphanCleanup = new OrphanCleanupSummary { Enabled = false };
+            }
+
+            // Cleanup stale secret states (database entries for secrets that no longer exist in Vaultwarden)
+            try
+            {
+                var staleCount = await _dbLogger.CleanupStaleSecretStatesAsync(items);
+                if (staleCount > 0)
+                {
+                    _logger.LogInformation("Cleaned up {Count} stale secret state entries", staleCount);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to cleanup stale secret states, but sync completed");
             }
 
             summary.EndTime = DateTime.UtcNow;

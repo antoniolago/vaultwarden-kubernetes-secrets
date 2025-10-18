@@ -50,6 +50,15 @@ builder.Services.AddHttpClient("VaultwardenClient")
 
 // Add Vaultwarden and Kubernetes services
 var appSettings = AppSettings.FromEnvironment();
+builder.Services.Configure<AppSettings>(options =>
+{
+    options.Vaultwarden = appSettings.Vaultwarden;
+    options.Kubernetes = appSettings.Kubernetes;
+    options.Sync = appSettings.Sync;
+    options.Logging = appSettings.Logging;
+    options.Metrics = appSettings.Metrics;
+    options.Webhook = appSettings.Webhook;
+});
 builder.Services.AddSingleton(appSettings.Vaultwarden);
 builder.Services.AddSingleton(appSettings.Kubernetes);
 // Make these singleton to work with VaultwardenService singleton
@@ -241,3 +250,6 @@ static async Task<double> GetCpuUsageAsync(Process process)
 }
 
 app.Run();
+
+// Make Program class accessible for integration tests
+public partial class Program { }

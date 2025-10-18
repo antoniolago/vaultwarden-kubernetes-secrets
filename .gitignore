@@ -410,3 +410,4 @@ FodyWeavers.xsd
 
 data
 dashboard/test-results/.last-run.json
+test-results

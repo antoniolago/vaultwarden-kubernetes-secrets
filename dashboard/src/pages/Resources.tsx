@@ -35,7 +35,7 @@ import { useState, useEffect } from 'react'
 
 function ResourceCard({ title, icon, children }: any) {
   return (
-    <Card variant="outlined">
+    <Card variant="outlined" sx={{ bgcolor: 'background.surface' }}>
       <CardContent>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
           {icon}
@@ -171,7 +171,7 @@ export default function Resources() {
       {/* Resource Charts */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
         <Grid xs={12}>
-          <Card variant="outlined">
+          <Card variant="outlined" sx={{ bgcolor: 'background.surface' }}>
             <CardContent>
               <Typography level="title-lg" sx={{ mb: 2 }}>
                 Resource Usage Over Time
@@ -184,10 +184,10 @@ export default function Resources() {
                   <YAxis yAxisId="memory" orientation="right" label={{ value: 'Memory MB', angle: 90, position: 'insideRight' }} />
                   <Tooltip />
                   <Legend />
-                  <Line yAxisId="cpu" type="monotone" dataKey="apiCpu" stroke="#667eea" name="API CPU %" strokeWidth={2} />
-                  <Line yAxisId="cpu" type="monotone" dataKey="syncCpu" stroke="#f59e0b" name="Sync CPU %" strokeWidth={2} />
-                  <Line yAxisId="memory" type="monotone" dataKey="apiMemory" stroke="#10b981" name="API Memory MB" strokeWidth={2} />
-                  <Line yAxisId="memory" type="monotone" dataKey="syncMemory" stroke="#ef4444" name="Sync Memory MB" strokeWidth={2} />
+                  <Line yAxisId="cpu" type="monotone" dataKey="apiCpu" stroke="var(--joy-palette-primary-500)" name="API CPU %" strokeWidth={2} />
+                  <Line yAxisId="cpu" type="monotone" dataKey="syncCpu" stroke="var(--joy-palette-warning-400)" name="Sync CPU %" strokeWidth={2} />
+                  <Line yAxisId="memory" type="monotone" dataKey="apiMemory" stroke="var(--joy-palette-success-400)" name="API Memory MB" strokeWidth={2} />
+                  <Line yAxisId="memory" type="monotone" dataKey="syncMemory" stroke="var(--joy-palette-danger-400)" name="Sync Memory MB" strokeWidth={2} />
                 </LineChart>
               </ResponsiveContainer>
             </CardContent>

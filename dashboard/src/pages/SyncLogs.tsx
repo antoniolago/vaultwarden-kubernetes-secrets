@@ -11,7 +11,7 @@ import {
   Sheet,
 } from '@mui/joy'
 import { api, SecretState } from '../lib/api'
-import { formatDate, formatDuration, getStatusColor } from '../lib/utils'
+import { formatDate, formatDuration, getStatusColor, computeSyncStatus } from '../lib/utils'
 import SecretsModal from '../components/SecretsModal'
 
 export default function SyncLogs() {
@@ -70,14 +70,14 @@ export default function SyncLogs() {
         </Box>
       </Box>
 
-      <Card variant="outlined">
-        <Sheet sx={{ overflow: 'auto' }}>
+      <Card variant="outlined" sx={{ bgcolor: 'background.surface' }}>
+        <Sheet variant="soft" sx={{ overflow: 'auto' }}>
           <Table stripe="odd" hoverRow>
             <thead>
               <tr>
                 <th style={{ width: 80 }}>ID</th>
                 <th style={{ width: 180 }}>Start Time</th>
-                <th style={{ width: 100 }}>Status</th>
+                <th style={{ width: 100 }}>Result</th>
                 <th style={{ width: 100 }}>Duration</th>
                 <th style={{ width: 80 }}>Total</th>
                 <th style={{ width: 80 }}>Created</th>
@@ -105,9 +105,9 @@ export default function SyncLogs() {
                       <Chip
                         variant="soft"
                         size="sm"
-                        color={getStatusColor(log.status)}
+                        color={getStatusColor(computeSyncStatus(log))}
                       >
-                        {log.status}
+                        {computeSyncStatus(log)}
                       </Chip>
                     </td>
                     <td>

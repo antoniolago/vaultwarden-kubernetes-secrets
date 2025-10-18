@@ -1,0 +1,124 @@
+suite: test authentication environment variables in deployments
+templates:
+  - templates/api-deployment.yaml
+  - templates/dashboard-deployment.yaml
+tests:
+  # API Deployment Tests
+  - it: API should inject LoginlessMode environment variable
+    template: templates/api-deployment.yaml
+    set:
+      api.enabled: true
+      api.auth.loginlessMode: true
+    asserts:
+      - isKind:
+          of: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LoginlessMode
+            value: "true"
+
+  - it: API should have LoginlessMode as false by default
+    template: templates/api-deployment.yaml
+    set:
+      api.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LoginlessMode
+            value: "false"
+
+  - it: API should inject AuthToken from secret when auth enabled
+    template: templates/api-deployment.yaml
+    set:
+      api.enabled: true
+      api.auth.enabled: true
+      api.auth.token: "test-token"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AuthToken
+            valueFrom:
+              secretKeyRef:
+                name: RELEASE-NAME-vaultwarden-kubernetes-secrets-auth
+                key: token
+
+  # Dashboard Deployment Tests
+  - it: Dashboard should inject VITE_LOGINLESS_MODE environment variable
+    template: templates/dashboard-deployment.yaml
+    set:
+      dashboard.enabled: true
+      dashboard.loginlessMode: true
+    asserts:
+      - isKind:
+          of: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: VITE_LOGINLESS_MODE
+            value: "true"
+
+  - it: Dashboard should have VITE_LOGINLESS_MODE as false by default
+    template: templates/dashboard-deployment.yaml
+    set:
+      dashboard.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: VITE_LOGINLESS_MODE
+            value: "false"
+
+  # Integration Tests
+  - it: API and Dashboard loginlessMode should match when configured together
+    set:
+      api.enabled: true
+      api.auth.loginlessMode: true
+      dashboard.enabled: true
+      dashboard.loginlessMode: true
+    asserts:
+      - template: templates/api-deployment.yaml
+        contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LoginlessMode
+            value: "true"
+      - template: templates/dashboard-deployment.yaml
+        contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: VITE_LOGINLESS_MODE
+            value: "true"
+
+  - it: Should support production configuration with auth enabled
+    set:
+      api.enabled: true
+      api.auth.enabled: true
+      api.auth.loginlessMode: false
+      api.auth.token: ""
+      dashboard.enabled: true
+      dashboard.loginlessMode: false
+    asserts:
+      - template: templates/api-deployment.yaml
+        contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LoginlessMode
+            value: "false"
+      - template: templates/api-deployment.yaml
+        contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AuthToken
+            valueFrom:
+              secretKeyRef:
+                name: RELEASE-NAME-vaultwarden-kubernetes-secrets-auth
+                key: token
+      - template: templates/dashboard-deployment.yaml
+        contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: VITE_LOGINLESS_MODE
+            value: "false"

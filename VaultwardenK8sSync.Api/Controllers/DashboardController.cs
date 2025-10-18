@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using VaultwardenK8sSync.Database;
 using VaultwardenK8sSync.Database.Repositories;
 
@@ -13,17 +14,20 @@ public class DashboardController : ControllerBase
     private readonly ISecretStateRepository _secretStateRepository;
     private readonly SyncDbContext _context;
     private readonly ILogger<DashboardController> _logger;
+    private readonly AppSettings _appSettings;
 
     public DashboardController(
         ISyncLogRepository syncLogRepository,
         ISecretStateRepository secretStateRepository,
         SyncDbContext context,
-        ILogger<DashboardController> logger)
+        ILogger<DashboardController> logger,
+        IOptions<AppSettings> appSettings)
     {
         _syncLogRepository = syncLogRepository;
         _secretStateRepository = secretStateRepository;
         _context = context;
         _logger = logger;
+        _appSettings = appSettings.Value;
     }
 
     /// <summary>
@@ -155,6 +159,34 @@ public class DashboardController : ControllerBase
         {
             _logger.LogError(ex, "Error retrieving namespace distribution");
             return StatusCode(500, "Error retrieving namespace distribution");
+        }
+    }
+
+    /// <summary>
+    /// Get sync configuration and status for progress tracking
+    /// </summary>
+    [HttpGet("sync-status")]
+    public async Task<ActionResult<object>> GetSyncStatus()
+    {
+        try
+        {
+            var stats = await _syncLogRepository.GetStatisticsAsync();
+            var lastSyncTime = stats["lastSyncTime"] as DateTime?;
+            
+            return Ok(new
+            {
+                syncIntervalSeconds = _appSettings.Sync.SyncIntervalSeconds,
+                continuousSync = _appSettings.Sync.ContinuousSync,
+                lastSyncTime = lastSyncTime,
+                nextSyncTime = lastSyncTime.HasValue 
+                    ? lastSyncTime.Value.AddSeconds(_appSettings.Sync.SyncIntervalSeconds)
+                    : (DateTime?)null
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving sync status");
+            return StatusCode(500, "Error retrieving sync status");
         }
     }
 }

@@ -318,4 +318,90 @@ public class DatabaseLoggerService : IDatabaseLoggerService
             _logger.LogError(ex, "Failed to cache Vaultwarden items");
         }
     }
+
+    public async Task<int> CleanupStaleSecretStatesAsync(List<Models.VaultwardenItem> currentItems)
+    {
+        if (!_isEnabled)
+        {
+            _logger.LogDebug("Skipping stale secret states cleanup - database not enabled");
+            return 0;
+        }
+
+        try
+        {
+            // Build a set of all valid (namespace, secretName) combinations from current items
+            var validSecretKeys = new HashSet<string>();
+            
+            foreach (var item in currentItems)
+            {
+                var namespaces = item.ExtractNamespaces();
+                foreach (var namespaceName in namespaces)
+                {
+                    // Get the secret name that would be used for this item
+                    var extractedSecretName = item.ExtractSecretName();
+                    var secretName = !string.IsNullOrEmpty(extractedSecretName) 
+                        ? SanitizeSecretName(extractedSecretName) 
+                        : SanitizeSecretName(item.Name);
+                    
+                    var key = $"{namespaceName}:{secretName}";
+                    validSecretKeys.Add(key);
+                }
+            }
+
+            // Get all secret states from database
+            var allSecretStates = await _secretStateRepository!.GetAllAsync();
+            
+            // Find stale entries - those that don't match any current Vaultwarden items
+            var staleStates = allSecretStates
+                .Where(state => !validSecretKeys.Contains($"{state.Namespace}:{state.SecretName}"))
+                .ToList();
+
+            if (staleStates.Any())
+            {
+                _logger.LogInformation("🧹 Found {Count} stale secret state entries to cleanup", staleStates.Count);
+                
+                foreach (var staleState in staleStates)
+                {
+                    _logger.LogDebug("Removing stale secret state: {Namespace}/{SecretName}", 
+                        staleState.Namespace, staleState.SecretName);
+                    await _secretStateRepository.DeleteAsync(staleState.Id);
+                }
+                
+                _logger.LogInformation("✅ Cleaned up {Count} stale secret state entries", staleStates.Count);
+                return staleStates.Count;
+            }
+            else
+            {
+                _logger.LogDebug("No stale secret states found");
+                return 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to cleanup stale secret states");
+            return 0;
+        }
+    }
+
+    private static string SanitizeSecretName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "unnamed-secret";
+
+        // Convert to lowercase and replace invalid characters with hyphens
+        var sanitized = name.ToLowerInvariant()
+            .Replace("_", "-")
+            .Replace(" ", "-")
+            .Replace(".", "-");
+
+        // Remove any characters that aren't alphanumeric or hyphens
+        sanitized = System.Text.RegularExpressions.Regex.Replace(sanitized, "[^a-z0-9-]", "");
+
+        // Remove leading/trailing hyphens and collapse multiple hyphens
+        sanitized = System.Text.RegularExpressions.Regex.Replace(sanitized, "-+", "-")
+            .Trim('-');
+
+        // Ensure it's not empty after sanitization
+        return string.IsNullOrEmpty(sanitized) ? "unnamed-secret" : sanitized;
+    }
 }

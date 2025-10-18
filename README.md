@@ -1,6 +1,11 @@
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/vaultwarden-kubernetes-secrets)](https://artifacthub.io/packages/search?repo=vaultwarden-kubernetes-secrets) [![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/antoniolago/vaultwarden-kubernetes-secrets)
 
-# Vaultwarden Kubernetes Secrets Sync
+
+<div align="center">
+  <img src="dashboard/vks.png" alt="VKS Logo" width="120" height="120" />
+  
+  # Vaultwarden Kubernetes Secrets Sync
+  [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/vaultwarden-kubernetes-secrets)](https://artifacthub.io/packages/search?repo=vaultwarden-kubernetes-secrets) [![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/antoniolago/vaultwarden-kubernetes-secrets)
+</div>
 
 Automatically sync secrets from [Vaultwarden](https://github.com/dani-garcia/vaultwarden) to Kubernetes. Store your secrets in Vaultwarden, tag them with target namespaces, and they'll be created as Kubernetes Secrets.
 
@@ -47,11 +52,11 @@ helm upgrade -i vaultwarden-kubernetes-secrets oci://ghcr.io/antoniolago/charts/
 
 **Registry Options:**
 - **GHCR (Recommended)**: `oci://ghcr.io/antoniolago/charts/vaultwarden-kubernetes-secrets` - Public GitHub Container Registry
-- **Harbor**: `oci://harbor.lag0.com.br/charts/vaultwarden-kubernetes-secrets` - Alternative registry (may be faster in some regions)
+- **Harbor**: `oci://harbor.lag0.com.br/charts/vaultwarden-kubernetes-secrets` - Alternative registry 
 
 ### 2. Create a Secret in Vaultwarden
 
-In Vaultwarden, create a **Login** or **Secure Note** item with:
+In Vaultwarden, create a **Login**, **SSH Key** or **Secure Note** item with:
 
 **Required custom field:**
 - Name: `namespaces`
@@ -214,6 +219,5 @@ We welcome contributions! Whether you're fixing bugs, adding features, or improv
 ## Additional Resources
 
 - [Contributing Guide](CONTRIBUTING.md) - How to contribute to this project
-- [Detailed configuration guide](VaultwardenK8sSync/README.md)
 - [Helm chart values](charts/vaultwarden-kubernetes-secrets/values.yaml)
 - [GitHub Issues](https://github.com/antoniolago/vaultwarden-kubernetes-secrets/issues)
