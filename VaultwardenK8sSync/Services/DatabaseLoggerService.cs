@@ -38,7 +38,7 @@ public class DatabaseLoggerService : IDatabaseLoggerService
         }
     }
 
-    public async Task<long> StartSyncLogAsync(string phase, int totalItems = 0)
+    public async Task<long> StartSyncLogAsync(string phase, int totalItems = 0, int syncIntervalSeconds = 0, bool continuousSync = false)
     {
         if (!_isEnabled)
         {
@@ -61,7 +61,9 @@ public class DatabaseLoggerService : IDatabaseLoggerService
                 UpdatedSecrets = 0,
                 SkippedSecrets = 0,
                 FailedSecrets = 0,
-                DurationSeconds = 0
+                DurationSeconds = 0,
+                SyncIntervalSeconds = syncIntervalSeconds,
+                ContinuousSync = continuousSync
             };
 
             var created = await _syncLogRepository!.CreateAsync(syncLog);
@@ -111,35 +113,54 @@ public class DatabaseLoggerService : IDatabaseLoggerService
             return;
         }
 
-        try
+        // Retry up to 3 times with delays to handle database concurrency issues
+        var maxAttempts = 3;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            _logger.LogInformation("💾 Completing sync log {SyncLogId} with status: {Status}", syncLogId, status);
-            
-            if (_activeSyncLogs.TryGetValue(syncLogId, out var syncLog))
+            try
             {
-                syncLog.EndTime = DateTime.UtcNow;
-                syncLog.Status = status;
-                syncLog.ErrorMessage = errorMessage;
-
-                if (_syncStartTimes.TryGetValue(syncLogId, out var startTime))
-                {
-                    syncLog.DurationSeconds = (DateTime.UtcNow - startTime).TotalSeconds;
-                    _syncStartTimes.Remove(syncLogId);
-                }
-
-                await _syncLogRepository!.UpdateAsync(syncLog);
-                _activeSyncLogs.Remove(syncLogId);
+                _logger.LogInformation("💾 Completing sync log {SyncLogId} with status: {Status} (attempt {Attempt})", syncLogId, status, attempt);
                 
-                _logger.LogInformation("✅ Sync log {SyncLogId} saved to database", syncLogId);
+                if (_activeSyncLogs.TryGetValue(syncLogId, out var syncLog))
+                {
+                    syncLog.EndTime = DateTime.UtcNow;
+                    syncLog.Status = status;
+                    syncLog.ErrorMessage = errorMessage;
+
+                    if (_syncStartTimes.TryGetValue(syncLogId, out var startTime))
+                    {
+                        syncLog.DurationSeconds = (DateTime.UtcNow - startTime).TotalSeconds;
+                        _syncStartTimes.Remove(syncLogId);
+                    }
+
+                    await _syncLogRepository!.UpdateAsync(syncLog);
+                    _activeSyncLogs.Remove(syncLogId);
+                    
+                    _logger.LogInformation("✅ Sync log {SyncLogId} saved to database", syncLogId);
+                    return; // Success - exit retry loop
+                }
+                else
+                {
+                    _logger.LogWarning("⚠️  Sync log {SyncLogId} not found in active logs", syncLogId);
+                    return; // Nothing to update - exit retry loop
+                }
             }
-            else
+            catch (Exception ex)
             {
-                _logger.LogWarning("⚠️  Sync log {SyncLogId} not found in active logs", syncLogId);
+                _logger.LogError(ex, "❌ Failed to complete sync log {SyncLogId} (attempt {Attempt}/{MaxAttempts})", 
+                    syncLogId, attempt, maxAttempts);
+                
+                if (attempt == maxAttempts)
+                {
+                    // Last attempt failed - clean up and rethrow
+                    _activeSyncLogs.Remove(syncLogId);
+                    _syncStartTimes.Remove(syncLogId);
+                    throw new Exception($"Failed to complete sync log {syncLogId} after {maxAttempts} attempts", ex);
+                }
+                
+                // Wait before retry with exponential backoff
+                await Task.Delay(TimeSpan.FromMilliseconds(100 * attempt));
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "❌ Failed to complete sync log {SyncLogId}", syncLogId);
         }
     }
 

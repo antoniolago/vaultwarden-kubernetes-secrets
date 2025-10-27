@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using System.Text.RegularExpressions;
 using VaultwardenK8sSync.Models;
 using VaultwardenK8sSync.Configuration;
+using VaultwardenK8sSync.Infrastructure;
 
 namespace VaultwardenK8sSync.Services;
 
@@ -43,9 +44,25 @@ public class SyncService : ISyncService
 
     public async Task<SyncSummary> SyncAsync(ISyncProgressReporter? progressReporter)
     {
+        // Prevent concurrent syncs with global file-based lock (works across all processes)
+        using var syncLock = new GlobalSyncLock(_logger, timeoutMs: 100);
+        
+        if (!await syncLock.TryAcquireAsync())
+        {
+            _logger.LogWarning("⚠️  Sync already in progress (in another process or thread) - rejecting concurrent sync attempt");
+            return new SyncSummary
+            {
+                SyncNumber = _syncCount,
+                OverallSuccess = false,
+                StartTime = DateTime.UtcNow,
+                EndTime = DateTime.UtcNow,
+                Errors = new List<string> { "Sync already in progress" }
+            };
+        }
+        
         var progress = progressReporter ?? new NullProgressReporter();
         var syncStartTime = DateTime.UtcNow;
-        
+    
         var summary = new SyncSummary
         {
             StartTime = syncStartTime,
@@ -95,13 +112,43 @@ public class SyncService : ISyncService
                 summary.HasChanges = false;
                 summary.EndTime = DateTime.UtcNow;
                 
-                // Update progress to reflect that items were checked (all skipped since no changes)
+                // Still need to populate namespace info for accurate summary reporting
+                var namespacedItems = new Dictionary<string, List<Models.VaultwardenItem>>();
+                foreach (var item in items)
+                {
+                    var namespaces = item.ExtractNamespaces();
+                    foreach (var namespaceName in namespaces)
+                    {
+                        if (!namespacedItems.ContainsKey(namespaceName))
+                        {
+                            namespacedItems[namespaceName] = new List<Models.VaultwardenItem>();
+                        }
+                        namespacedItems[namespaceName].Add(item);
+                    }
+                }
+                
+                summary.TotalNamespaces = namespacedItems.Count;
+                
+                // Create namespace summaries with all items marked as skipped
+                foreach (var (namespaceName, namespaceItems) in namespacedItems)
+                {
+                    var nsSummary = new NamespaceSummary
+                    {
+                        Name = namespaceName,
+                        SourceItems = namespaceItems.Count,
+                        Skipped = namespaceItems.Count,
+                        Success = true
+                    };
+                    summary.AddNamespace(nsSummary);
+                }
+                
+                // Update database progress
                 await _dbLogger.UpdateSyncProgressAsync(
                     syncLogId,
-                    processedItems: items.Count,
+                    processedItems: summary.TotalSecretsProcessed,
                     created: 0,
                     updated: 0,
-                    skipped: items.Count,
+                    skipped: summary.TotalSecretsSkipped,
                     failed: 0,
                     deleted: 0
                 );
@@ -306,6 +353,7 @@ public class SyncService : ISyncService
             progress.Complete($"Sync failed: {ex.Message}");
             return summary;
         }
+        // Global sync lock is automatically released by 'using' statement
     }
 
     public async Task<bool> SyncNamespaceAsync(string namespaceName)

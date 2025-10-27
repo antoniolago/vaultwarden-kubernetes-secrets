@@ -18,6 +18,7 @@ import {
 } from '@mui/joy'
 import KeysModal from '../components/KeysModal'
 import NamespacesModal from '../components/NamespacesModal'
+import { api } from '../lib/api'
 
 interface VaultwardenItem {
   id: string
@@ -29,6 +30,7 @@ interface VaultwardenItem {
   fields: number
   notes: string | null
   hasNamespacesField: boolean
+  namespacesValue: string | null
 }
 
 interface DiscoveryData {
@@ -40,6 +42,7 @@ interface DiscoveryData {
     secretName: string
     status: string
     dataKeysCount: number
+    lastError: string | null
   }>
   lastScanTime: string
 }
@@ -59,6 +62,19 @@ export default function Discovery() {
   const [namespacesModalOpen, setNamespacesModalOpen] = useState(false)
   const [selectedNamespaces, setSelectedNamespaces] = useState<Array<{namespace: string, secretName: string, status: string}>>([])
   const [namespacesModalItemName, setNamespacesModalItemName] = useState('')
+
+  // Fetch sync status to get interval and timing
+  const { data: syncStatus } = useQuery({
+    queryKey: ['sync-status'],
+    queryFn: api.getSyncStatus,
+    refetchInterval: 10000, // Check sync status every 10s
+  })
+
+
+  // Calculate refetch interval: use half of sync interval, or 15 seconds minimum
+  const discoveryRefetchInterval = syncStatus 
+    ? Math.max(Math.floor(syncStatus.syncIntervalSeconds * 1000 / 2), 15000)
+    : 30000 // Default to 30s if not yet loaded
 
   // Fetch discovery data from API
   const { data, isLoading, error } = useQuery({
@@ -83,19 +99,39 @@ export default function Discovery() {
       }
       return response.json()
     },
-    refetchInterval: 60000,
+    refetchInterval: discoveryRefetchInterval,
     retry: 2,
   })
 
   // Filter out deleted secrets
   const activeSecrets = data?.syncedSecrets.filter(s => s.status !== 'Deleted') || []
   
-  const syncedItemIds = new Set(activeSecrets.map(s => s.vaultwardenItemId))
-  const notSyncedItems = data?.vaultwardenItems.filter(item => !syncedItemIds.has(item.id)) || []
-  const syncedItems = data?.vaultwardenItems.filter(item => syncedItemIds.has(item.id)) || []
+  // Separate successfully synced from failed
+  const successfullySyncedItemIds = new Set(activeSecrets.filter(s => s.status !== 'Failed').map(s => s.vaultwardenItemId))
+  const failedSecrets = activeSecrets.filter(s => s.status === 'Failed')
+  const failedItemIds = new Set(failedSecrets.map(s => s.vaultwardenItemId))
   
-  // Use active secrets only (exclude deleted)
-  const syncedSecrets = activeSecrets
+  // Not synced includes: items without synced secrets OR items with only failed secrets
+  const notSyncedItems = data?.vaultwardenItems.filter(item => 
+    !successfullySyncedItemIds.has(item.id)
+  ) || []
+  const syncedItems = data?.vaultwardenItems.filter(item => successfullySyncedItemIds.has(item.id)) || []
+  
+  // Debug: Log secrets info
+  console.log('All Vaultwarden items:', data?.vaultwardenItems)
+  console.log('All active secrets:', activeSecrets)
+  console.log('All synced secrets statuses:', activeSecrets.map(s => ({ id: s.vaultwardenItemId, name: s.vaultwardenItemName, status: s.status, error: s.lastError })))
+  console.log('Items with namespaces field:', data?.vaultwardenItems?.filter(i => i.hasNamespacesField))
+  console.log('Not synced items:', notSyncedItems.map(i => ({ id: i.id, name: i.name, hasNsField: i.hasNamespacesField })))
+  if (failedSecrets.length > 0) {
+    console.log('Failed secrets:', failedSecrets)
+    console.log('Failed item IDs:', Array.from(failedItemIds))
+  } else {
+    console.log('No failed secrets found in database')
+  }
+  
+  // Use active secrets only (exclude deleted and failed)
+  const syncedSecrets = activeSecrets.filter(s => s.status !== 'Failed')
   
   // Deduplicate synced secrets by grouping namespaces
   const groupedSyncedSecrets = syncedSecrets.reduce((acc, secret) => {
@@ -231,8 +267,8 @@ export default function Discovery() {
         />
       </Box>
 
-      {/* Info Alert */}
-      {(!data?.vaultwardenItems || data.vaultwardenItems.length === 0) && (
+      {/* Info Alert - Only show if there's an error AND no data loaded */}
+      {error && (!data?.vaultwardenItems || data.vaultwardenItems.length === 0) && (
         <Alert color="warning" variant="soft" sx={{ mb: 3 }}>
           <Typography level="body-sm">
             <strong>⚠️ Authentication Issue:</strong> Vaultwarden items could not be loaded. 
@@ -241,6 +277,7 @@ export default function Discovery() {
           </Typography>
         </Alert>
       )}
+
 
       {/* Summary Cards */}
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 2, mb: 3 }}>
@@ -289,9 +326,9 @@ export default function Discovery() {
             <Tab>
               Not Synced ({notSyncedItems.length})
             </Tab>
-            <Tab>
+            {/* <Tab>
               Statistics
-            </Tab>
+            </Tab> */}
           </TabList>
           
           {/* Synced Tab */}
@@ -421,15 +458,51 @@ export default function Discovery() {
                           </Chip>
                         </td>
                         <td>
-                          {!item.hasNamespacesField ? (
-                            <Chip variant="soft" size="sm" color="warning">
-                              Missing 'namespaces' field
-                            </Chip>
-                          ) : (
-                            <Chip variant="soft" size="sm" color="danger">
-                              Sync failed or inactive
-                            </Chip>
-                          )}
+                          {(() => {
+                            // Missing namespaces field
+                            if (!item.hasNamespacesField) {
+                              return (
+                                <Typography level="body-sm" sx={{ color: 'warning.500' }}>
+                                  Missing 'namespaces' custom field
+                                </Typography>
+                              )
+                            }
+                            
+                            // Failed sync with error
+                            if (failedItemIds.has(item.id)) {
+                              const failedSecret = failedSecrets.find(s => s.vaultwardenItemId === item.id)
+                              const error = failedSecret?.lastError
+                              return (
+                                <Typography level="body-sm" sx={{ color: 'danger.500', fontFamily: 'monospace' }}>
+                                  {error || 'Sync failed - no error details'}
+                                </Typography>
+                              )
+                            }
+                            
+                            // Has namespaces field but not synced - show actual namespaces value
+                            let namespaces: string[] = []
+                            try {
+                              if (item.namespacesValue) {
+                                namespaces = JSON.parse(item.namespacesValue)
+                              }
+                            } catch {
+                              // Invalid JSON
+                            }
+                            
+                            if (namespaces.length === 0) {
+                              return (
+                                <Typography level="body-sm" sx={{ color: 'warning.500' }}>
+                                  'namespaces' field exists but is empty or invalid
+                                </Typography>
+                              )
+                            }
+                            
+                            return (
+                              <Typography level="body-sm" sx={{ color: 'neutral.500' }}>
+                                Configured for: {namespaces.join(', ')} - Not yet synced (check sync logs for errors)
+                              </Typography>
+                            )
+                          })()}
                         </td>
                       </tr>
                     ))
@@ -448,7 +521,7 @@ export default function Discovery() {
           </TabPanel>
 
           {/* Statistics Tab */}
-          <TabPanel value={2}>
+          {/* <TabPanel value={2}>
             <Box sx={{ p: 3 }}>
               <Typography level="h4" sx={{ mb: 3 }}>📊 Sync Statistics</Typography>
               
@@ -507,7 +580,7 @@ export default function Discovery() {
                 </Alert>
               </Box>
             </Box>
-          </TabPanel>
+          </TabPanel> */}
         </Tabs>
       </Card>
 

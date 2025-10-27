@@ -62,6 +62,9 @@ public class SyncLogRepository : ISyncLogRepository
             .OrderByDescending(s => s.StartTime)
             .FirstOrDefaultAsync();
 
+        // Use EndTime if available (when sync completed), otherwise use StartTime
+        DateTime? lastSyncTime = lastSync?.EndTime ?? lastSync?.StartTime;
+
         return new Dictionary<string, object>
         {
             ["totalSyncs"] = totalSyncs,
@@ -70,7 +73,7 @@ public class SyncLogRepository : ISyncLogRepository
             ["totalSecretsCreated"] = totalSecretsCreated,
             ["totalSecretsUpdated"] = totalSecretsUpdated,
             ["averageDuration"] = avgDuration,
-            ["lastSyncTime"] = lastSync?.StartTime,
+            ["lastSyncTime"] = lastSyncTime!,
             ["lastSyncStatus"] = lastSync?.Status ?? "Never"
         };
     }

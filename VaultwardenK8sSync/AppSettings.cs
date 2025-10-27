@@ -26,7 +26,8 @@ public class AppSettings
                 FolderId = Environment.GetEnvironmentVariable("VAULTWARDEN__FOLDERID"),
                 FolderName = Environment.GetEnvironmentVariable("VAULTWARDEN__FOLDERNAME"),
                 CollectionId = Environment.GetEnvironmentVariable("VAULTWARDEN__COLLECTIONID"),
-                CollectionName = Environment.GetEnvironmentVariable("VAULTWARDEN__COLLECTIONNAME")
+                CollectionName = Environment.GetEnvironmentVariable("VAULTWARDEN__COLLECTIONNAME"),
+                DataDirectory = Environment.GetEnvironmentVariable("VAULTWARDEN__DATADIRECTORY") ?? Path.Combine(Path.GetTempPath(), "bw-data")
             },
             Kubernetes = new KubernetesSettings
             {
@@ -96,6 +97,9 @@ public class VaultwardenSettings
     // Optional: restrict items to a specific collection
     public string? CollectionId { get; set; }
     public string? CollectionName { get; set; }
+
+    // Data directory for bw CLI state (ensures consistent session across commands)
+    public string DataDirectory { get; set; } = Path.Combine(Path.GetTempPath(), "bw-data");
 
     // Password login removed; API key is the only supported mode
 }

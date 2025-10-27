@@ -182,6 +182,8 @@ public class CommandHandler : ICommandHandler
         return false;
     }
 
+    private readonly SemaphoreSlim _syncLock = new SemaphoreSlim(1, 1);
+    
     private async Task<bool> RunContinuousSyncAsync()
     {
         var cancellationTokenSource = new CancellationTokenSource();
@@ -200,10 +202,35 @@ public class CommandHandler : ICommandHandler
             while (!cancellationTokenSource.Token.IsCancellationRequested)
             {
                 runCount++;
-                _logger.LogInformation("Starting sync run #{RunCount}...", runCount);
+                
+                // Wait before each sync (except the first one)
+                // This ensures consistent interval between sync START times
+                if (runCount > 1 && !cancellationTokenSource.Token.IsCancellationRequested)
+                {
+                    _logger.LogInformation("Waiting {Interval} seconds before next sync...", 
+                        _appSettings.Sync.SyncIntervalSeconds);
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(_appSettings.Sync.SyncIntervalSeconds), 
+                            cancellationTokenSource.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break; // Exit loop if cancelled during delay
+                    }
+                }
+                
+                // Prevent overlapping syncs with semaphore
+                if (!await _syncLock.WaitAsync(TimeSpan.FromSeconds(1)))
+                {
+                    _logger.LogWarning("⚠️  Previous sync still running - skipping sync run #{RunCount}", runCount);
+                    continue; // Try again in next iteration (which will wait the interval)
+                }
                 
                 try
                 {
+                    _logger.LogInformation("Starting sync run #{RunCount}...", runCount);
+                    
                     SyncSummary syncSummary;
                     
                     // Use dynamic progress display for real-time updates
@@ -223,13 +250,9 @@ public class CommandHandler : ICommandHandler
                 {
                     _logger.LogError(ex, "Sync run #{RunCount} failed with exception", runCount);
                 }
-
-                if (!cancellationTokenSource.Token.IsCancellationRequested)
+                finally
                 {
-                    _logger.LogInformation("Waiting {Interval} seconds before next sync...", 
-                        _appSettings.Sync.SyncIntervalSeconds);
-                    await Task.Delay(TimeSpan.FromSeconds(_appSettings.Sync.SyncIntervalSeconds), 
-                        cancellationTokenSource.Token);
+                    _syncLock.Release();
                 }
             }
 

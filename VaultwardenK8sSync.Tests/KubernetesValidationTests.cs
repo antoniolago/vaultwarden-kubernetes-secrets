@@ -28,8 +28,10 @@ public class KubernetesValidationTests
         _syncConfig = new SyncSettings();
         
         // Setup database logger to return a sync log ID
-        _dbLoggerMock.Setup(x => x.StartSyncLogAsync(It.IsAny<string>(), It.IsAny<int>()))
+        _dbLoggerMock.Setup(x => x.StartSyncLogAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool>()))
             .ReturnsAsync(1L);
+        
+        var redisPublisherMock = new Mock<IRedisSyncOutputPublisher>();
         
         _syncService = new SyncService(
             _loggerMock.Object,
@@ -37,6 +39,7 @@ public class KubernetesValidationTests
             _kubernetesServiceMock.Object,
             _metricsServiceMock.Object,
             _dbLoggerMock.Object,
+            redisPublisherMock.Object,
             _syncConfig);
     }
 

@@ -18,16 +18,23 @@ public class VaultwardenHealthCheck : IHealthCheck
     {
         try
         {
-            // Try to get items to verify connection
-            var items = await _vaultwardenService.GetItemsAsync();
+            // Just check if authenticated - don't trigger re-authentication
+            // to avoid interfering with sync operations
+            var isAuthenticated = await _vaultwardenService.IsAuthenticatedAsync();
             
-            return HealthCheckResult.Healthy(
-                $"Vaultwarden is accessible. {items.Count} items available.");
+            if (isAuthenticated)
+            {
+                return HealthCheckResult.Healthy("Vaultwarden is authenticated");
+            }
+            else
+            {
+                return HealthCheckResult.Degraded("Vaultwarden is not authenticated");
+            }
         }
         catch (Exception ex)
         {
             return HealthCheckResult.Unhealthy(
-                "Failed to connect to Vaultwarden",
+                "Failed to check Vaultwarden status",
                 ex);
         }
     }

@@ -134,6 +134,9 @@ export const api = {
   getNamespaces: (): Promise<NamespaceStats[]> =>
     fetchWithAuth('/dashboard/namespaces'),
 
+  getSyncStatus: (): Promise<{syncIntervalSeconds: number, continuousSync: boolean, lastSyncTime: string | null, nextSyncTime: string | null}> =>
+    fetchWithAuth('/dashboard/sync-status'),
+
   // Sync Logs
   getSyncLogs: (limit: number = 50): Promise<SyncLog[]> =>
     fetchWithAuth(`/synclogs?limit=${limit}`),

@@ -31,8 +31,10 @@ public class IntegrationTests
         _syncConfig = new SyncSettings();
         
         // Setup database logger to return a sync log ID
-        _dbLoggerMock.Setup(x => x.StartSyncLogAsync(It.IsAny<string>(), It.IsAny<int>()))
+        _dbLoggerMock.Setup(x => x.StartSyncLogAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool>()))
             .ReturnsAsync(1L);
+        
+        var redisPublisherMock = new Mock<IRedisSyncOutputPublisher>();
         
         _syncService = new SyncService(
             _loggerMock.Object,
@@ -40,6 +42,7 @@ public class IntegrationTests
             _kubernetesServiceMock.Object,
             _metricsServiceMock.Object,
             _dbLoggerMock.Object,
+            redisPublisherMock.Object,
             _syncConfig);
     }
 
@@ -552,5 +555,423 @@ public class IntegrationTests
         Assert.Equal("v1", result["API_VERSION"]);
         Assert.Equal("30", result["API_TIMEOUT"]);
         Assert.Equal("This is a secure note with API configuration", result["API-Configuration"]); // Default key from item name
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    [Trait("Category", "Idempotency")]
+    public async Task SyncAsync_WhenSecretsUnchanged_ShouldSkipAllSecrets()
+    {
+        // Arrange - Create test items with namespaces
+        var items = new List<VaultwardenItem>
+        {
+            new VaultwardenItem
+            {
+                Id = "item1",
+                Name = "database-config",
+                Type = 1,
+                Login = new LoginInfo { Username = "dbuser", Password = "dbpass" },
+                Fields = new List<FieldInfo>
+                {
+                    new FieldInfo { Name = "namespaces", Value = "test-namespace", Type = 0 },
+                    new FieldInfo { Name = "DB_HOST", Value = "localhost", Type = 0 }
+                }
+            },
+            new VaultwardenItem
+            {
+                Id = "item2",
+                Name = "api-keys",
+                Type = 1,
+                Login = new LoginInfo { Username = "apiuser", Password = "apipass" },
+                Fields = new List<FieldInfo>
+                {
+                    new FieldInfo { Name = "namespaces", Value = "test-namespace", Type = 0 },
+                    new FieldInfo { Name = "API_KEY", Value = "secret123", Type = 0 }
+                }
+            },
+            new VaultwardenItem
+            {
+                Id = "item3",
+                Name = "redis-config",
+                Type = 1,
+                Login = new LoginInfo { Username = "redisuser", Password = "redispass" },
+                Fields = new List<FieldInfo>
+                {
+                    new FieldInfo { Name = "namespaces", Value = "test-namespace", Type = 0 },
+                    new FieldInfo { Name = "REDIS_URL", Value = "redis://localhost", Type = 0 }
+                }
+            }
+        };
+
+        _vaultwardenServiceMock.Setup(x => x.GetItemsAsync()).ReturnsAsync(items);
+
+        // Mock K8s to return existing secrets that match exactly
+        _kubernetesServiceMock
+            .Setup(x => x.GetSecretDataAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync((string ns, string name) =>
+            {
+                // Return matching data for each secret
+                if (name == "database-config")
+                    return new Dictionary<string, string> { { "username", "dbuser" }, { "password", "dbpass" }, { "DB_HOST", "localhost" } };
+                if (name == "api-keys")
+                    return new Dictionary<string, string> { { "username", "apiuser" }, { "password", "apipass" }, { "API_KEY", "secret123" } };
+                if (name == "redis-config")
+                    return new Dictionary<string, string> { { "username", "redisuser" }, { "password", "redispass" }, { "REDIS_URL", "redis://localhost" } };
+                return null;
+            });
+
+        _kubernetesServiceMock
+            .Setup(x => x.SecretExistsAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(true);
+
+        // Mock GetSecretAnnotationsAsync to return hashes matching the current data
+        // This ensures secrets are detected as unchanged
+        var hashKey = "vaultwarden-kubernetes-secrets/content-hash";
+        _kubernetesServiceMock
+            .Setup(x => x.GetSecretAnnotationsAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync((string ns, string name) =>
+            {
+                // Return the same hash that will be calculated for unchanged data
+                // The hash is based on item ID, so return a stable hash per secret
+                var annotations = new Dictionary<string, string>
+                {
+                    { hashKey, name == "database-config" ? "item1" : (name == "api-keys" ? "item2" : "item3") }
+                };
+                return annotations;
+            });
+
+        // Mock CreateSecretAsync and UpdateSecretAsync to return success
+        _kubernetesServiceMock
+            .Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+            .ReturnsAsync(new OperationResult { Success = true });
+
+        _kubernetesServiceMock
+            .Setup(x => x.UpdateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+            .ReturnsAsync(new OperationResult { Success = true });
+
+        // Act - Run sync twice with same data
+        var progressMock = new Mock<ISyncProgressReporter>();
+        var firstSync = await _syncService.SyncAsync(progressMock.Object);
+        var secondSync = await _syncService.SyncAsync(progressMock.Object);
+
+        // Assert - When data doesn't change, quick change detection kicks in
+        // Second sync detects no changes via hash but still reports items as skipped
+        Assert.False(secondSync.HasChanges); // No changes detected
+        Assert.Equal(3, secondSync.TotalSecretsSkipped); // 3 items unchanged = 3 skipped
+        Assert.Equal(3, secondSync.TotalSecretsProcessed); // All 3 processed as skipped
+        Assert.Equal(0, secondSync.TotalSecretsCreated); // No creates
+        Assert.Equal(0, secondSync.TotalSecretsUpdated); // No updates
+        Assert.Equal(0, secondSync.TotalSecretsFailed); // No failures
+        Assert.True(secondSync.OverallSuccess); // Sync succeeded
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    [Trait("Category", "Idempotency")]
+    public async Task SyncAsync_MultipleRuns_ShouldHaveIdenticalResultsWithoutReauthentication()
+    {
+        // Arrange - Create test items
+        var items = new List<VaultwardenItem>
+        {
+            new VaultwardenItem
+            {
+                Id = "item1",
+                Name = "app-config",
+                Type = 1,
+                Login = new LoginInfo { Username = "appuser", Password = "apppass" },
+                Fields = new List<FieldInfo>
+                {
+                    new FieldInfo { Name = "namespaces", Value = "production", Type = 0 },
+                    new FieldInfo { Name = "APP_KEY", Value = "key123", Type = 0 }
+                }
+            },
+            new VaultwardenItem
+            {
+                Id = "item2",
+                Name = "db-credentials",
+                Type = 1,
+                Login = new LoginInfo { Username = "dbadmin", Password = "dbsecret" },
+                Fields = new List<FieldInfo>
+                {
+                    new FieldInfo { Name = "namespaces", Value = "production", Type = 0 },
+                    new FieldInfo { Name = "DB_HOST", Value = "postgres.local", Type = 0 }
+                }
+            }
+        };
+
+        // Track authentication calls
+        var authCallCount = 0;
+        _vaultwardenServiceMock.Setup(x => x.AuthenticateAsync())
+            .ReturnsAsync(() =>
+            {
+                authCallCount++;
+                return true;
+            });
+
+        _vaultwardenServiceMock.Setup(x => x.GetItemsAsync()).ReturnsAsync(items);
+
+        // Mock K8s operations
+        _kubernetesServiceMock
+            .Setup(x => x.GetSecretDataAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync((string ns, string name) =>
+            {
+                if (name == "app-config")
+                    return new Dictionary<string, string> { { "username", "appuser" }, { "password", "apppass" }, { "APP_KEY", "key123" } };
+                if (name == "db-credentials")
+                    return new Dictionary<string, string> { { "username", "dbadmin" }, { "password", "dbsecret" }, { "DB_HOST", "postgres.local" } };
+                return null;
+            });
+
+        _kubernetesServiceMock
+            .Setup(x => x.SecretExistsAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(true);
+
+        var hashKey = "vaultwarden-kubernetes-secrets/content-hash";
+        _kubernetesServiceMock
+            .Setup(x => x.GetSecretAnnotationsAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync((string ns, string name) =>
+            {
+                var annotations = new Dictionary<string, string>
+                {
+                    { hashKey, name == "app-config" ? "item1" : "item2" }
+                };
+                return annotations;
+            });
+
+        _kubernetesServiceMock
+            .Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+            .ReturnsAsync(new OperationResult { Success = true });
+
+        _kubernetesServiceMock
+            .Setup(x => x.UpdateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+            .ReturnsAsync(new OperationResult { Success = true });
+
+        // Act - Run sync 5 times
+        var progressMock = new Mock<ISyncProgressReporter>();
+        var results = new List<SyncSummary>();
+        
+        for (int i = 0; i < 5; i++)
+        {
+            var result = await _syncService.SyncAsync(progressMock.Object);
+            results.Add(result);
+        }
+
+        // Assert - Authentication should happen only once (or not at all if service is already authenticated)
+        Assert.True(authCallCount <= 1, $"Expected at most 1 authentication call, got {authCallCount}");
+
+        // First run may do initial work (updates), subsequent runs should all be identical
+        // Compare runs 2-5 (all should be no-change syncs)
+        var secondRun = results[1];
+        for (int i = 2; i < results.Count; i++)
+        {
+            var currentRun = results[i];
+            
+            Assert.Equal(secondRun.HasChanges, currentRun.HasChanges);
+            Assert.Equal(secondRun.TotalSecretsProcessed, currentRun.TotalSecretsProcessed);
+            Assert.Equal(secondRun.TotalSecretsCreated, currentRun.TotalSecretsCreated);
+            Assert.Equal(secondRun.TotalSecretsUpdated, currentRun.TotalSecretsUpdated);
+            Assert.Equal(secondRun.TotalSecretsSkipped, currentRun.TotalSecretsSkipped);
+            Assert.Equal(secondRun.TotalSecretsFailed, currentRun.TotalSecretsFailed);
+            Assert.Equal(secondRun.OverallSuccess, currentRun.OverallSuccess);
+        }
+
+        // All runs should succeed
+        Assert.All(results, r => Assert.True(r.OverallSuccess));
+        
+        // Runs 2-5 should have no changes but show items as skipped
+        for (int i = 1; i < results.Count; i++)
+        {
+            Assert.False(results[i].HasChanges, $"Run {i+1} should have no changes");
+            Assert.Equal(2, results[i].TotalSecretsSkipped); // 2 items unchanged = 2 skipped
+            Assert.Equal(2, results[i].TotalSecretsProcessed); // Processed = skipped when no changes
+            Assert.Equal(0, results[i].TotalSecretsCreated);
+            Assert.Equal(0, results[i].TotalSecretsUpdated);
+            Assert.Equal(0, results[i].TotalSecretsFailed);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    [Trait("Category", "Authentication")]
+    public async Task SyncAsync_WhenGetItemsReturnsEmpty_ThenHasItems_ShouldHandleSessionExpiration()
+    {
+        // Arrange - Simulate session expiration scenario
+        var items = new List<VaultwardenItem>
+        {
+            new VaultwardenItem
+            {
+                Id = "item1",
+                Name = "test-secret",
+                Type = 1,
+                Login = new LoginInfo { Username = "user", Password = "pass" },
+                Fields = new List<FieldInfo>
+                {
+                    new FieldInfo { Name = "namespaces", Value = "default", Type = 0 }
+                }
+            }
+        };
+
+        var callCount = 0;
+        _vaultwardenServiceMock.Setup(x => x.GetItemsAsync())
+            .ReturnsAsync(() =>
+            {
+                callCount++;
+                // First call: return items (normal operation)
+                if (callCount == 1) return items;
+                // Second call: return empty (session expired)
+                if (callCount == 2) return new List<VaultwardenItem>();
+                // Third call: return items again (after re-auth)
+                return items;
+            });
+
+        _vaultwardenServiceMock.Setup(x => x.AuthenticateAsync())
+            .ReturnsAsync(true);
+
+        _kubernetesServiceMock.Setup(x => x.SecretExistsAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(false);
+
+        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+            .ReturnsAsync(new OperationResult { Success = true });
+
+        // Act
+        var progressMock = new Mock<ISyncProgressReporter>();
+        var firstSync = await _syncService.SyncAsync(progressMock.Object);
+        var secondSync = await _syncService.SyncAsync(progressMock.Object);
+
+        // Assert
+        Assert.True(firstSync.OverallSuccess);
+        Assert.Equal(1, firstSync.TotalSecretsCreated);
+        
+        // Second sync gets empty - should be treated as warning, not error
+        Assert.True(secondSync.OverallSuccess);
+        Assert.Equal(0, secondSync.TotalSecretsProcessed);
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    [Trait("Category", "Authentication")]
+    public async Task SyncAsync_WhenAuthFails_ShouldThrowException()
+    {
+        // Arrange
+        _vaultwardenServiceMock.Setup(x => x.AuthenticateAsync())
+            .ReturnsAsync(false);
+
+        _vaultwardenServiceMock.Setup(x => x.GetItemsAsync())
+            .ThrowsAsync(new InvalidOperationException("Failed to authenticate with Vaultwarden"));
+
+        // Act & Assert
+        var progressMock = new Mock<ISyncProgressReporter>();
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await _syncService.SyncAsync(progressMock.Object)
+        );
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    [Trait("Category", "Authentication")]
+    public async Task SyncAsync_WhenAuthSucceedsThenItemsFail_ShouldReportFailure()
+    {
+        // Arrange
+        _vaultwardenServiceMock.Setup(x => x.AuthenticateAsync())
+            .ReturnsAsync(true);
+
+        _vaultwardenServiceMock.Setup(x => x.GetItemsAsync())
+            .ThrowsAsync(new Exception("Failed to retrieve items"));
+
+        // Act
+        var progressMock = new Mock<ISyncProgressReporter>();
+        var result = await _syncService.SyncAsync(progressMock.Object);
+
+        // Assert - Generic exceptions should return failed summary, not throw
+        Assert.False(result.OverallSuccess);
+        Assert.Contains("Sync failed: Failed to retrieve items", result.Errors);
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    [Trait("Category", "Authentication")]
+    public async Task SyncAsync_MultipleAuthFailures_ShouldConsistentlyFail()
+    {
+        // Arrange - Simulate persistent auth failures
+        _vaultwardenServiceMock.Setup(x => x.AuthenticateAsync())
+            .ReturnsAsync(false);
+
+        _vaultwardenServiceMock.Setup(x => x.GetItemsAsync())
+            .ThrowsAsync(new InvalidOperationException("Failed to authenticate"));
+
+        var progressMock = new Mock<ISyncProgressReporter>();
+
+        // Act & Assert - All attempts should fail consistently
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await _syncService.SyncAsync(progressMock.Object)
+        );
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await _syncService.SyncAsync(progressMock.Object)
+        );
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await _syncService.SyncAsync(progressMock.Object)
+        );
+
+        // Verify auth was attempted multiple times
+        _vaultwardenServiceMock.Verify(x => x.GetItemsAsync(), Times.AtLeast(3));
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    [Trait("Category", "Authentication")]
+    public async Task SyncAsync_WhenReauthSucceedsButStillEmpty_ShouldThrowException()
+    {
+        // Arrange - Simulate: had items → get empty → re-auth succeeds → still empty
+        var items = new List<VaultwardenItem>
+        {
+            new VaultwardenItem
+            {
+                Id = "item1",
+                Name = "test-secret",
+                Type = 1,
+                Login = new LoginInfo { Username = "user", Password = "pass" },
+                Fields = new List<FieldInfo>
+                {
+                    new FieldInfo { Name = "namespaces", Value = "default", Type = 0 }
+                }
+            }
+        };
+
+        var callCount = 0;
+        _vaultwardenServiceMock.Setup(x => x.GetItemsAsync())
+            .Returns(() =>
+            {
+                callCount++;
+                // First call: return items (normal operation, establishes "had previous success")
+                if (callCount == 1) return Task.FromResult(items);
+                // Second call: VaultwardenService detects persistent empty and throws
+                throw new InvalidOperationException(
+                    "Re-authentication succeeded but vault returned 0 items after having items. " +
+                    "This indicates a persistent CLI session or vault access issue.");
+            });
+
+        _vaultwardenServiceMock.Setup(x => x.AuthenticateAsync())
+            .ReturnsAsync(true);
+
+        _kubernetesServiceMock.Setup(x => x.SecretExistsAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(false);
+
+        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+            .ReturnsAsync(new OperationResult { Success = true });
+
+        // Act
+        var progressMock = new Mock<ISyncProgressReporter>();
+        var firstSync = await _syncService.SyncAsync(progressMock.Object); // Works, has items
+        
+        // Assert - Second sync should throw when it gets empty results after having previous success
+        // This triggers the VaultwardenService to throw InvalidOperationException
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await _syncService.SyncAsync(progressMock.Object)
+        );
+        
+        Assert.True(firstSync.OverallSuccess);
+        Assert.Equal(1, firstSync.TotalSecretsCreated);
     }
 }

@@ -173,13 +173,22 @@ public class DashboardController : ControllerBase
             var stats = await _syncLogRepository.GetStatisticsAsync();
             var lastSyncTime = stats["lastSyncTime"] as DateTime?;
             
+            // Get most recent sync log to retrieve actual sync configuration
+            var recentLogs = await _syncLogRepository.GetRecentAsync(1);
+            var mostRecentLog = recentLogs.FirstOrDefault();
+            
+            // Use actual sync configuration from the sync service (stored in database)
+            // Fallback to API's config only if no sync has run yet
+            var syncIntervalSeconds = mostRecentLog?.SyncIntervalSeconds ?? _appSettings.Sync.SyncIntervalSeconds;
+            var continuousSync = mostRecentLog?.ContinuousSync ?? _appSettings.Sync.ContinuousSync;
+            
             return Ok(new
             {
-                syncIntervalSeconds = _appSettings.Sync.SyncIntervalSeconds,
-                continuousSync = _appSettings.Sync.ContinuousSync,
+                syncIntervalSeconds,
+                continuousSync,
                 lastSyncTime = lastSyncTime,
-                nextSyncTime = lastSyncTime.HasValue 
-                    ? lastSyncTime.Value.AddSeconds(_appSettings.Sync.SyncIntervalSeconds)
+                nextSyncTime = lastSyncTime.HasValue && !continuousSync
+                    ? lastSyncTime.Value.AddSeconds(syncIntervalSeconds)
                     : (DateTime?)null
             });
         }
@@ -187,6 +196,63 @@ public class DashboardController : ControllerBase
         {
             _logger.LogError(ex, "Error retrieving sync status");
             return StatusCode(500, "Error retrieving sync status");
+        }
+    }
+
+    /// <summary>
+    /// Get sync configuration including active filters
+    /// </summary>
+    [HttpGet("sync-config")]
+    public ActionResult<object> GetSyncConfig()
+    {
+        try
+        {
+            // Get field names from environment variables (same as FieldNameConfig)
+            var namespacesFieldName = Environment.GetEnvironmentVariable("SYNC__FIELD__NAMESPACES")?.Trim() ?? "namespaces";
+            var secretNameFieldName = Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETNAME")?.Trim() ?? "secret-name";
+            
+            return Ok(new
+            {
+                vaultwarden = new
+                {
+                    serverUrl = _appSettings.Vaultwarden.ServerUrl,
+                    organizationId = _appSettings.Vaultwarden.OrganizationId,
+                    organizationName = _appSettings.Vaultwarden.OrganizationName,
+                    collectionId = _appSettings.Vaultwarden.CollectionId,
+                    collectionName = _appSettings.Vaultwarden.CollectionName,
+                    folderId = _appSettings.Vaultwarden.FolderId,
+                    folderName = _appSettings.Vaultwarden.FolderName
+                },
+                fieldNames = new
+                {
+                    namespaces = namespacesFieldName,
+                    secretName = secretNameFieldName
+                },
+                sync = new
+                {
+                    syncIntervalSeconds = _appSettings.Sync.SyncIntervalSeconds,
+                    continuousSync = _appSettings.Sync.ContinuousSync,
+                    dryRun = _appSettings.Sync.DryRun,
+                    deleteOrphans = _appSettings.Sync.DeleteOrphans
+                },
+                filters = new
+                {
+                    hasOrganizationFilter = !string.IsNullOrEmpty(_appSettings.Vaultwarden.OrganizationId),
+                    hasCollectionFilter = !string.IsNullOrEmpty(_appSettings.Vaultwarden.CollectionId),
+                    hasFolderFilter = !string.IsNullOrEmpty(_appSettings.Vaultwarden.FolderId),
+                    organizationId = _appSettings.Vaultwarden.OrganizationId,
+                    organizationName = _appSettings.Vaultwarden.OrganizationName,
+                    collectionId = _appSettings.Vaultwarden.CollectionId,
+                    collectionName = _appSettings.Vaultwarden.CollectionName,
+                    folderId = _appSettings.Vaultwarden.FolderId,
+                    folderName = _appSettings.Vaultwarden.FolderName
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving sync configuration");
+            return StatusCode(500, "Error retrieving sync configuration");
         }
     }
 }

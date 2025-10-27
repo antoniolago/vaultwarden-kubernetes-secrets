@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 using VaultwardenK8sSync.Configuration;
 using VaultwardenK8sSync.Infrastructure;
 using VaultwardenK8sSync.Services;
@@ -49,11 +50,92 @@ public class ApplicationHost
             using var scope = _serviceProvider.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<SyncDbContext>();
             db.Database.EnsureCreated();
+            
+            // Run migrations: Add sync configuration columns to SyncLogs table
+            try
+            {
+                var connection = db.Database.GetDbConnection();
+                connection.Open();
+                
+                using var checkCmd = connection.CreateCommand();
+                checkCmd.CommandText = "PRAGMA table_info(SyncLogs);";
+                var reader = checkCmd.ExecuteReader();
+                var columns = new List<string>();
+                while (reader.Read())
+                {
+                    columns.Add(reader.GetString(1)); // Column name at index 1
+                }
+                reader.Close();
+                
+                if (!columns.Contains("SyncIntervalSeconds"))
+                {
+                    _logger.LogInformation("⚙️  Adding SyncIntervalSeconds column to SyncLogs...");
+                    using var addCmd = connection.CreateCommand();
+                    addCmd.CommandText = "ALTER TABLE SyncLogs ADD COLUMN SyncIntervalSeconds INTEGER NOT NULL DEFAULT 0;";
+                    addCmd.ExecuteNonQuery();
+                    _logger.LogInformation("✅ SyncIntervalSeconds column added");
+                }
+                
+                if (!columns.Contains("ContinuousSync"))
+                {
+                    _logger.LogInformation("⚙️  Adding ContinuousSync column to SyncLogs...");
+                    using var addCmd = connection.CreateCommand();
+                    addCmd.CommandText = "ALTER TABLE SyncLogs ADD COLUMN ContinuousSync INTEGER NOT NULL DEFAULT 0;";
+                    addCmd.ExecuteNonQuery();
+                    _logger.LogInformation("✅ ContinuousSync column added");
+                }
+                
+                connection.Close();
+            }
+            catch (Exception migEx)
+            {
+                _logger.LogWarning(migEx, "Could not run database migrations");
+            }
+            
             _logger.LogInformation("Database initialized successfully at {Path}", dbPath);
+            
+            // Clean up orphaned InProgress sync logs from crashed/killed previous runs
+            CleanupOrphanedSyncLogs();
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to initialize database - database logging will be disabled");
+        }
+    }
+    
+    private void CleanupOrphanedSyncLogs()
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<SyncDbContext>();
+            
+            // Find all InProgress sync logs (likely orphaned from crashes/kills)
+            var orphanedLogs = db.SyncLogs
+                .Where(s => s.Status == "InProgress")
+                .ToList();
+            
+            if (orphanedLogs.Any())
+            {
+                _logger.LogWarning("🧹 Found {Count} orphaned InProgress sync logs from previous runs - marking as Failed", orphanedLogs.Count);
+                
+                foreach (var log in orphanedLogs)
+                {
+                    log.Status = "Failed";
+                    log.EndTime = DateTime.UtcNow;
+                    log.ErrorMessage = "Sync was interrupted (service stopped/crashed before completion)";
+                    log.DurationSeconds = log.EndTime.HasValue 
+                        ? (log.EndTime.Value - log.StartTime).TotalSeconds 
+                        : 0;
+                }
+                
+                db.SaveChanges();
+                _logger.LogInformation("✅ Cleaned up {Count} orphaned sync logs", orphanedLogs.Count);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to clean up orphaned sync logs");
         }
     }
 
@@ -72,11 +154,13 @@ public class ApplicationHost
         
         // Register application services
         services.AddSingleton<IMetricsService, MetricsService>();
-        services.AddScoped<IVaultwardenService, VaultwardenService>();
-        services.AddScoped<IKubernetesService, KubernetesService>();
-        services.AddScoped<ISyncService, SyncService>();
-        services.AddScoped<IWebhookService, WebhookService>();
-        services.AddScoped<ICommandHandler, CommandHandler>();
+        services.AddSingleton<IRedisSyncOutputPublisher, RedisSyncOutputPublisher>();
+        // VaultwardenService must be Singleton to maintain authentication state across continuous sync runs
+        services.AddSingleton<IVaultwardenService, VaultwardenService>();
+        services.AddSingleton<IKubernetesService, KubernetesService>();
+        services.AddSingleton<ISyncService, SyncService>();
+        services.AddSingleton<IWebhookService, WebhookService>();
+        services.AddSingleton<ICommandHandler, CommandHandler>();
     }
 
     public async Task<int> RunAsync(string[] args)
@@ -186,19 +270,116 @@ public class ApplicationHost
         return true;
     }
 
-    private async Task<bool> InitializeServicesAsync()
+    private async Task InitializeAuthTokenAsync(IKubernetesService kubernetesService)
     {
-        // Initialize Kubernetes client
-        _logger.LogDebug("Initializing Kubernetes client...");
-        var kubernetesService = _serviceProvider.GetRequiredService<IKubernetesService>();
-        if (!await kubernetesService.InitializeAsync())
+        _logger.LogDebug("🔐 Starting auth token initialization...");
+        
+        // Skip if loginless mode is enabled
+        var loginlessMode = Environment.GetEnvironmentVariable("LOGINLESS_MODE")?.ToLower() == "true";
+        _logger.LogDebug("LOGINLESS_MODE = {Mode}", loginlessMode);
+        
+        if (loginlessMode)
         {
-            _logger.LogError("Failed to initialize Kubernetes client");
-            return false;
+            _logger.LogInformation("🔓 Loginless mode enabled - skipping auth token initialization");
+            return;
         }
 
-        // Authenticate with Vaultwarden with simple progress display
-        using (var progress = new Services.StaticProgressDisplay())
+        // Check if AUTH_TOKEN is already set in environment
+        var existingToken = Environment.GetEnvironmentVariable("AUTH_TOKEN");
+        if (!string.IsNullOrEmpty(existingToken))
+        {
+            _logger.LogInformation("🔑 Auth token found in environment variables");
+            return;
+        }
+
+        // Try to read token from Kubernetes secret
+        // Use APP_NAMESPACE for the auth token secret, defaulting to 'vaultwarden-kubernetes-secrets'
+        var secretNamespace = Environment.GetEnvironmentVariable("APP_NAMESPACE") 
+            ?? "vaultwarden-kubernetes-secrets";
+        var secretName = "vaultwarden-kubernetes-secrets-token";
+        
+        _logger.LogDebug("Checking for auth token secret in namespace: {Namespace}", secretNamespace);
+        
+        try
+        {
+            var secretExists = await kubernetesService.SecretExistsAsync(secretNamespace, secretName);
+            _logger.LogDebug("Secret exists check result: {Exists}", secretExists);
+            
+            if (secretExists)
+            {
+                _logger.LogInformation("🔑 Found existing auth token secret in Kubernetes");
+                var secretData = await kubernetesService.GetSecretDataAsync(secretNamespace, secretName);
+                
+                if (secretData != null && secretData.ContainsKey("token"))
+                {
+                    var token = secretData["token"];
+                    Environment.SetEnvironmentVariable("AUTH_TOKEN", token);
+                    _logger.LogInformation("✅ Loaded auth token from Kubernetes secret");
+                    return;
+                }
+                else
+                {
+                    _logger.LogWarning("Secret exists but token key not found");
+                }
+            }
+
+            // Generate new token and create secret
+            _logger.LogInformation("🔐 Generating new auth token and creating Kubernetes secret...");
+            _logger.LogDebug("Target namespace: {Namespace}, Secret name: {SecretName}", secretNamespace, secretName);
+            
+            var newToken = GenerateSecureToken();
+            
+            var data = new Dictionary<string, string>
+            {
+                { "token", newToken }
+            };
+            
+            var annotations = new Dictionary<string, string>
+            {
+                { "managed-by", "vaultwarden-kubernetes-secrets" },
+                { "description", "Authentication token for Vaultwarden K8s Sync API" }
+            };
+            
+            _logger.LogDebug("Attempting to create secret...");
+            var result = await kubernetesService.CreateSecretAsync(secretNamespace, secretName, data, annotations);
+            _logger.LogDebug("Create secret result: Success={Success}, Error={Error}", result.Success, result.ErrorMessage);
+            
+            if (result.Success)
+            {
+                Environment.SetEnvironmentVariable("AUTH_TOKEN", newToken);
+                _logger.LogInformation("✅ Created new auth token secret in Kubernetes namespace '{Namespace}'", secretNamespace);
+                _logger.LogWarning("🔑 IMPORTANT: Auth token has been generated. Retrieve it with: kubectl get secret {SecretName} -n {Namespace} -o jsonpath='{{.data.token}}' | base64 -d", secretName, secretNamespace);
+            }
+            else
+            {
+                _logger.LogWarning("⚠️  Failed to create auth token secret: {Error}", result.ErrorMessage);
+                _logger.LogWarning("⚠️  API will run without authentication");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "⚠️  Error initializing auth token from Kubernetes");
+            _logger.LogWarning("⚠️  API will run without authentication");
+        }
+    }
+
+    private string GenerateSecureToken()
+    {
+        // Generate a cryptographically secure random token
+        var tokenBytes = new byte[32];
+        using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
+        {
+            rng.GetBytes(tokenBytes);
+        }
+        return Convert.ToBase64String(tokenBytes);
+    }
+
+    private async Task<bool> InitializeServicesAsync()
+    {
+        // Authenticate with Vaultwarden FIRST (before Kubernetes)
+        // This allows the app to work even if K8s is unavailable (e.g., for API/dashboard only)
+        var redisPublisher = _serviceProvider.GetRequiredService<IRedisSyncOutputPublisher>();
+        using (var progress = new Services.StaticProgressDisplay(redisPublisher))
         {
             progress.Start("Authenticating with Vaultwarden...");
             
@@ -213,6 +394,21 @@ public class ApplicationHost
             }
             
             progress.Complete("✅ Successfully authenticated with Vaultwarden");
+        }
+
+        // Initialize Kubernetes client
+        _logger.LogDebug("Initializing Kubernetes client...");
+        var kubernetesService = _serviceProvider.GetRequiredService<IKubernetesService>();
+        if (!await kubernetesService.InitializeAsync())
+        {
+            _logger.LogWarning("Failed to initialize Kubernetes client - sync to K8s will not work");
+            _logger.LogWarning("API and dashboard will still be available for viewing Vaultwarden items");
+            // Don't return false - allow app to continue for API/dashboard functionality
+        }
+        else
+        {
+            // Initialize auth token from Kubernetes secret if not in loginless mode
+            await InitializeAuthTokenAsync(kubernetesService);
         }
 
         return true;

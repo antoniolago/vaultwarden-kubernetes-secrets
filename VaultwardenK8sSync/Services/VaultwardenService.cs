@@ -15,6 +15,8 @@ public class VaultwardenService : IVaultwardenService
     private readonly IProcessRunner _processRunner;
     private bool _isAuthenticated = false;
     private string? _sessionToken;
+    private int _consecutiveEmptyResults = 0;
+    private DateTime _lastSuccessfulFetch = DateTime.MinValue;
 
     public VaultwardenService(
         ILogger<VaultwardenService> logger,
@@ -26,6 +28,33 @@ public class VaultwardenService : IVaultwardenService
         _config = config;
         _processFactory = processFactory;
         _processRunner = processRunner;
+        
+        // Clean and initialize data directory on startup
+        InitializeDataDirectory();
+    }
+    
+    private void InitializeDataDirectory()
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(_config.DataDirectory))
+            {
+                // If directory exists, clean it to avoid stale state conflicts
+                if (Directory.Exists(_config.DataDirectory))
+                {
+                    _logger.LogDebug("Cleaning existing bw data directory: {DataDir}", _config.DataDirectory);
+                    Directory.Delete(_config.DataDirectory, recursive: true);
+                }
+                
+                // Create fresh directory
+                Directory.CreateDirectory(_config.DataDirectory);
+                _logger.LogDebug("Initialized clean bw data directory: {DataDir}", _config.DataDirectory);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to initialize bw data directory - continuing with existing state");
+        }
     }
 
     public async Task<bool> AuthenticateAsync()
@@ -33,23 +62,27 @@ public class VaultwardenService : IVaultwardenService
         try
         {
             _logger.LogDebug("Authenticating with Vaultwarden (API key)...");
+            _logger.LogInformation("Using bw CLI data directory: {DataDir}", _config.DataDirectory);
             await LogBwVersionAsync();
             await LogBwStatusAsync("pre-login");
 
-            // Logout first to ensure clean state
-            await LogoutAsync();
-
-            // Give the CLI time to write state changes to disk
-            await Task.Delay(Constants.Delays.PostCommandDelayMs);
-
-            // Set the server URL first
+            // Set the server URL first (logout first if needed for server change)
             if (!string.IsNullOrEmpty(_config.ServerUrl))
             {
+                // Try to set server URL, if it fails due to existing session, logout and retry
                 var setServerResult = await SetServerUrlAsync();
                 if (!setServerResult)
                 {
-                    _logger.LogError("Failed to set server URL: {ServerUrl}", _config.ServerUrl);
-                    return false;
+                    _logger.LogDebug("Server URL change requires logout - logging out first");
+                    await LogoutAsync();
+                    await Task.Delay(Constants.Delays.PostCommandDelayMs);
+                    
+                    setServerResult = await SetServerUrlAsync();
+                    if (!setServerResult)
+                    {
+                        _logger.LogError("Failed to set server URL even after logout: {ServerUrl}", _config.ServerUrl);
+                        return false;
+                    }
                 }
 
                 // Give the CLI time to write server config to disk
@@ -59,6 +92,18 @@ public class VaultwardenService : IVaultwardenService
 
             var ok = await AuthenticateWithApiKeyAsync();
             await LogBwStatusAsync("post-login");
+            
+            if (ok)
+            {
+                // Verify session token is available
+                if (string.IsNullOrWhiteSpace(_sessionToken))
+                {
+                    _logger.LogError("Authentication completed but no session token available - this will cause command failures");
+                    return false;
+                }
+                _logger.LogDebug("Authentication successful with session token (length: {Len})", _sessionToken.Length);
+            }
+            
             return ok;
         }
         catch (Exception ex)
@@ -136,24 +181,61 @@ public class VaultwardenService : IVaultwardenService
         var stdout = await outputTask;
         var stderr = await errorTask;
 
+        // Check if already logged in - if so, logout and retry
+        if (process.ExitCode != 0 && stderr?.Contains("You are already logged in") == true)
+        {
+            _logger.LogDebug("Already logged in - logging out and retrying");
+            await LogoutAsync();
+            await Task.Delay(Constants.Delays.PostCommandDelayMs);
+            
+            // Retry login
+            return await AuthenticateWithApiKeyAsync();
+        }
+        
+        // Check for "Expected user never made active" error - bw CLI race condition
+        if (process.ExitCode != 0 && stderr?.Contains("Expected user never made active") == true)
+        {
+            _logger.LogWarning("bw CLI race condition detected - waiting and retrying authentication");
+            await Task.Delay(2000); // Wait 2 seconds for CLI to stabilize
+            await LogoutAsync();
+            await Task.Delay(Constants.Delays.PostCommandDelayMs);
+            
+            // Retry login
+            return await AuthenticateWithApiKeyAsync();
+        }
+
         if (process.ExitCode == 0)
         {
             // Log exactly what the login command returned
             _logger.LogDebug("bw login stdout: '{Stdout}'", stdout ?? "null");
             _logger.LogDebug("bw login stderr: '{Stderr}'", stderr ?? "null");
 
-            _isAuthenticated = true;
-
-            // Give the CLI time to write authentication state to disk
-            await Task.Delay(Constants.Delays.PostUnlockDelayMs);
+            // Give the CLI extra time to write authentication state to disk and initialize user
+            // bw CLI 2025.10.0 needs more time to make user active
+            await Task.Delay(Constants.Delays.PostUnlockDelayMs + 1000);
             await LogBwStatusAsync("post-api-login");
 
             // For API key authentication, always check vault status and unlock if needed
             _logger.LogDebug("API key login succeeded - checking vault status");
-            return await TestVaultAccessAsync();
+            var unlockSuccess = await TestVaultAccessAsync();
+            
+            // Only set authenticated flag AFTER successful unlock
+            if (unlockSuccess)
+            {
+                _isAuthenticated = true;
+                _logger.LogDebug("Authentication and unlock completed successfully");
+            }
+            else
+            {
+                _isAuthenticated = false;
+                _logger.LogError("Authentication completed but unlock failed");
+            }
+            
+            return unlockSuccess;
         }
 
         _logger.LogError("Authentication failed (exit {Code}). stderr: {Stderr} | stdout: {Stdout}", process.ExitCode, stderr, stdout);
+        _isAuthenticated = false;
         return false;
     }
 
@@ -258,6 +340,13 @@ public class VaultwardenService : IVaultwardenService
         {
             _logger.LogInformation("Unlocking vault...");
 
+            // Verify master password is configured
+            if (string.IsNullOrWhiteSpace(_config.MasterPassword))
+            {
+                _logger.LogError("Master password is not configured (VAULTWARDEN__MASTERPASSWORD)");
+                return false;
+            }
+
             // Verify we're in the correct state before attempting unlock
             await LogBwStatusAsync("pre-unlock");
 
@@ -281,18 +370,12 @@ public class VaultwardenService : IVaultwardenService
             {
                 _logger.LogInformation("Using session token for unlock (length: {Len})", _sessionToken.Length);
             }
-            // else
-            // {
-            //     // _logger.LogWarning("No session token available for unlock - this may cause the 'You are not logged in' error");
-            // }
 
             process.Start();
+            
+            // Write password to stdin (original working approach)
             try
             {
-                if (string.IsNullOrWhiteSpace(_config.MasterPassword))
-                {
-                    _logger.LogError("Master password is not configured (VAULTWARDEN__MASTERPASSWORD)");
-                }
                 await process.StandardInput.WriteLineAsync(_config.MasterPassword);
                 await process.StandardInput.FlushAsync();
                 process.StandardInput.Close();
@@ -316,7 +399,6 @@ public class VaultwardenService : IVaultwardenService
             }
 
             await exitTask;
-
             var stdOut = await outputTask;
             var stdErr = await errorTask;
 
@@ -328,15 +410,30 @@ public class VaultwardenService : IVaultwardenService
                 if (!string.IsNullOrEmpty(token))
                 {
                     _sessionToken = token;
+                    
+                    // Set BW_SESSION for both current process and user environment
+                    // ApplyCommonEnv will copy this to each child process
+                    Environment.SetEnvironmentVariable("BW_SESSION", token);
+                    Environment.SetEnvironmentVariable("BW_SESSION", token, EnvironmentVariableTarget.Process);
+                    
                     _logger.LogInformation("Vault unlocked successfully - session token captured (length: {Len})", len);
+                    await LogBwStatusAsync("post-unlock");
+                    return true;
                 }
                 else
                 {
-                    _logger.LogInformation("Vault unlocked successfully - no session token in output, will use existing authentication");
+                    _logger.LogWarning("Vault unlock succeeded but no session token returned - this may cause authentication errors");
+                    _logger.LogWarning("stdout: '{Stdout}', stderr: '{Stderr}'", stdOut, stdErr);
+                    
+                    // Try to verify vault is accessible by checking status
+                    await Task.Delay(Constants.Delays.PostUnlockDelayMs);
+                    await LogBwStatusAsync("post-unlock-no-token");
+                    
+                    // Without a session token, commands will likely fail
+                    // Return false to indicate unlock didn't fully succeed
+                    _logger.LogError("Cannot proceed without session token - unlock failed");
+                    return false;
                 }
-
-                await LogBwStatusAsync("post-unlock");
-                return true;
             }
 
             _logger.LogError("Failed to unlock vault (exit {Code}). stderr: {Stderr}. stdout: {Stdout}", process.ExitCode, stdErr, stdOut);
@@ -425,31 +522,119 @@ public class VaultwardenService : IVaultwardenService
 
     public async Task<List<VaultwardenItem>> GetItemsAsync()
     {
+        // If not authenticated, try to authenticate first
         if (!_isAuthenticated)
         {
-            throw new InvalidOperationException("Not authenticated. Call AuthenticateAsync first.");
+            _logger.LogWarning("Not authenticated - attempting authentication before fetching items...");
+            var authSuccess = await AuthenticateAsync();
+            
+            if (!authSuccess)
+            {
+                throw new InvalidOperationException("Failed to authenticate with Vaultwarden");
+            }
         }
 
+        // Try to get items
+        var items = await GetItemsInternalAsync();
+        
+        // If we got items, reset failure counter and record success
+        if (items.Count > 0)
+        {
+            _consecutiveEmptyResults = 0;
+            _lastSuccessfulFetch = DateTime.UtcNow;
+            return items;
+        }
+        
+        _consecutiveEmptyResults++;
+        _logger.LogWarning("No items retrieved (consecutive: {Count})", _consecutiveEmptyResults);
+        
+        // If we previously had items but now get empty, session likely expired - re-auth immediately
+        var hadPreviousSuccess = _lastSuccessfulFetch != DateTime.MinValue;
+        var timeSinceSuccess = DateTime.UtcNow - _lastSuccessfulFetch;
+        var shouldReAuth = hadPreviousSuccess || _consecutiveEmptyResults >= 3 || timeSinceSuccess.TotalMinutes > 5;
+        
+        if (shouldReAuth)
+        {
+            _logger.LogWarning("Session may have expired (empty results: {Count}, time since success: {Minutes}min, had previous success: {HadSuccess}). Attempting re-authentication...", 
+                _consecutiveEmptyResults, timeSinceSuccess.TotalMinutes, hadPreviousSuccess);
+            
+            var reAuthSuccess = await AuthenticateAsync();
+            
+            if (reAuthSuccess)
+            {
+                _logger.LogInformation("Re-authentication successful, retrying item fetch...");
+                _consecutiveEmptyResults = 0; // Reset counter after re-auth
+                items = await GetItemsInternalAsync();
+                
+                if (items.Count > 0)
+                {
+                    _lastSuccessfulFetch = DateTime.UtcNow;
+                }
+                else
+                {
+                    // If we had items before and still get 0 after successful re-auth, something is wrong
+                    if (hadPreviousSuccess)
+                    {
+                        _logger.LogError("Re-authentication succeeded but still no items found - this is abnormal after having {LastFetch}. Possible CLI issue.", _lastSuccessfulFetch);
+                        throw new InvalidOperationException(
+                            $"Re-authentication succeeded but vault returned 0 items after having items at {_lastSuccessfulFetch:o}. " +
+                            "This indicates a persistent CLI session or vault access issue.");
+                    }
+                    
+                    _logger.LogWarning("Re-authentication succeeded but no items found - vault may be legitimately empty (first run)");
+                }
+            }
+            else
+            {
+                _logger.LogError("Re-authentication failed after detecting session expiration");
+                
+                // If we previously had items and re-auth fails, throw to trigger retry
+                if (hadPreviousSuccess)
+                {
+                    throw new InvalidOperationException(
+                        $"Session expired (had {_lastSuccessfulFetch:o}) and re-authentication failed. " +
+                        "Throwing to trigger resilience policies.");
+                }
+            }
+        }
+        else
+        {
+            _logger.LogInformation("Not re-authenticating yet - this appears to be the first sync and vault may be legitimately empty");
+        }
+        
+        return items;
+    }
+
+    private async Task<List<VaultwardenItem>> GetItemsInternalAsync()
+    {
         try
         {
-            _logger.LogDebug("=== GetItemsAsync START ===");
-            _logger.LogDebug("Ensuring Vaultwarden vault is synced...");
-            await SyncVaultAsync();
-            _logger.LogDebug("Vault sync completed");
+            _logger.LogDebug("=== GetItemsInternalAsync START ===");
+            
+            // Validate session before fetching
+            if (string.IsNullOrWhiteSpace(_sessionToken))
+            {
+                _logger.LogWarning("No session token available - cannot fetch items");
+                return new List<VaultwardenItem>();
+            }
 
-            _logger.LogDebug("Fetching items from Vaultwarden...");
+            // NOTE: bw sync is disabled because it invalidates the session in bw CLI 2025.10.0
+            // bw list items fetches data directly from the server, so sync is not needed
+            _logger.LogDebug("Fetching items from Vaultwarden (directly from server)...");
             _logger.LogDebug("Session token for list items: {HasToken} (length: {Len})",
                 !string.IsNullOrWhiteSpace(_sessionToken),
                 string.IsNullOrWhiteSpace(_sessionToken) ? 0 : _sessionToken!.Length);
 
 
 
+            var arguments = $"list items --raw{GetSessionArgs()}{GetOrganizationArgs()}{GetFolderArgs()}{GetCollectionArgs()}";
+            
             var process = new Process
             {
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "bw",
-                    Arguments = $"list items --raw{GetSessionArgs()}{GetOrganizationArgs()}{GetFolderArgs()}{GetCollectionArgs()}",
+                    Arguments = arguments,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
@@ -467,28 +652,48 @@ public class VaultwardenService : IVaultwardenService
                 _logger.LogDebug("Using --session parameter for 'bw list items'");
             }
 
+            // Log command for debugging (without exposing the actual session token)
+            var safeArgs = arguments.Contains("--session") 
+                ? arguments.Substring(0, arguments.IndexOf("--session")) + "--session [REDACTED]" 
+                : arguments;
+            _logger.LogDebug("Executing command: bw {Args}", safeArgs);
             _logger.LogDebug("Starting 'bw list items' process...");
 
             process.Start();
             _logger.LogDebug("Process started, waiting for completion...");
-            // Read output and error streams asynchronously with timeout
+            
+            // Read output and error streams asynchronously BEFORE waiting for exit
+            // This prevents deadlock if the process fills the output buffer
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
+
+            // Wait for all tasks (output reading + process exit) with timeout
             var exitTask = process.WaitForExitAsync();
-
-            // Wait for process to exit with timeout
             var timeoutTask = Task.Delay(TimeSpan.FromSeconds(120)); // Increased timeout
-            var completedTask = await Task.WhenAny(exitTask, timeoutTask);
+            
+            // Wait for either all tasks to complete OR timeout
+            var allTasks = Task.WhenAll(outputTask, errorTask, exitTask);
+            var completedTask = await Task.WhenAny(allTasks, timeoutTask);
 
+            string output;
+            string error;
+            
             if (completedTask == timeoutTask)
             {
                 _logger.LogError("bw list items timed out after 120 seconds");
+                
+                // Try to read partial output before killing
+                var partialOutput = outputTask.IsCompleted ? await outputTask : "(output not available)";
+                var partialError = errorTask.IsCompleted ? await errorTask : "(error not available)";
+                _logger.LogError("Partial stdout: {Stdout}", !string.IsNullOrEmpty(partialOutput) ? partialOutput.Substring(0, Math.Min(500, partialOutput.Length)) : "(empty)");
+                _logger.LogError("Partial stderr: {Stderr}", !string.IsNullOrEmpty(partialError) ? partialError.Substring(0, Math.Min(500, partialError.Length)) : "(empty)");
+                
                 var gcMemoryAfter = GC.GetTotalMemory(false);
                 _logger.LogError("Memory at timeout: {MemoryMB} MB", gcMemoryAfter / 1024 / 1024);
                 try
                 {
                     _logger.LogWarning("Attempting to kill hung bw process...");
-                    process.Kill();
+                    process.Kill(entireProcessTree: true);
                 }
                 catch (Exception ex)
                 {
@@ -497,11 +702,12 @@ public class VaultwardenService : IVaultwardenService
                 return new List<VaultwardenItem>();
             }
 
+            // All tasks completed successfully
             await exitTask; // Ensure we get the actual exit code
+            output = await outputTask;
+            error = await errorTask;
+            
             _logger.LogDebug("'bw list items' process completed with exit code: {ExitCode}", process.ExitCode);
-
-            var output = await outputTask;
-            var error = await errorTask;
             _logger.LogDebug("Got output length: {OutputLen}, error length: {ErrorLen}",
                 output?.Length ?? 0, error?.Length ?? 0);
 
@@ -514,7 +720,15 @@ public class VaultwardenService : IVaultwardenService
 
             if (string.IsNullOrWhiteSpace(output))
             {
-                _logger.LogWarning("bw list items returned empty output");
+                _logger.LogWarning("bw list items returned empty output (exit 0 but no data)");
+                _logger.LogWarning("Session token was: {HasToken} (len: {Len})", 
+                    !string.IsNullOrWhiteSpace(_sessionToken),
+                    _sessionToken?.Length ?? 0);
+                _logger.LogWarning("stderr: {Stderr}", error ?? "(empty)");
+                
+                // This should not happen - exit 0 with empty output suggests session issue
+                // Mark as not authenticated to trigger re-auth on next call
+                _isAuthenticated = false;
                 return new List<VaultwardenItem>();
             }
 
@@ -1005,6 +1219,7 @@ public class VaultwardenService : IVaultwardenService
                     CreateNoWindow = true
                 }
             };
+            ApplyCommonEnv(process.StartInfo);
 
             process.Start();
 
@@ -1046,11 +1261,18 @@ public class VaultwardenService : IVaultwardenService
         }
     }
 
-    private async Task SyncVaultAsync()
+    private async Task<bool> SyncVaultAsync()
     {
         try
         {
             _logger.LogDebug("Starting vault sync...");
+            
+            // Check if we have a session token - sync requires it
+            if (string.IsNullOrWhiteSpace(_sessionToken))
+            {
+                _logger.LogWarning("Cannot sync vault - no session token available. Vault may not be unlocked.");
+                return false;
+            }
 
             var process = new Process
             {
@@ -1066,7 +1288,8 @@ public class VaultwardenService : IVaultwardenService
             };
             ApplyCommonEnv(process.StartInfo);
 
-            _logger.LogDebug("bw sync: session token available = {HasToken}", !string.IsNullOrWhiteSpace(_sessionToken));
+            _logger.LogDebug("bw sync: session token available = {HasToken} (length: {Len})", 
+                !string.IsNullOrWhiteSpace(_sessionToken), _sessionToken?.Length ?? 0);
             process.Start();
 
             // Read output and error streams asynchronously with timeout
@@ -1082,7 +1305,7 @@ public class VaultwardenService : IVaultwardenService
             {
                 _logger.LogWarning("bw sync timed out after 60 seconds");
                 try { process.Kill(); } catch { }
-                return;
+                return false;
             }
 
             await exitTask; // Ensure we get the actual exit code
@@ -1093,15 +1316,24 @@ public class VaultwardenService : IVaultwardenService
             if (process.ExitCode != 0)
             {
                 _logger.LogWarning("bw sync returned non-zero exit: {Error}", error);
+                // Check for authentication-related errors
+                if (error != null && (error.Contains("not logged in") || error.Contains("locked") || error.Contains("session")))
+                {
+                    _logger.LogWarning("Detected authentication issue in bw sync");
+                    return false;
+                }
             }
             else
             {
                 _logger.LogDebug("Vault synced");
             }
+            
+            return true;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "bw sync failed (continuing)");
+            return false;
         }
     }
 
@@ -1109,6 +1341,15 @@ public class VaultwardenService : IVaultwardenService
     {
         try
         {
+            // Set consistent data directory for bw CLI to ensure session state persists
+            if (!string.IsNullOrWhiteSpace(_config.DataDirectory))
+            {
+                // Ensure the directory exists
+                Directory.CreateDirectory(_config.DataDirectory);
+                startInfo.Environment["BITWARDENCLI_APPDATA_DIR"] = _config.DataDirectory;
+                _logger.LogTrace("Using bw data directory: {DataDir}", _config.DataDirectory);
+            }
+            
             if (!string.IsNullOrWhiteSpace(_config.ClientId))
             {
                 startInfo.Environment["BW_CLIENTID"] = _config.ClientId!;
@@ -1117,7 +1358,11 @@ public class VaultwardenService : IVaultwardenService
             {
                 startInfo.Environment["BW_CLIENTSECRET"] = _config.ClientSecret!;
             }
-            // Note: Session token is now passed via --session parameter in GetSessionArgs()
+            // Set BW_SESSION environment variable for newer bw CLI versions
+            if (!string.IsNullOrWhiteSpace(_sessionToken))
+            {
+                startInfo.Environment["BW_SESSION"] = _sessionToken!;
+            }
         }
         catch (Exception ex)
         {

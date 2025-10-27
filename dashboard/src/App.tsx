@@ -23,7 +23,12 @@ function App() {
   }, [setMode]);
   return (
     <ErrorBoundary>
-      <BrowserRouter>
+      <BrowserRouter
+        future={{
+          v7_startTransition: true,
+          v7_relativeSplatPath: true,
+        }}
+      >
         <AuthProvider>
           <Box sx={{ display: 'flex', minHeight: '100vh', minWidth: '99dvw' }}>
             <Routes>

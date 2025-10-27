@@ -6,6 +6,7 @@ using VaultwardenK8sSync.Configuration;
 using VaultwardenK8sSync.Services;
 using VaultwardenK8sSync.Infrastructure;
 using VaultwardenK8sSync.Policies;
+using VaultwardenK8sSync.Api.Converters;
 using System.Diagnostics;
 using System.Threading.RateLimiting;
 using Prometheus;
@@ -13,7 +14,16 @@ using Prometheus;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        // Ensure DateTime values are serialized with UTC timezone indicator ('Z')
+        // This fixes the "Last Sync" column timezone display issue in the dashboard
+        options.JsonSerializerOptions.Converters.Add(new UtcDateTimeConverter());
+        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+        // Set DateTime format to include timezone
+        options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+    });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -94,6 +104,13 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Add WebSocket support
+var webSocketOptions = new WebSocketOptions
+{
+    KeepAliveInterval = TimeSpan.FromMinutes(2)
+};
+builder.Services.AddSingleton(webSocketOptions);
+
 // Add authentication
 var authToken = builder.Configuration.GetValue<string>("AuthToken") ?? "";
 var loginlessMode = builder.Configuration.GetValue<bool>("LoginlessMode", false);
@@ -151,6 +168,31 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<SyncDbContext>();
     await db.Database.EnsureCreatedAsync();
     
+    // Clean up orphaned InProgress sync logs from crashed/killed sync service
+    try
+    {
+        var orphanedLogs = db.SyncLogs.Where(s => s.Status == "InProgress").ToList();
+        if (orphanedLogs.Any())
+        {
+            Console.WriteLine($"🧹 Cleaning up {orphanedLogs.Count} orphaned InProgress sync logs...");
+            foreach (var log in orphanedLogs)
+            {
+                log.Status = "Failed";
+                log.EndTime = DateTime.UtcNow;
+                log.ErrorMessage = "Sync was interrupted (service stopped/crashed before completion)";
+                log.DurationSeconds = log.EndTime.HasValue 
+                    ? (log.EndTime.Value - log.StartTime).TotalSeconds 
+                    : 0;
+            }
+            await db.SaveChangesAsync();
+            Console.WriteLine($"✅ Cleaned up {orphanedLogs.Count} orphaned sync logs");
+        }
+    }
+    catch (Exception cleanupEx)
+    {
+        Console.WriteLine($"⚠️  Warning: Could not clean up orphaned sync logs: {cleanupEx.Message}");
+    }
+    
     // Migrate schema: Create VaultwardenItems table if it doesn't exist
     try
     {
@@ -192,6 +234,42 @@ using (var scope = app.Services.CreateScope())
             }
         }
         
+        // Migrate SyncLogs table: Add sync configuration columns if they don't exist
+        try
+        {
+            using var checkSyncConfigCmd = connection.CreateCommand();
+            checkSyncConfigCmd.CommandText = "PRAGMA table_info(SyncLogs);";
+            var reader = await checkSyncConfigCmd.ExecuteReaderAsync();
+            var columns = new List<string>();
+            while (await reader.ReadAsync())
+            {
+                columns.Add(reader.GetString(1)); // Column name is at index 1
+            }
+            await reader.CloseAsync();
+            
+            if (!columns.Contains("SyncIntervalSeconds"))
+            {
+                Console.WriteLine("⚙️  Adding SyncIntervalSeconds column to SyncLogs...");
+                using var addIntervalCmd = connection.CreateCommand();
+                addIntervalCmd.CommandText = "ALTER TABLE SyncLogs ADD COLUMN SyncIntervalSeconds INTEGER NOT NULL DEFAULT 0;";
+                await addIntervalCmd.ExecuteNonQueryAsync();
+                Console.WriteLine("✅ SyncIntervalSeconds column added");
+            }
+            
+            if (!columns.Contains("ContinuousSync"))
+            {
+                Console.WriteLine("⚙️  Adding ContinuousSync column to SyncLogs...");
+                using var addContinuousCmd = connection.CreateCommand();
+                addContinuousCmd.CommandText = "ALTER TABLE SyncLogs ADD COLUMN ContinuousSync INTEGER NOT NULL DEFAULT 0;";
+                await addContinuousCmd.ExecuteNonQueryAsync();
+                Console.WriteLine("✅ ContinuousSync column added");
+            }
+        }
+        catch (Exception migEx)
+        {
+            Console.WriteLine($"⚠️  Warning: Could not add sync config columns: {migEx.Message}");
+        }
+        
         await connection.CloseAsync();
     }
     catch (Exception ex)
@@ -208,6 +286,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("AllowDashboard");
+
+// Enable WebSockets
+app.UseWebSockets();
 
 // Rate limiting
 app.UseRateLimiter();

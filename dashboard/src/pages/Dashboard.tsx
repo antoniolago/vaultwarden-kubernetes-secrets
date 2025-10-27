@@ -448,7 +448,7 @@ export default function Dashboard() {
         </CardContent>
       </Card>
 
-      {/* Recent Sync Status */}
+      {/* Recent Sync Status
       {overview?.lastSyncTime && (
         <Alert 
           color={overview.successRate > 80 ? 'success' : overview.successRate > 50 ? 'warning' : 'danger'}
@@ -457,8 +457,8 @@ export default function Dashboard() {
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
             <Box sx={{ flex: 1 }}>
               <Typography level="title-md">
-                {overview.successRate === 100 ? '✅ All systems operational' : 
-                 overview.successRate > 80 ? '⚠️ Mostly operational' : 
+                {overview.successRate === 100 ? '✅ All secrets synced' : 
+                 overview.successRate > 80 ? '⚠️ Partially Synced' : 
                  '❌ Issues detected'}
               </Typography>
               <Typography level="body-sm">
@@ -473,7 +473,7 @@ export default function Dashboard() {
             </Box>
           </Box>
         </Alert>
-      )}
+      )} */}
 
       {/* Secrets Modal */}
       <SecretsModal

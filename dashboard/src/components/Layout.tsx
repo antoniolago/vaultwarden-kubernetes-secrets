@@ -21,7 +21,7 @@ export default function Layout({ children }: LayoutProps) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
-  const { logout } = useAuth()
+  const { logout, loginlessMode } = useAuth()
 
   const navItems = [
     { path: '/', label: 'Dashboard' },
@@ -30,12 +30,11 @@ export default function Layout({ children }: LayoutProps) {
     { path: '/logs', label: 'Sync Logs' },
   ]
 
-  const { loginlessMode } = useAuth()
-
   const handleLogout = () => {
     logout()
     navigate('/login')
   }
+
 
   return (
     <Box sx={{ display: 'flex', height: '100vh', width: '100%' }}>
@@ -54,23 +53,25 @@ export default function Layout({ children }: LayoutProps) {
         }}
       >
         <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          <img 
-            src="/vks.png" 
-            alt="VKS Logo" 
-            style={{ 
-              width: 40, 
-              height: 40, 
+          <img
+            src="/vks.png"
+            alt="VKS Logo"
+            style={{
+              width: 40,
+              height: 40,
               borderRadius: '8px',
               objectFit: 'cover',
-            }} 
+            }}
           />
           <Box>
             <Typography level="h4" fontWeight="bold" color="primary">
               VKS
             </Typography>
-            <Typography level="body-xs" color="neutral">
-              Secret Sync
-            </Typography>
+            <a href="https://github.com/antoniolago/vaultwarden-kubernetes-secrets" target="_blank">
+              <Typography level="body-xs" sx={{fontSize: '10px'}} color="neutral">
+                vaultwarden-kubernetes-secrets
+              </Typography>
+            </a>
           </Box>
         </Box>
 
@@ -88,31 +89,47 @@ export default function Layout({ children }: LayoutProps) {
           ))}
         </List>
 
+
+        {/* Sync Progress Bar - Sticky at top */}
+        {/* <Box sx={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 10,
+          pb: 0,
+          bgcolor: 'background.body',
+        }}>
+          <SyncProgressBar />
+        </Box> */}
+        
+        {/* Logout button below sync bar */}
         {!loginlessMode && (
-          <ListItemButton 
-            onClick={handleLogout}
-            color="danger"
-            variant="soft"
-          >
-            Logout
-          </ListItemButton>
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
+            <IconButton
+              onClick={handleLogout}
+              variant="soft"
+              color="neutral"
+              size="sm"
+              sx={{
+                fontSize: '11px',
+                px: 1.5,
+                py: 0.5,
+                minHeight: '24px',
+                color: 'text.secondary',
+                '&:hover': {
+                  bgcolor: 'neutral.softHoverBg',
+                },
+              }}
+            >
+              Logout
+            </IconButton>
+          </Box>
         )}
         
-          {/* Sync Progress Bar - Sticky at top */}
-          <Box sx={{ 
-            position: 'sticky', 
-            top: 0, 
-            zIndex: 10,
-            pb: 0,
-            bgcolor: 'background.body',
-          }}>
-            <SyncProgressBar />
-          </Box>
         {loginlessMode && (
           <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
-            <Chip 
-              size="sm" 
-              variant="soft" 
+            <Chip
+              size="sm"
+              variant="soft"
               color="danger"
             >
               Loginless Mode!
@@ -123,12 +140,30 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Main content */}
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {/* Desktop header */}
+        <Sheet
+          variant="soft"
+          sx={{
+            display: { xs: 'none', md: 'flex' },
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            p: 2,
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+            bgcolor: 'background.surface',
+            minHeight: '56px',
+          }}
+        >
+          {/* Empty header for consistent spacing */}
+        </Sheet>
+
         {/* Mobile header */}
         <Sheet
           variant="soft"
           sx={{
             display: { xs: 'flex', md: 'none' },
             alignItems: 'center',
+            justifyContent: 'space-between',
             gap: 1,
             p: 2,
             borderBottom: '1px solid',
@@ -136,40 +171,42 @@ export default function Layout({ children }: LayoutProps) {
             bgcolor: 'background.surface',
           }}
         >
-          <IconButton
-            variant="outlined"
-            color="neutral"
-            size="sm"
-            onClick={() => setDrawerOpen(!drawerOpen)}
-          >
-            ☰
-          </IconButton>
-          <img 
-            src="/vks.png" 
-            alt="VKS Logo" 
-            style={{ 
-              width: 32, 
-              height: 32, 
-              borderRadius: '6px',
-              objectFit: 'cover'
-            }} 
-          />
-          <Typography level="title-lg" fontWeight="bold" color="primary">
-            VKS
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <IconButton
+              variant="outlined"
+              color="neutral"
+              size="sm"
+              onClick={() => setDrawerOpen(!drawerOpen)}
+            >
+              ☰
+            </IconButton>
+            <img
+              src="/vks.png"
+              alt="VKS Logo"
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: '6px',
+                objectFit: 'cover'
+              }}
+            />
+            <Typography level="title-lg" fontWeight="bold" color="primary">
+              VKS
+            </Typography>
+          </Box>
         </Sheet>
 
         {/* Content */}
-        <Box sx={{ 
-          flex: 1, 
+        <Box sx={{
+          flex: 1,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'auto',
           bgcolor: 'background.body',
         }}>
-          
+
           {/* Main Content */}
-          <Box sx={{ 
+          <Box sx={{
             flex: 1,
             p: { xs: 2, md: 3 },
             pt: { xs: 1, md: 2 },
@@ -178,6 +215,7 @@ export default function Layout({ children }: LayoutProps) {
           </Box>
         </Box>
       </Box>
+      
     </Box>
   )
 }

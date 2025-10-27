@@ -14,6 +14,6 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 data:
-  vaultwarden-k8s-sync.json: |-
-{{ .Files.Get "dashboards/vaultwarden-k8s-sync.json" | indent 4 }}
+  vaultwarden-kubernetes-secret.json: |-
+{{ .Files.Get "dashboards/vaultwarden-kubernetes-secret.json" | indent 4 }}
 {{- end }}

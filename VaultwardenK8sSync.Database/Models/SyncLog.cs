@@ -19,4 +19,6 @@ public class SyncLog
     public double DurationSeconds { get; set; }
     public string? ErrorMessage { get; set; }
     public string Phase { get; set; } = string.Empty;
+    public int SyncIntervalSeconds { get; set; } = 0;  // Actual sync interval from sync service
+    public bool ContinuousSync { get; set; } = false;  // Whether continuous sync is enabled
 }

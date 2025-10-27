@@ -92,7 +92,7 @@ export default function Secrets() {
                 <th style={{ width: 200 }}>Vaultwarden Item</th>
                 <th style={{ width: 100 }}>Status</th>
                 <th style={{ width: 80 }}>Keys</th>
-                <th style={{ width: 180 }}>Last Sync</th>
+                {/* <th style={{ width: 180 }}>Last Sync</th> */}
                 <th>Error</th>
               </tr>
             </thead>
@@ -157,11 +157,11 @@ export default function Secrets() {
                         {secret.dataKeysCount}
                       </Typography>
                     </td>
-                    <td data-testid="secret-last-sync">
+                    {/* <td data-testid="secret-last-sync">
                       <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
                         {formatRelative(secret.lastSynced || secret.lastSyncTime)}
                       </Typography>
-                    </td>
+                    </td> */}
                     <td data-testid="secret-error">
                       {(secret.lastError || secret.errorMessage) ? (
                         <Typography 

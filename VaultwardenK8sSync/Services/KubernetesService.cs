@@ -123,11 +123,11 @@ public class KubernetesService : IKubernetesService
             
             foreach (var secret in secrets.Items)
             {
-                // Check if the secret has our management labels
+                // Check if the secret was created by the sync service (not just managed by the app)
                 if (secret.Metadata?.Labels != null)
                 {
-                    if (secret.Metadata.Labels.ContainsKey(Constants.Kubernetes.ManagedByLabel) &&
-                        secret.Metadata.Labels[Constants.Kubernetes.ManagedByLabel] == Constants.Kubernetes.ManagedByValue)
+                    if (secret.Metadata.Labels.ContainsKey(Constants.Kubernetes.CreatedByLabel) &&
+                        secret.Metadata.Labels[Constants.Kubernetes.CreatedByLabel] == Constants.Kubernetes.SyncServiceValue)
                     {
                         managedSecrets.Add(secret.Metadata.Name);
                     }
@@ -172,7 +172,7 @@ public class KubernetesService : IKubernetesService
                 Labels = new Dictionary<string, string>
                 {
                     { Constants.Kubernetes.ManagedByLabel, Constants.Kubernetes.ManagedByValue },
-                    { Constants.Kubernetes.CreatedByLabel, Constants.Kubernetes.ManagedByValue }
+                    { Constants.Kubernetes.CreatedByLabel, Constants.Kubernetes.SyncServiceValue }
                 }
             };
 
@@ -252,7 +252,7 @@ public class KubernetesService : IKubernetesService
                 Labels = new Dictionary<string, string>
                 {
                     { Constants.Kubernetes.ManagedByLabel, Constants.Kubernetes.ManagedByValue },
-                    { Constants.Kubernetes.CreatedByLabel, Constants.Kubernetes.ManagedByValue }
+                    { Constants.Kubernetes.CreatedByLabel, Constants.Kubernetes.SyncServiceValue }
                 }
             };
 

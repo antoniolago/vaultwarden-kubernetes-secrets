@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using VaultwardenK8sSync.Database;
 
 namespace VaultwardenK8sSync.Api.Controllers;
 
@@ -8,9 +10,17 @@ namespace VaultwardenK8sSync.Api.Controllers;
 [Route("api/[controller]")]
 public class SystemController : ControllerBase
 {
+    private readonly SyncDbContext _context;
+    private readonly ILogger<SystemController> _logger;
     private static DateTime _lastCpuCheck = DateTime.MinValue;
     private static TimeSpan _lastCpuTime = TimeSpan.Zero;
     private static double _lastCpuUsage = 0;
+
+    public SystemController(SyncDbContext context, ILogger<SystemController> logger)
+    {
+        _context = context;
+        _logger = logger;
+    }
 
     [HttpGet("resources")]
     public ActionResult<object> GetResources()
@@ -135,5 +145,32 @@ public class SystemController : ControllerBase
             maxWorkerThreads = maxWorkerThreads,
             maxIoThreads = maxIoThreads
         };
+    }
+
+    /// <summary>
+    /// Reset the database - deletes all sync logs, secret states, and cached items
+    /// </summary>
+    [HttpPost("reset-database")]
+    public async Task<ActionResult> ResetDatabase()
+    {
+        try
+        {
+            _logger.LogWarning("Database reset requested - deleting all data");
+
+            // Delete all data from tables
+            await _context.Database.ExecuteSqlRawAsync("DELETE FROM SyncLogs");
+            await _context.Database.ExecuteSqlRawAsync("DELETE FROM SecretStates");
+            await _context.Database.ExecuteSqlRawAsync("DELETE FROM VaultwardenItems");
+            await _context.Database.ExecuteSqlRawAsync("DELETE FROM SyncItems");
+            
+            _logger.LogInformation("Database reset completed successfully");
+            
+            return Ok(new { message = "Database reset successfully" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to reset database");
+            return StatusCode(500, "Failed to reset database: " + ex.Message);
+        }
     }
 }

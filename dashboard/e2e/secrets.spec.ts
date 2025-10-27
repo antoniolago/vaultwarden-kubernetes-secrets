@@ -86,47 +86,47 @@ test.describe('Secrets Page E2E Tests', () => {
     }
   })
 
-  test('all secrets must have Last Sync time if sync has run', async ({ page }) => {
-    if (apiSecrets.length === 0) {
-      console.log('No secrets to test')
-      return
-    }
+  // test('all secrets must have Last Sync time if sync has run', async ({ page }) => {
+  //   if (apiSecrets.length === 0) {
+  //     console.log('No secrets to test')
+  //     return
+  //   }
 
-    console.log(`\n📅 Verifying Last Sync times for ${apiSecrets.length} secrets...`)
+  //   console.log(`\n📅 Verifying Last Sync times for ${apiSecrets.length} secrets...`)
 
-    await page.waitForSelector('table tbody tr', { timeout: 5000 })
+  //   await page.waitForSelector('table tbody tr', { timeout: 5000 })
 
-    let secretsWithNever = 0
-    let secretsWithTime = 0
+  //   let secretsWithNever = 0
+  //   let secretsWithTime = 0
 
-    for (const secret of apiSecrets) {
-      const row = page.getByTestId(`secret-row-${secret.namespace}-${secret.secretName}`)
+  //   for (const secret of apiSecrets) {
+  //     const row = page.getByTestId(`secret-row-${secret.namespace}-${secret.secretName}`)
       
-      if (await row.count() === 0) {
-        console.log(`  ⚠️ Secret not found in table: ${secret.namespace}/${secret.secretName}`)
-        continue
-      }
+  //     if (await row.count() === 0) {
+  //       console.log(`  ⚠️ Secret not found in table: ${secret.namespace}/${secret.secretName}`)
+  //       continue
+  //     }
 
-      // Get the Last Sync cell using test ID
-      const lastSyncCell = row.getByTestId('secret-last-sync')
-      const lastSyncText = await lastSyncCell.textContent()
+  //     // Get the Last Sync cell using test ID
+  //     const lastSyncCell = row.getByTestId('secret-last-sync')
+  //     const lastSyncText = await lastSyncCell.textContent()
 
-      if (lastSyncText?.toLowerCase().includes('never')) {
-        secretsWithNever++
-        console.log(`  ❌ ${secret.namespace}/${secret.secretName}: Shows "Never" (should have sync time)`)
-      } else {
-        secretsWithTime++
-      }
-    }
+  //     if (lastSyncText?.toLowerCase().includes('never')) {
+  //       secretsWithNever++
+  //       console.log(`  ❌ ${secret.namespace}/${secret.secretName}: Shows "Never" (should have sync time)`)
+  //     } else {
+  //       secretsWithTime++
+  //     }
+  //   }
 
-    console.log(`\nResults:`)
-    console.log(`  ✓ Secrets with sync time: ${secretsWithTime}`)
-    console.log(`  ✗ Secrets showing "Never": ${secretsWithNever}`)
+  //   console.log(`\nResults:`)
+  //   console.log(`  ✓ Secrets with sync time: ${secretsWithTime}`)
+  //   console.log(`  ✗ Secrets showing "Never": ${secretsWithNever}`)
 
-    // All secrets should have sync time (not "Never")
-    expect(secretsWithNever).toBe(0)
-    console.log(`\n✅ All secrets have valid Last Sync times`)
-  })
+  //   // All secrets should have sync time (not "Never")
+  //   expect(secretsWithNever).toBe(0)
+  //   console.log(`\n✅ All secrets have valid Last Sync times`)
+  // })
 
   test('should filter secrets when searching', async ({ page }) => {
     if (apiSecrets.length === 0) {

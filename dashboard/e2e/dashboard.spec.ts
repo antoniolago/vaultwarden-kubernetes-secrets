@@ -172,11 +172,11 @@ test.describe('Dashboard E2E Tests', () => {
     const alertText = await syncAlert.textContent()
     
     if (apiOverview.successRate === 100) {
-      expect(alertText).toContain('All systems operational')
-      console.log('✅ Status: All systems operational')
+      expect(alertText).toContain('All secrets synced')
+      console.log('✅ Status: All secrets synced')
     } else if (apiOverview.successRate > 80) {
-      expect(alertText).toContain('Mostly operational')
-      console.log('⚠️ Status: Mostly operational')
+      expect(alertText).toContain('Partially Synced')
+      console.log('⚠️ Status: Partially Synced')
     } else {
       expect(alertText).toContain('Issues detected')
       console.log('❌ Status: Issues detected')

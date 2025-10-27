@@ -13,7 +13,6 @@
             "args": [],
             "cwd": "${workspaceFolder}/VaultwardenK8sSync",
             "console": "internalConsole",
-            "stopAtEntry": false,
             "env": {
                 "ASPNETCORE_ENVIRONMENT": "Development"
             }

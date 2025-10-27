@@ -49,7 +49,8 @@ public class DiscoveryController : ControllerBase
                 Owner = item.Owner,
                 Fields = item.FieldCount,
                 Notes = item.Notes,
-                HasNamespacesField = item.HasNamespacesField
+                HasNamespacesField = item.HasNamespacesField,
+                NamespacesValue = item.NamespacesJson
             }).ToList();
             
             var response = new DiscoveryData
@@ -63,7 +64,8 @@ public class DiscoveryController : ControllerBase
                     Namespace = s.Namespace,
                     SecretName = s.SecretName,
                     Status = s.Status,
-                    DataKeysCount = s.DataKeysCount
+                    DataKeysCount = s.DataKeysCount,
+                    LastError = s.LastError
                 }).ToList(),
                 
                 LastScanTime = lastFetch ?? DateTime.UtcNow
@@ -137,6 +139,7 @@ public class VaultwardenItem
     public int Fields { get; set; }
     public string? Notes { get; set; }
     public bool HasNamespacesField { get; set; }
+    public string? NamespacesValue { get; set; }
 }
 
 public class SyncedSecret
@@ -147,4 +150,5 @@ public class SyncedSecret
     public string SecretName { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public int DataKeysCount { get; set; }
+    public string? LastError { get; set; }
 }
