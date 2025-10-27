@@ -34,27 +34,27 @@ public class NoChangesSummaryTests
             {
                 Id = "item-1",
                 Name = "secret-1",
-                Fields = new List<Field>
+                Fields = new List<FieldInfo>
                 {
-                    new Field { Name = "namespaces", Value = "default", Type = 0 }
+                    new FieldInfo { Name = "namespaces", Value = "default", Type = 0 }
                 }
             },
             new VaultwardenItem
             {
                 Id = "item-2",
                 Name = "secret-2",
-                Fields = new List<Field>
+                Fields = new List<FieldInfo>
                 {
-                    new Field { Name = "namespaces", Value = "default", Type = 0 }
+                    new FieldInfo { Name = "namespaces", Value = "default", Type = 0 }
                 }
             },
             new VaultwardenItem
             {
                 Id = "item-3",
                 Name = "secret-3",
-                Fields = new List<Field>
+                Fields = new List<FieldInfo>
                 {
-                    new Field { Name = "namespaces", Value = "production", Type = 0 }
+                    new FieldInfo { Name = "namespaces", Value = "production", Type = 0 }
                 }
             }
         };
@@ -130,9 +130,9 @@ public class NoChangesSummaryTests
             {
                 Id = "item-1",
                 Name = "test-secret",
-                Fields = new List<Field>
+                Fields = new List<FieldInfo>
                 {
-                    new Field { Name = "namespaces", Value = "default", Type = 0 }
+                    new FieldInfo { Name = "namespaces", Value = "default", Type = 0 }
                 }
             }
         };
@@ -191,13 +191,13 @@ public class NoChangesSummaryTests
             {
                 Id = "item-1",
                 Name = "secret-1",
-                Fields = new List<Field> { new Field { Name = "namespaces", Value = "default", Type = 0 } }
+                Fields = new List<FieldInfo> { new FieldInfo { Name = "namespaces", Value = "default", Type = 0 } }
             },
             new VaultwardenItem
             {
                 Id = "item-2",
                 Name = "secret-2",
-                Fields = new List<Field> { new Field { Name = "namespaces", Value = "default", Type = 0 } }
+                Fields = new List<FieldInfo> { new FieldInfo { Name = "namespaces", Value = "default", Type = 0 } }
             }
         };
         

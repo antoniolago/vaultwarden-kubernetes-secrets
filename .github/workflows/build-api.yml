@@ -42,7 +42,7 @@ jobs:
         run: dotnet build VaultwardenK8sSync.Api/VaultwardenK8sSync.Api.csproj --no-restore
 
       - name: Test
-        run: dotnet test --no-build --verbosity normal
+        run: dotnet test VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj --verbosity normal
 
       - name: Log in to Container Registry
         if: github.event_name != 'pull_request'
