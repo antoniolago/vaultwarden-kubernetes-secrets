@@ -36,13 +36,13 @@ jobs:
           dotnet-version: '9.0.x'
 
       - name: Restore dependencies
-        run: dotnet restore VaultwardenK8sSync.Api/VaultwardenK8sSync.Api.csproj
+        run: dotnet restore VaultwardenK8sSync.sln
 
       - name: Build
-        run: dotnet build VaultwardenK8sSync.Api/VaultwardenK8sSync.Api.csproj --no-restore
+        run: dotnet build VaultwardenK8sSync.sln --no-restore
 
       - name: Test
-        run: dotnet test VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj --verbosity normal
+        run: dotnet test VaultwardenK8sSync.sln --no-build --verbosity normal
 
       - name: Log in to Container Registry
         if: github.event_name != 'pull_request'

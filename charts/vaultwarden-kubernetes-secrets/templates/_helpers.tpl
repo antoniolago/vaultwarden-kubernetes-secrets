@@ -22,3 +22,22 @@
 {{ include "vaultwarden-kubernetes-secrets.fullname" . }}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Common labels
+*/}}
+{{- define "vaultwarden-kubernetes-secrets.labels" -}}
+helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+app.kubernetes.io/name: {{ include "vaultwarden-kubernetes-secrets.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end -}}
+
+{{/*
+Selector labels
+*/}}
+{{- define "vaultwarden-kubernetes-secrets.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "vaultwarden-kubernetes-secrets.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end -}}
