@@ -12,6 +12,7 @@ namespace VaultwardenK8sSync.Tests.Security;
 /// <summary>
 /// Tests to prevent command injection through ServerUrl and other inputs
 /// </summary>
+[Collection("SyncService Sequential")]
 public class CommandInjectionTests
 {
     [Theory]
@@ -73,7 +74,7 @@ public class CommandInjectionTests
     }
     
     [Fact]
-    public void SecretName_ShouldEnforceMaximumLength()
+    public async Task SecretName_ShouldEnforceMaximumLength()
     {
         // K8s secret names limited to 253 characters
         var longName = new string('a', 300);
@@ -90,12 +91,43 @@ public class CommandInjectionTests
             }
         };
         
-        // Act
-        var secretName = item.ExtractSecretName();
+        // Arrange - Create sync service to test full sanitization flow
+        var mockLogger = new Mock<ILogger<SyncService>>();
+        var mockVaultwardenService = new Mock<IVaultwardenService>();
+        var mockKubernetesService = new Mock<IKubernetesService>();
+        var mockMetrics = new Mock<IMetricsService>();
+        var mockDbLogger = new Mock<IDatabaseLoggerService>();
+        var syncConfig = new SyncSettings();
         
-        // Assert
-        secretName.Should().NotBeNull();
-        secretName.Length.Should().BeLessOrEqualTo(253, 
+        mockVaultwardenService.Setup(x => x.GetItemsAsync())
+            .ReturnsAsync(new List<VaultwardenItem> { item });
+        mockKubernetesService.Setup(x => x.GetAllNamespacesAsync())
+            .ReturnsAsync(new List<string> { "default" });
+        mockDbLogger.Setup(x => x.StartSyncLogAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool>()))
+            .ReturnsAsync(1L);
+        mockDbLogger.Setup(x => x.CleanupStaleSecretStatesAsync(It.IsAny<List<VaultwardenItem>>()))
+            .ReturnsAsync(0);
+        
+        string? capturedSecretName = null;
+        mockKubernetesService.Setup(x => x.SecretExistsAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .Callback<string, string>((ns, name) => capturedSecretName = name)
+            .ReturnsAsync(false);
+        
+        var syncService = new SyncService(
+            mockLogger.Object,
+            mockVaultwardenService.Object,
+            mockKubernetesService.Object,
+            mockMetrics.Object,
+            mockDbLogger.Object,
+            syncConfig
+        );
+        
+        // Act - Run sync which will sanitize and truncate the name
+        await syncService.SyncAsync();
+        
+        // Assert - Captured secret name should be truncated to 253 characters
+        capturedSecretName.Should().NotBeNull();
+        capturedSecretName!.Length.Should().BeLessOrEqualTo(253, 
             "Kubernetes secret names cannot exceed 253 characters");
     }
     

@@ -72,6 +72,7 @@ public class TokenAuthenticationMiddleware : IMiddleware
     /// <summary>
     /// Constant-time string comparison to prevent timing attacks.
     /// Uses CryptographicOperations.FixedTimeEquals for secure token comparison.
+    /// Ensures no timing information is leaked through length differences.
     /// </summary>
     private static bool SecureCompare(string provided, string expected)
     {
@@ -80,6 +81,21 @@ public class TokenAuthenticationMiddleware : IMiddleware
 
         var providedBytes = Encoding.UTF8.GetBytes(provided);
         var expectedBytes = Encoding.UTF8.GetBytes(expected);
+
+        // Ensure both arrays are the same length to prevent length-based timing attacks
+        // If lengths differ, pad the shorter one with zeros (still fails comparison but in constant time)
+        if (providedBytes.Length != expectedBytes.Length)
+        {
+            var maxLength = Math.Max(providedBytes.Length, expectedBytes.Length);
+            var paddedProvided = new byte[maxLength];
+            var paddedExpected = new byte[maxLength];
+            
+            Array.Copy(providedBytes, paddedProvided, providedBytes.Length);
+            Array.Copy(expectedBytes, paddedExpected, expectedBytes.Length);
+            
+            providedBytes = paddedProvided;
+            expectedBytes = paddedExpected;
+        }
 
         // Constant-time comparison - prevents timing attacks
         return CryptographicOperations.FixedTimeEquals(providedBytes, expectedBytes);

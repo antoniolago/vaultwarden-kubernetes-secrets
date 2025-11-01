@@ -7,7 +7,8 @@ using VaultwardenK8sSync.Models;
 
 namespace VaultwardenK8sSync.Tests;
 
-public class SecretCacheTests
+[Collection("SyncService Sequential")]
+public class SecretCacheTests : IDisposable
 {
     private readonly Mock<ILogger<SyncService>> _loggerMock;
     private readonly Mock<IVaultwardenService> _vaultwardenServiceMock;
@@ -19,6 +20,20 @@ public class SecretCacheTests
 
     public SecretCacheTests()
     {
+        // Clean up any leftover sync lock file from previous tests
+        var lockFilePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "vaultwarden-sync-operation.lock");
+        if (System.IO.File.Exists(lockFilePath))
+        {
+            try
+            {
+                System.IO.File.Delete(lockFilePath);
+            }
+            catch
+            {
+                // Ignore if file is locked by another process
+            }
+        }
+        
         _loggerMock = new Mock<ILogger<SyncService>>();
         _vaultwardenServiceMock = new Mock<IVaultwardenService>();
         _kubernetesServiceMock = new Mock<IKubernetesService>();
@@ -212,6 +227,10 @@ public class SecretCacheTests
         _vaultwardenServiceMock.Setup(x => x.GetItemsAsync())
             .ReturnsAsync(new List<VaultwardenItem> { item });
 
+        // Setup Kubernetes namespaces
+        _kubernetesServiceMock.Setup(x => x.GetAllNamespacesAsync())
+            .ReturnsAsync(new List<string> { "nonexistent-namespace" });
+
         // Simulate namespace doesn't exist (returns failure)
         _kubernetesServiceMock.Setup(x => x.SecretExistsAsync("nonexistent-namespace", "failing-secret"))
             .ReturnsAsync(false);
@@ -231,5 +250,23 @@ public class SecretCacheTests
             It.IsAny<int>(),
             It.Is<string>(err => err.Contains("does not exist"))
         ), Times.AtLeastOnce);
+    }
+
+    public void Dispose()
+    {
+        // Clean up lock file after each test
+        var lockFilePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "vaultwarden-sync-operation.lock");
+        System.Threading.Thread.Sleep(100); // Give lock time to release
+        try
+        {
+            if (System.IO.File.Exists(lockFilePath))
+            {
+                System.IO.File.Delete(lockFilePath);
+            }
+        }
+        catch
+        {
+            // Ignore errors during cleanup
+        }
     }
 }

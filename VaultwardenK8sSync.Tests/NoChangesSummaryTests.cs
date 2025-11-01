@@ -13,6 +13,7 @@ namespace VaultwardenK8sSync.Tests;
 /// Tests to verify that summary statistics are correctly populated even when no changes are detected
 /// This tests the fix for the bug where TotalSecretsSkipped showed as 0 when hash matched
 /// </summary>
+[Collection("SyncService Sequential")]
 public class NoChangesSummaryTests
 {
     [Fact]
@@ -85,6 +86,8 @@ public class NoChangesSummaryTests
             .Returns(Task.CompletedTask);
             
         // Mock Kubernetes service for secret operations
+        mockKubernetesService.Setup(x => x.GetAllNamespacesAsync())
+            .ReturnsAsync(new List<string> { "default", "production" });
         mockKubernetesService.Setup(x => x.SecretExistsAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(false);  // First sync: secrets don't exist
         mockKubernetesService.Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), 
@@ -178,6 +181,8 @@ public class NoChangesSummaryTests
             .Returns(Task.CompletedTask);
             
         // Mock Kubernetes service for secret operations
+        mockKubernetesService.Setup(x => x.GetAllNamespacesAsync())
+            .ReturnsAsync(new List<string> { "default" });
         mockKubernetesService.Setup(x => x.SecretExistsAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(false);
         mockKubernetesService.Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), 
@@ -257,6 +262,8 @@ public class NoChangesSummaryTests
             .Returns(Task.CompletedTask);
             
         // Mock Kubernetes service for secret operations  
+        mockKubernetesService.Setup(x => x.GetAllNamespacesAsync())
+            .ReturnsAsync(new List<string> { "default" });
         mockKubernetesService.Setup(x => x.SecretExistsAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(false);
         mockKubernetesService.Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), 

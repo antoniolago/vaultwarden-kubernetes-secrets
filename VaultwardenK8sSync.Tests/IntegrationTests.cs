@@ -9,9 +9,9 @@ using FieldInfo = VaultwardenK8sSync.Models.FieldInfo;
 
 namespace VaultwardenK8sSync.Tests;
 
-[Collection("Integration Tests")]
+[Collection("SyncService Sequential")]
 [Trait("Category", "Integration")]
-public class IntegrationTests
+public class IntegrationTests : IDisposable
 {
     private readonly SyncService _syncService;
     private readonly Mock<ILogger<SyncService>> _loggerMock;
@@ -824,6 +824,9 @@ public class IntegrationTests
         _vaultwardenServiceMock.Setup(x => x.AuthenticateAsync())
             .ReturnsAsync(true);
 
+        _kubernetesServiceMock.Setup(x => x.GetAllNamespacesAsync())
+            .ReturnsAsync(new List<string> { "default" });
+
         _kubernetesServiceMock.Setup(x => x.SecretExistsAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(false);
 
@@ -970,5 +973,23 @@ public class IntegrationTests
         
         Assert.True(firstSync.OverallSuccess);
         Assert.Equal(1, firstSync.TotalSecretsCreated);
+    }
+
+    public void Dispose()
+    {
+        // Clean up lock file after each test
+        var lockFilePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "vaultwarden-sync-operation.lock");
+        System.Threading.Thread.Sleep(100); // Give lock time to release
+        try
+        {
+            if (System.IO.File.Exists(lockFilePath))
+            {
+                System.IO.File.Delete(lockFilePath);
+            }
+        }
+        catch
+        {
+            // Ignore errors during cleanup
+        }
     }
 }

@@ -444,6 +444,21 @@ public class SyncService : ISyncService
                     namespaceSummary.AddSecret(failedSecret);
                     namespaceSummary.Errors.Add($"Secret {secretName}: {ex.Message}");
                     
+                    // Log failed secret state to database
+                    var firstItem = secretItems.FirstOrDefault();
+                    if (firstItem != null)
+                    {
+                        await _dbLogger.UpsertSecretStateAsync(
+                            namespaceName,
+                            secretName,
+                            firstItem.Id,
+                            firstItem.Name,
+                            "Failed",
+                            0,
+                            ex.Message
+                        );
+                    }
+                    
                     // progress?.UpdateItem(key, "FAILED", ex.Message, SyncItemOutcome.Failed);
                 }
             }
@@ -994,6 +1009,12 @@ public class SyncService : ISyncService
         if (string.IsNullOrEmpty(sanitized))
         {
             throw new ArgumentException($"Secret name cannot be null, empty, or whitespace. '{name}' becomes empty after sanitization. Please provide a name with at least one alphanumeric character or use the 'secret-name' custom field to specify a valid Kubernetes secret name.", nameof(name));
+        }
+        
+        // Truncate to Kubernetes limit (253 characters for secret names)
+        if (sanitized.Length > 253)
+        {
+            sanitized = sanitized.Substring(0, 253).TrimEnd('-');
         }
         
         return sanitized;

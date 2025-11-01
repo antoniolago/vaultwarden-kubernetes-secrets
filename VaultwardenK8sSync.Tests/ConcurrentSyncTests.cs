@@ -11,6 +11,7 @@ using System.Linq;
 
 namespace VaultwardenK8sSync.Tests;
 
+[Collection("SyncService Sequential")]
 public class ConcurrentSyncTests
 {
     [Fact]
