@@ -299,7 +299,8 @@ jobs:
             --set image.tag=${{ steps.vars.outputs.image_tag }} \
             --set env.config.VAULTWARDEN__SERVERURL="https://test.example.com" \
             --set env.config.SYNC__DRYRUN="true" \
-            --set env.config.SYNC__CONTINUOUSSYNC="false" \
+            --set env.config.SYNC__CONTINUOUSSYNC="true" \
+            --set env.config.SYNC__SYNCINTERVALSECONDS="60" \
             --wait --timeout 2m
       
       - name: Verify deployment
