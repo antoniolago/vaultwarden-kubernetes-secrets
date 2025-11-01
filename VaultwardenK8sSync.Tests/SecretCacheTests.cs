@@ -29,6 +29,20 @@ public class SecretCacheTests
         // Setup database logger to return a sync log ID
         _dbLoggerMock.Setup(x => x.StartSyncLogAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool>()))
             .ReturnsAsync(1L);
+        _dbLoggerMock.Setup(x => x.CacheVaultwardenItemsAsync(It.IsAny<List<VaultwardenItem>>()))
+            .Returns(Task.CompletedTask);
+        _dbLoggerMock.Setup(x => x.CleanupStaleSecretStatesAsync(It.IsAny<List<VaultwardenItem>>()))
+            .ReturnsAsync(0);
+        _dbLoggerMock.Setup(x => x.CompleteSyncLogAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+        _dbLoggerMock.Setup(x => x.UpdateSyncProgressAsync(
+            It.IsAny<long>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), 
+            It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()))
+            .Returns(Task.CompletedTask);
+        _dbLoggerMock.Setup(x => x.UpsertSecretStateAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), 
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
         
         _syncService = new SyncService(
             _loggerMock.Object,

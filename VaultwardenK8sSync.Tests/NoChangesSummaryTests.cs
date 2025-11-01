@@ -75,6 +75,21 @@ public class NoChangesSummaryTests
             
         mockDbLogger.Setup(x => x.CacheVaultwardenItemsAsync(It.IsAny<List<VaultwardenItem>>()))
             .Returns(Task.CompletedTask);
+            
+        mockDbLogger.Setup(x => x.CleanupStaleSecretStatesAsync(It.IsAny<List<VaultwardenItem>>()))
+            .ReturnsAsync(0);
+            
+        mockDbLogger.Setup(x => x.UpsertSecretStateAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), 
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+            
+        // Mock Kubernetes service for secret operations
+        mockKubernetesService.Setup(x => x.SecretExistsAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(false);  // First sync: secrets don't exist
+        mockKubernetesService.Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), 
+            It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+            .ReturnsAsync(OperationResult.Successful());
         
         var syncService = new SyncService(
             mockLogger.Object,
@@ -153,6 +168,21 @@ public class NoChangesSummaryTests
             
         mockDbLogger.Setup(x => x.CacheVaultwardenItemsAsync(It.IsAny<List<VaultwardenItem>>()))
             .Returns(Task.CompletedTask);
+            
+        mockDbLogger.Setup(x => x.CleanupStaleSecretStatesAsync(It.IsAny<List<VaultwardenItem>>()))
+            .ReturnsAsync(0);
+            
+        mockDbLogger.Setup(x => x.UpsertSecretStateAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), 
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+            
+        // Mock Kubernetes service for secret operations
+        mockKubernetesService.Setup(x => x.SecretExistsAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(false);
+        mockKubernetesService.Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), 
+            It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+            .ReturnsAsync(OperationResult.Successful());
         
         var syncService = new SyncService(
             mockLogger.Object,
@@ -217,6 +247,21 @@ public class NoChangesSummaryTests
             
         mockDbLogger.Setup(x => x.CacheVaultwardenItemsAsync(It.IsAny<List<VaultwardenItem>>()))
             .Returns(Task.CompletedTask);
+            
+        mockDbLogger.Setup(x => x.CleanupStaleSecretStatesAsync(It.IsAny<List<VaultwardenItem>>()))
+            .ReturnsAsync(0);
+            
+        mockDbLogger.Setup(x => x.UpsertSecretStateAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), 
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+            
+        // Mock Kubernetes service for secret operations  
+        mockKubernetesService.Setup(x => x.SecretExistsAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(false);
+        mockKubernetesService.Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), 
+            It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+            .ReturnsAsync(OperationResult.Successful());
         
         var syncService = new SyncService(
             mockLogger.Object,

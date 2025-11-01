@@ -338,6 +338,13 @@ public class SyncService : ISyncService
         }
         catch (Exception ex)
         {
+            // Re-throw authentication failures immediately - these are critical
+            if (ex is InvalidOperationException)
+            {
+                _logger.LogError(ex, "Authentication failed during sync - re-throwing");
+                throw;
+            }
+            
             _logger.LogError(ex, "Failed to perform sync");
             summary.AddError($"Sync failed: {ex.Message}");
             summary.EndTime = DateTime.UtcNow;
@@ -578,9 +585,10 @@ public class SyncService : ISyncService
             if (string.IsNullOrEmpty(usernameKey))
             {
                 // Use the sanitized secret name (which preserves hyphens) instead of item name
-                var secretName = !string.IsNullOrEmpty(item.ExtractSecretName()) 
-                    ? SanitizeSecretName(item.ExtractSecretName()) 
-                    : SanitizeSecretName(item.Name);
+                var extractedName = item.ExtractSecretName();
+                var secretName = !string.IsNullOrEmpty(extractedName) 
+                    ? SanitizeSecretName(extractedName) 
+                    : SanitizeSecretName(item.Name ?? string.Empty);
                 usernameKey = $"{SanitizeFieldName(secretName)}-username";
             }
             data[usernameKey] = FormatMultilineValue(username);
@@ -594,9 +602,10 @@ public class SyncService : ISyncService
         if (string.IsNullOrEmpty(passwordKeyResolved))
         {
             // Use the sanitized item name for the field key (preserves case and uses underscores)
-            var itemName = !string.IsNullOrEmpty(item.ExtractSecretName()) 
-                ? item.ExtractSecretName() 
-                : item.Name;
+            var extractedSecName = item.ExtractSecretName();
+            var itemName = !string.IsNullOrEmpty(extractedSecName) 
+                ? extractedSecName 
+                : (item.Name ?? string.Empty);
             passwordKeyResolved = SanitizeFieldName(itemName);
         }
 
@@ -610,16 +619,17 @@ public class SyncService : ISyncService
             // If no password found, store the item's note content (excluding metadata tags) when present,
             // otherwise fall back to the item name as a placeholder.
             var noteBody = ExtractPureNoteBody(item.Notes);
-            data[passwordKeyResolved] = string.IsNullOrWhiteSpace(noteBody) ? item.Name : noteBody;
+            data[passwordKeyResolved] = string.IsNullOrWhiteSpace(noteBody) ? (item.Name ?? string.Empty) : noteBody;
         }
 
         // Include SSH-specific extras if present
         if (item.SshKey != null)
         {
             // Use the sanitized secret name (which preserves hyphens) instead of item name
-            var secretName = !string.IsNullOrEmpty(item.ExtractSecretName()) 
-                ? SanitizeSecretName(item.ExtractSecretName()) 
-                : SanitizeSecretName(item.Name);
+            var sshExtractedName = item.ExtractSecretName();
+            var secretName = !string.IsNullOrEmpty(sshExtractedName) 
+                ? SanitizeSecretName(sshExtractedName) 
+                : SanitizeSecretName(item.Name ?? string.Empty);
                 
             if (!string.IsNullOrWhiteSpace(item.SshKey.PublicKey))
             {
