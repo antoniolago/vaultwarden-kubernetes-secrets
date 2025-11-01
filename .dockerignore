@@ -1,0 +1,54 @@
+# Build outputs
+**/bin/
+**/obj/
+**/out/
+**/TestResults/
+
+# IDE and editor files
+.vs/
+.vscode/
+*.user
+*.suo
+*.userprefs
+.DS_Store
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+README.md
+LICENSE
+docs/
+
+# GitHub
+.github/
+
+# Kubernetes manifests
+kubernetes/
+charts/
+deploy/
+
+# Node modules (for dashboard)
+**/node_modules/
+**/dist/
+dashboard/
+
+# Test files
+**/*.Tests/
+**/coverage/
+**/.coverage/
+**/coverage.opencover.xml
+
+# CI/CD
+.dockerignore
+Dockerfile
+**/Dockerfile
+
+# Temporary files
+*.log
+*.tmp
+tmp/
+temp/

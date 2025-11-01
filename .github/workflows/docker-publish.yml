@@ -82,7 +82,7 @@ jobs:
     - name: Validate Dockerfile syntax
       run: |
         echo "🔍 Validating Dockerfile syntax..."
-        docker build --check -f VaultwardenK8sSync/Dockerfile VaultwardenK8sSync/
+        docker build --check -f VaultwardenK8sSync/Dockerfile .
         echo "✅ Dockerfile validation passed"
 
   security:
@@ -178,7 +178,7 @@ jobs:
       - name: Build and push to GHCR (all scenarios)
         uses: docker/build-push-action@v6
         with:
-          context: ./VaultwardenK8sSync
+          context: .
           file: ./VaultwardenK8sSync/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
@@ -192,7 +192,7 @@ jobs:
         if: steps.vars.outputs.pr_tag != ''
         uses: docker/build-push-action@v6
         with:
-          context: ./VaultwardenK8sSync
+          context: .
           file: ./VaultwardenK8sSync/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
@@ -205,7 +205,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
-          context: ./VaultwardenK8sSync
+          context: .
           file: ./VaultwardenK8sSync/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
