@@ -11,7 +11,7 @@ import {
   Chip,
 } from '@mui/joy'
 import { useAuth } from '../lib/auth'
-import SyncProgressBar from './SyncProgressBar'
+// import SyncProgressBar from './SyncProgressBar' // Commented out - not currently used
 
 interface LayoutProps {
   children: React.ReactNode

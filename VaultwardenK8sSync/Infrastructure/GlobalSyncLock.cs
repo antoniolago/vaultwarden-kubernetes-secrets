@@ -20,7 +20,7 @@ public class GlobalSyncLock : IDisposable
     private readonly ILogger? _logger;
     private readonly int _timeoutMs;
 
-    public GlobalSyncLock(ILogger? logger = null, int timeoutMs = 100)
+    public GlobalSyncLock(ILogger? logger = null, int timeoutMs = 5000)
     {
         _logger = logger;
         _timeoutMs = timeoutMs;
@@ -90,9 +90,19 @@ public class GlobalSyncLock : IDisposable
     {
         if (_lockFileStream != null)
         {
-            _lockFileStream.Dispose();
-            _lockFileStream = null;
-            _logger?.LogDebug("🔓 Released sync operation lock: {LockFile}", _lockFilePath);
+            try
+            {
+                _lockFileStream.Dispose();
+                _lockFileStream = null;
+                _logger?.LogDebug("🔓 Released sync operation lock: {LockFile}", _lockFilePath);
+                
+                // Give OS time to release the file lock
+                Thread.Sleep(10);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Error disposing sync lock");
+            }
         }
     }
 }

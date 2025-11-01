@@ -14,7 +14,7 @@ import {
   IconButton,
 } from '@mui/joy'
 import { api } from '../lib/api'
-import { formatRelative, getStatusColor } from '../lib/utils'
+import { getStatusColor } from '../lib/utils' // formatRelative commented out - not currently used
 import { useState } from 'react'
 import KeysModal from '../components/KeysModal'
 

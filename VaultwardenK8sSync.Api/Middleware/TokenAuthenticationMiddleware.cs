@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+
 namespace VaultwardenK8sSync.Database;
 
 public class AuthenticationConfig
@@ -44,20 +47,41 @@ public class TokenAuthenticationMiddleware : IMiddleware
         // Check for token in Authorization header
         if (!context.Request.Headers.TryGetValue("Authorization", out var authHeader))
         {
+            _logger.LogWarning("Authentication failed - missing header from {IP}", context.Connection.RemoteIpAddress);
+            await Task.Delay(10); // Constant delay to prevent timing attacks
             context.Response.StatusCode = 401;
-            await context.Response.WriteAsJsonAsync(new { error = "Missing authorization header" });
+            await context.Response.WriteAsJsonAsync(new { error = "Authentication failed" });
             return;
         }
 
         var token = authHeader.ToString().Replace("Bearer ", "");
-        if (token != _config.Token)
+        
+        // Use constant-time comparison to prevent timing attacks
+        if (!SecureCompare(token, _config.Token))
         {
-            _logger.LogWarning("Invalid token attempt from {IP}", context.Connection.RemoteIpAddress);
+            _logger.LogWarning("Authentication failed - invalid token from {IP}", context.Connection.RemoteIpAddress);
+            await Task.Delay(10); // Constant delay to prevent timing attacks
             context.Response.StatusCode = 401;
-            await context.Response.WriteAsJsonAsync(new { error = "Invalid token" });
+            await context.Response.WriteAsJsonAsync(new { error = "Authentication failed" });
             return;
         }
 
         await next(context);
+    }
+
+    /// <summary>
+    /// Constant-time string comparison to prevent timing attacks.
+    /// Uses CryptographicOperations.FixedTimeEquals for secure token comparison.
+    /// </summary>
+    private static bool SecureCompare(string provided, string expected)
+    {
+        if (string.IsNullOrEmpty(provided) || string.IsNullOrEmpty(expected))
+            return false;
+
+        var providedBytes = Encoding.UTF8.GetBytes(provided);
+        var expectedBytes = Encoding.UTF8.GetBytes(expected);
+
+        // Constant-time comparison - prevents timing attacks
+        return CryptographicOperations.FixedTimeEquals(providedBytes, expectedBytes);
     }
 }

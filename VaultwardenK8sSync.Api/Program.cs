@@ -142,16 +142,27 @@ builder.Services.AddHealthChecks()
 // Rate limiting
 builder.Services.AddRateLimiter(options =>
 {
+    // Global rate limiter with authentication-aware logic
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+    {
+        // Get IP address for rate limiting partition
+        var ipAddress = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        
+        // Stricter limits for authentication endpoints (5 req/min)
+        // More relaxed for other endpoints (100 req/min)
+        var isAuthEndpoint = context.Request.Path.StartsWithSegments("/api") && 
+                            !context.Request.Path.StartsWithSegments("/health");
+        
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: $"{ipAddress}:{isAuthEndpoint}",
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 100,
+                PermitLimit = isAuthEndpoint ? 20 : 100,  // Stricter for API endpoints
                 Window = TimeSpan.FromMinutes(1),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                QueueLimit = 10
-            }));
+                QueueLimit = isAuthEndpoint ? 0 : 10  // No queueing for API endpoints
+            });
+    });
 
     options.OnRejected = async (context, token) =>
     {

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { Modal, ModalDialog, ModalClose, Typography, Box, Sheet, CircularProgress, Chip, Tabs, TabList, Tab, TabPanel } from '@mui/joy'
+import { Modal, ModalDialog, ModalClose, Typography, Box, Sheet, CircularProgress, Chip, Tabs, TabList, TabPanel } from '@mui/joy'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 interface SyncLog {

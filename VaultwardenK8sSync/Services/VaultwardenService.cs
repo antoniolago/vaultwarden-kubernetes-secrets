@@ -69,6 +69,12 @@ public class VaultwardenService : IVaultwardenService
             // Set the server URL first (logout first if needed for server change)
             if (!string.IsNullOrEmpty(_config.ServerUrl))
             {
+                // Validate ServerUrl to prevent command injection
+                if (!IsValidServerUrl(_config.ServerUrl))
+                {
+                    _logger.LogError("Invalid or potentially dangerous ServerUrl format: {ServerUrl}", _config.ServerUrl);
+                    return false;
+                }
                 // Try to set server URL, if it fails due to existing session, logout and retry
                 var setServerResult = await SetServerUrlAsync();
                 if (!setServerResult)
@@ -1335,6 +1341,31 @@ public class VaultwardenService : IVaultwardenService
             _logger.LogWarning(ex, "bw sync failed (continuing)");
             return false;
         }
+    }
+
+    /// <summary>
+    /// Validates ServerUrl to prevent command injection attacks.
+    /// Only allows HTTPS URLs without dangerous shell metacharacters.
+    /// </summary>
+    private static bool IsValidServerUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return false;
+
+        // Must be a valid absolute URL
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return false;
+
+        // Only allow HTTPS (not HTTP or other schemes)
+        if (uri.Scheme != "https")
+            return false;
+
+        // Block shell metacharacters that could be used for command injection
+        var dangerousChars = new[] { ";", "`", "$", "&", "|", "\n", "\r", "'", "\"", "<", ">", "(", ")" };
+        if (dangerousChars.Any(url.Contains))
+            return false;
+
+        return true;
     }
 
     private void ApplyCommonEnv(ProcessStartInfo startInfo)
