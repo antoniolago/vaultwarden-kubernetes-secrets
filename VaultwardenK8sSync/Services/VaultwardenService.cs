@@ -104,17 +104,27 @@ public class VaultwardenService : IVaultwardenService
                 // Verify session token is available
                 if (string.IsNullOrWhiteSpace(_sessionToken))
                 {
-                    _logger.LogError("Authentication completed but no session token available - this will cause command failures");
+                    _logger.LogError("❌ AUTHENTICATION FAILED: Login completed but no session token available");
+                    _logger.LogError("   This will cause all subsequent commands to fail");
+                    _logger.LogError("   This indicates a bw CLI state issue or unlock failure");
                     return false;
                 }
-                _logger.LogDebug("Authentication successful with session token (length: {Len})", _sessionToken.Length);
+                _logger.LogInformation("✅ Authentication successful with session token (length: {Len})", _sessionToken.Length);
+            }
+            else
+            {
+                _logger.LogError("❌ AUTHENTICATION FAILED: API key login or vault unlock failed");
+                _logger.LogError("   Check the detailed error messages above for the specific failure");
             }
             
             return ok;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to authenticate with Vaultwarden");
+            _logger.LogError(ex, "❌ AUTHENTICATION FAILED: Exception during authentication");
+            _logger.LogError("   Exception type: {Type}", ex.GetType().Name);
+            _logger.LogError("   Exception message: {Msg}", ex.Message);
+            _logger.LogError("   Stack trace: {Stack}", ex.StackTrace);
             return false;
         }
     }
@@ -150,9 +160,15 @@ public class VaultwardenService : IVaultwardenService
     {
         if (string.IsNullOrEmpty(_config.ClientId) || string.IsNullOrEmpty(_config.ClientSecret))
         {
-            _logger.LogError("ClientId and ClientSecret are required for API key authentication");
+            _logger.LogError("❌ API KEY LOGIN FAILED: ClientId and ClientSecret are required");
+            _logger.LogError("   Required environment variables:");
+            _logger.LogError("   - BW_CLIENTID (currently: {Status})", string.IsNullOrEmpty(_config.ClientId) ? "NOT SET" : "SET");
+            _logger.LogError("   - BW_CLIENTSECRET (currently: {Status})", string.IsNullOrEmpty(_config.ClientSecret) ? "NOT SET" : "SET");
             return false;
         }
+
+        _logger.LogDebug("Starting API key login (ClientId configured: {HasId}, ClientSecret configured: {HasSecret})", 
+            !string.IsNullOrEmpty(_config.ClientId), !string.IsNullOrEmpty(_config.ClientSecret));
 
         var process = new Process
         {
@@ -178,7 +194,11 @@ public class VaultwardenService : IVaultwardenService
         var completed = await Task.WhenAny(exitTask, timeoutTask);
         if (completed == timeoutTask)
         {
-            _logger.LogError("bw login timed out after 60 seconds");
+            _logger.LogError("❌ API KEY LOGIN FAILED: bw login timed out after 60 seconds");
+            _logger.LogError("   Possible causes:");
+            _logger.LogError("   - Network issues connecting to Vaultwarden server");
+            _logger.LogError("   - Vaultwarden server URL incorrect: {ServerUrl}", _config.ServerUrl ?? "(not set)");
+            _logger.LogError("   - Vaultwarden server is down or unresponsive");
             try { process.Kill(); } catch { }
             return false;
         }
@@ -201,7 +221,7 @@ public class VaultwardenService : IVaultwardenService
         // Check for "Expected user never made active" error - bw CLI race condition
         if (process.ExitCode != 0 && stderr?.Contains("Expected user never made active") == true)
         {
-            _logger.LogWarning("bw CLI race condition detected - waiting and retrying authentication");
+            _logger.LogWarning("⚠️  bw CLI race condition detected - waiting and retrying authentication");
             await Task.Delay(2000); // Wait 2 seconds for CLI to stabilize
             await LogoutAsync();
             await Task.Delay(Constants.Delays.PostCommandDelayMs);
@@ -218,29 +238,56 @@ public class VaultwardenService : IVaultwardenService
 
             // Give the CLI extra time to write authentication state to disk and initialize user
             // bw CLI 2025.10.0 needs more time to make user active
+            _logger.LogDebug("Waiting for bw CLI to stabilize after login...");
             await Task.Delay(Constants.Delays.PostUnlockDelayMs + 1000);
             await LogBwStatusAsync("post-api-login");
 
             // For API key authentication, always check vault status and unlock if needed
-            _logger.LogDebug("API key login succeeded - checking vault status");
+            _logger.LogInformation("✅ API key login succeeded - now checking vault status and unlocking...");
             var unlockSuccess = await TestVaultAccessAsync();
             
             // Only set authenticated flag AFTER successful unlock
             if (unlockSuccess)
             {
                 _isAuthenticated = true;
-                _logger.LogDebug("Authentication and unlock completed successfully");
+                _logger.LogInformation("✅ Authentication and unlock completed successfully");
             }
             else
             {
                 _isAuthenticated = false;
-                _logger.LogError("Authentication completed but unlock failed");
+                _logger.LogError("❌ API key login succeeded but vault unlock failed");
+                _logger.LogError("   See unlock error messages above for details");
             }
             
             return unlockSuccess;
         }
 
-        _logger.LogError("Authentication failed (exit {Code}). stderr: {Stderr} | stdout: {Stdout}", process.ExitCode, stderr, stdout);
+        // Login failed - provide detailed diagnostics
+        _logger.LogError("❌ API KEY LOGIN FAILED: bw login returned exit code {Code}", process.ExitCode);
+        _logger.LogError("   stderr: {Stderr}", string.IsNullOrEmpty(stderr) ? "(empty)" : stderr);
+        _logger.LogError("   stdout: {Stdout}", string.IsNullOrEmpty(stdout) ? "(empty)" : stdout);
+        
+        // Analyze the error
+        if (!string.IsNullOrEmpty(stderr))
+        {
+            if (stderr.Contains("Invalid credentials") || stderr.Contains("authentication"))
+            {
+                _logger.LogError("   ⚠️  DIAGNOSIS: Invalid API key credentials");
+                _logger.LogError("   Action required:");
+                _logger.LogError("   1. Verify BW_CLIENTID and BW_CLIENTSECRET are correct");
+                _logger.LogError("   2. Regenerate API key in Vaultwarden if needed");
+                _logger.LogError("   3. Ensure the API key has not been revoked");
+            }
+            else if (stderr.Contains("server") || stderr.Contains("network") || stderr.Contains("connection"))
+            {
+                _logger.LogError("   ⚠️  DIAGNOSIS: Network or server connection issue");
+                _logger.LogError("   Action required:");
+                _logger.LogError("   1. Verify VAULTWARDEN__SERVERURL is correct: {ServerUrl}", _config.ServerUrl ?? "(not set)");
+                _logger.LogError("   2. Check network connectivity to Vaultwarden server");
+                _logger.LogError("   3. Verify Vaultwarden server is running and accessible");
+            }
+        }
+        
         _isAuthenticated = false;
         return false;
     }
@@ -349,9 +396,13 @@ public class VaultwardenService : IVaultwardenService
             // Verify master password is configured
             if (string.IsNullOrWhiteSpace(_config.MasterPassword))
             {
-                _logger.LogError("Master password is not configured (VAULTWARDEN__MASTERPASSWORD)");
+                _logger.LogError("❌ UNLOCK FAILED: Master password is not configured");
+                _logger.LogError("   Required environment variable: VAULTWARDEN__MASTERPASSWORD");
+                _logger.LogError("   Please set this variable and restart the service");
                 return false;
             }
+
+            _logger.LogDebug("Master password is configured (length: {Len} characters)", _config.MasterPassword.Length);
 
             // Verify we're in the correct state before attempting unlock
             await LogBwStatusAsync("pre-unlock");
@@ -374,9 +425,14 @@ public class VaultwardenService : IVaultwardenService
             // Log what session token we're using
             if (!string.IsNullOrWhiteSpace(_sessionToken))
             {
-                _logger.LogInformation("Using session token for unlock (length: {Len})", _sessionToken.Length);
+                _logger.LogDebug("Using session token for unlock (length: {Len})", _sessionToken.Length);
+            }
+            else
+            {
+                _logger.LogWarning("No session token available before unlock attempt");
             }
 
+            _logger.LogDebug("Starting bw unlock process...");
             process.Start();
             
             // Write password to stdin (original working approach)
@@ -385,10 +441,14 @@ public class VaultwardenService : IVaultwardenService
                 await process.StandardInput.WriteLineAsync(_config.MasterPassword);
                 await process.StandardInput.FlushAsync();
                 process.StandardInput.Close();
+                _logger.LogDebug("Master password written to bw stdin successfully");
             }
             catch (InvalidOperationException ex)
             {
-                _logger.LogWarning("Could not write master password to bw stdin: {Msg}", ex.Message);
+                _logger.LogError("❌ UNLOCK FAILED: Could not write master password to bw stdin");
+                _logger.LogError("   Error: {Msg}", ex.Message);
+                _logger.LogError("   This usually indicates the bw process died immediately or stdin is closed");
+                return false;
             }
 
             // Read output/error concurrently with timeout
@@ -399,7 +459,12 @@ public class VaultwardenService : IVaultwardenService
             var completedTask = await Task.WhenAny(exitTask, timeoutTask);
             if (completedTask == timeoutTask)
             {
-                _logger.LogError("bw unlock timed out after 60 seconds");
+                _logger.LogError("❌ UNLOCK FAILED: bw unlock timed out after 60 seconds");
+                _logger.LogError("   The vault unlock process hung or is taking too long");
+                _logger.LogError("   Possible causes:");
+                _logger.LogError("   - Network issues connecting to Vaultwarden server");
+                _logger.LogError("   - Vaultwarden server is slow or unresponsive");
+                _logger.LogError("   - The vault is in an inconsistent state");
                 try { process.Kill(); } catch { }
                 return false;
             }
@@ -422,32 +487,68 @@ public class VaultwardenService : IVaultwardenService
                     Environment.SetEnvironmentVariable("BW_SESSION", token);
                     Environment.SetEnvironmentVariable("BW_SESSION", token, EnvironmentVariableTarget.Process);
                     
-                    _logger.LogInformation("Vault unlocked successfully - session token captured (length: {Len})", len);
+                    _logger.LogInformation("✅ Vault unlocked successfully - session token captured (length: {Len})", len);
                     await LogBwStatusAsync("post-unlock");
                     return true;
                 }
                 else
                 {
-                    _logger.LogWarning("Vault unlock succeeded but no session token returned - this may cause authentication errors");
-                    _logger.LogWarning("stdout: '{Stdout}', stderr: '{Stderr}'", stdOut, stdErr);
+                    _logger.LogError("❌ UNLOCK FAILED: Process succeeded but no session token returned");
+                    _logger.LogError("   stdout: '{Stdout}'", string.IsNullOrEmpty(stdOut) ? "(empty)" : stdOut);
+                    _logger.LogError("   stderr: '{Stderr}'", string.IsNullOrEmpty(stdErr) ? "(empty)" : stdErr);
+                    _logger.LogError("   This indicates the unlock command completed but didn't return a token");
                     
                     // Try to verify vault is accessible by checking status
                     await Task.Delay(Constants.Delays.PostUnlockDelayMs);
                     await LogBwStatusAsync("post-unlock-no-token");
                     
-                    // Without a session token, commands will likely fail
-                    // Return false to indicate unlock didn't fully succeed
-                    _logger.LogError("Cannot proceed without session token - unlock failed");
+                    _logger.LogError("   Cannot proceed without session token");
                     return false;
                 }
             }
 
-            _logger.LogError("Failed to unlock vault (exit {Code}). stderr: {Stderr}. stdout: {Stdout}", process.ExitCode, stdErr, stdOut);
+            // Unlock failed - provide detailed diagnostics
+            _logger.LogError("❌ UNLOCK FAILED: bw unlock returned exit code {Code}", process.ExitCode);
+            _logger.LogError("   stderr: {Stderr}", string.IsNullOrEmpty(stdErr) ? "(empty)" : stdErr);
+            _logger.LogError("   stdout: {Stdout}", string.IsNullOrEmpty(stdOut) ? "(empty)" : stdOut);
+            
+            // Analyze the error and provide specific guidance
+            if (!string.IsNullOrEmpty(stdErr))
+            {
+                if (stdErr.Contains("Invalid master password"))
+                {
+                    _logger.LogError("   ⚠️  DIAGNOSIS: The master password is incorrect");
+                    _logger.LogError("   Action required:");
+                    _logger.LogError("   1. Verify the password in VAULTWARDEN__MASTERPASSWORD matches your Vaultwarden account");
+                    _logger.LogError("   2. Check for special characters that might need escaping");
+                    _logger.LogError("   3. Ensure there are no trailing newlines or spaces in the password");
+                    _logger.LogError("   4. Try logging in manually: echo 'your-password' | bw unlock --raw");
+                }
+                else if (stdErr.Contains("not logged in"))
+                {
+                    _logger.LogError("   ⚠️  DIAGNOSIS: The vault is not logged in");
+                    _logger.LogError("   This should not happen - authentication completed but vault not logged in");
+                    _logger.LogError("   This indicates a bw CLI state issue");
+                }
+                else if (stdErr.Contains("locked") || stdErr.Contains("Vault is locked"))
+                {
+                    _logger.LogError("   ⚠️  DIAGNOSIS: The vault is locked (this is expected before unlock)");
+                    _logger.LogError("   But unlock failed for an unknown reason");
+                }
+                else
+                {
+                    _logger.LogError("   ⚠️  DIAGNOSIS: Unknown unlock error");
+                    _logger.LogError("   The error message above may provide clues");
+                }
+            }
+            
             return false;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to unlock vault");
+            _logger.LogError(ex, "❌ UNLOCK FAILED: Exception during vault unlock");
+            _logger.LogError("   Exception type: {Type}", ex.GetType().Name);
+            _logger.LogError("   Exception message: {Msg}", ex.Message);
             return false;
         }
     }
