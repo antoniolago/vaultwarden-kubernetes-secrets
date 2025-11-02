@@ -624,14 +624,24 @@ public class VaultwardenService : IVaultwardenService
                 return new List<VaultwardenItem>();
             }
 
-            // NOTE: bw sync is disabled because it invalidates the session in bw CLI 2025.10.0
-            // bw list items fetches data directly from the server, so sync is not needed
-            _logger.LogDebug("Fetching items from Vaultwarden (directly from server)...");
+            // Sync vault to get latest changes from server
+            // This is critical for detecting updates made to secrets in Vaultwarden
+            _logger.LogDebug("Syncing vault to fetch latest changes from server...");
+            var syncSuccess = await SyncVaultAsync();
+            if (!syncSuccess)
+            {
+                _logger.LogWarning("Vault sync failed or had issues - attempting to list items anyway");
+                // Don't fail completely - try to list items even if sync failed
+            }
+            else
+            {
+                _logger.LogDebug("Vault sync completed successfully");
+            }
+
+            _logger.LogDebug("Fetching items from Vaultwarden...");
             _logger.LogDebug("Session token for list items: {HasToken} (length: {Len})",
                 !string.IsNullOrWhiteSpace(_sessionToken),
                 string.IsNullOrWhiteSpace(_sessionToken) ? 0 : _sessionToken!.Length);
-
-
 
             var arguments = $"list items --raw{GetSessionArgs()}{GetOrganizationArgs()}{GetFolderArgs()}{GetCollectionArgs()}";
             
@@ -1321,24 +1331,33 @@ public class VaultwardenService : IVaultwardenService
 
             if (process.ExitCode != 0)
             {
-                _logger.LogWarning("bw sync returned non-zero exit: {Error}", error);
-                // Check for authentication-related errors
-                if (error != null && (error.Contains("not logged in") || error.Contains("locked") || error.Contains("session")))
+                _logger.LogWarning("bw sync returned non-zero exit code {ExitCode}: {Error}", process.ExitCode, error);
+                
+                // Check for authentication-related errors that would invalidate the session
+                if (error != null && (error.Contains("not logged in") || error.Contains("locked") || 
+                    error.Contains("session") || error.Contains("authentication")))
                 {
-                    _logger.LogWarning("Detected authentication issue in bw sync");
+                    _logger.LogWarning("Detected authentication issue in bw sync - session may have been invalidated");
+                    // Mark as not authenticated to trigger re-auth on next call
+                    _isAuthenticated = false;
+                    _sessionToken = null;
                     return false;
                 }
+                
+                // Non-auth related error - log but don't invalidate session
+                _logger.LogDebug("Sync failed but continuing with current session");
+                return false;
             }
             else
             {
-                _logger.LogDebug("Vault synced");
+                _logger.LogInformation("Vault synced successfully with server");
             }
             
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "bw sync failed (continuing)");
+            _logger.LogWarning(ex, "bw sync failed with exception (continuing)");
             return false;
         }
     }
