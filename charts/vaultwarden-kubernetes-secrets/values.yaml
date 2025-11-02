@@ -25,7 +25,7 @@ replicaCount: 1
 
 # API Configuration
 api:
-  enabled: true
+  enabled: false 
   replicaCount: 1
   image:
     repository: ghcr.io/antoniolago/vaultwarden-kubernetes-secrets-api
@@ -58,7 +58,7 @@ api:
 
 # Dashboard Configuration
 dashboard:
-  enabled: true
+  enabled: false  
   replicaCount: 2
   image:
     repository: ghcr.io/antoniolago/vaultwarden-kubernetes-secrets-dashboard

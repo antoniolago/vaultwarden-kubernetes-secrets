@@ -291,23 +291,48 @@ jobs:
             --from-literal=BW_CLIENTSECRET="test-client-secret" \
             --from-literal=VAULTWARDEN__MASTERPASSWORD="test-password"
       
-      - name: Install Helm chart (dry-run mode)
+      - name: Install Helm chart (debug mode)
         run: |
           helm upgrade -i vaultwarden-test ./charts/vaultwarden-kubernetes-secrets \
             --namespace vaultwarden-test \
             --set image.repository=ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets \
             --set image.tag=${{ steps.vars.outputs.image_tag }} \
-            --set env.config.VAULTWARDEN__SERVERURL="https://test.example.com" \
-            --set env.config.SYNC__DRYRUN="true" \
-            --set env.config.SYNC__CONTINUOUSSYNC="true" \
-            --set env.config.SYNC__SYNCINTERVALSECONDS="60" \
+            --set debug=true \
+            --set api.enabled=false \
+            --set dashboard.enabled=false \
             --wait --timeout 2m
       
       - name: Verify deployment
         run: |
-          kubectl get pods -n vaultwarden-test
-          kubectl get deployment -n vaultwarden-test
-          kubectl describe deployment vaultwarden-test-vaultwarden-kubernetes-secrets -n vaultwarden-test
+          echo "📋 Checking deployment status..."
+          kubectl get pods -n vaultwarden-test -o wide
+          kubectl get deployment -n vaultwarden-test -o wide
+          
+          echo ""
+          echo "🧪 Running verification tests..."
+          
+          # Test 1: Pod is running
+          READY_PODS=$(kubectl get pods -n vaultwarden-test -l app.kubernetes.io/name=vaultwarden-kubernetes-secrets -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}')
+          if [ -n "$READY_PODS" ]; then
+            echo "✅ Pod is running: $READY_PODS"
+          else
+            echo "❌ No running pods found"
+            kubectl describe deployment vaultwarden-test-vaultwarden-kubernetes-secrets -n vaultwarden-test
+            exit 1
+          fi
+          
+          # Test 2: No API/Dashboard pods
+          API_PODS=$(kubectl get pods -n vaultwarden-test -l app.kubernetes.io/component=api -o name 2>/dev/null | wc -l)
+          DASH_PODS=$(kubectl get pods -n vaultwarden-test -l app.kubernetes.io/component=dashboard -o name 2>/dev/null | wc -l)
+          if [ "$API_PODS" -eq 0 ] && [ "$DASH_PODS" -eq 0 ]; then
+            echo "✅ API and Dashboard correctly disabled"
+          else
+            echo "❌ Unexpected API/Dashboard pods found"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ All verification tests passed!"
       
       - name: Check pod logs
         if: always()
