@@ -63,13 +63,16 @@ spec:
             - configMapRef:
                 name: {{ include "vaultwarden-kubernetes-secrets.fullname" . }}-config
                 optional: true
-          # Propagate SYNC__FIELD_* env overrides from values.env.fields
-          {{- with .Values.env.fields }}
           env:
+            # Always set these required paths
             - name: HOME
               value: "/data/home"
             - name: XDG_CONFIG_HOME
               value: "/data/home/.config"
+            - name: DATABASE_PATH
+              value: "/data/sync.db"
+            # Propagate SYNC__FIELD_* env overrides from values.env.fields
+            {{- with .Values.env.fields }}
             - name: SYNC__FIELD__NAMESPACES
               value: {{ .namespaces | quote }}
             - name: SYNC__FIELD__SECRETNAME
@@ -84,15 +87,16 @@ spec:
               value: {{ .inlineKvPrefix | quote }}
             - name: SYNC__FIELD__SECRETBLOCKPREFIX
               value: {{ .secretBlockPrefix | quote }}
-          {{- end }}
-          {{- range $name, $ref := .Values.env.secrets }}
+            {{- end }}
+            # Mount secrets as environment variables
+            {{- range $name, $ref := .Values.env.secrets }}
             - name: {{ $name }}
               valueFrom:
                 secretKeyRef:
                   name: {{ $ref.secretName }}
                   key: {{ $ref.secretKey }}
                   optional: false
-          {{- end }}
+            {{- end }}
           volumeMounts:
             - name: data
               mountPath: /data
