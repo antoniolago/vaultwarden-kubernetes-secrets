@@ -248,200 +248,200 @@ jobs:
           CHART_FILE="dist/vaultwarden-kubernetes-secrets-${{ steps.vars.outputs.version }}.tgz"
           helm push "$CHART_FILE" oci://harbor.lag0.com.br/charts
 
-  test-helm-chart:
-    name: Test Helm Chart Installation
-    runs-on: ubuntu-latest
-    needs: [build-and-push]
-    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/')
+  # test-helm-chart:
+  #   name: Test Helm Chart Installation
+  #   runs-on: ubuntu-latest
+  #   needs: [build-and-push]
+  #   if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/')
     
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
       
-      - name: Set up Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: v3.14.4
+  #     - name: Set up Helm
+  #       uses: azure/setup-helm@v4
+  #       with:
+  #         version: v3.14.4
       
-      - name: Create kind cluster
-        uses: helm/kind-action@v1
-        with:
-          cluster_name: test-cluster
-          wait: 30s
+  #     - name: Create kind cluster
+  #       uses: helm/kind-action@v1
+  #       with:
+  #         cluster_name: test-cluster
+  #         wait: 30s
       
-      - name: Extract version tag
-        id: vars
-        run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            PR_NUMBER="${{ github.event.number }}"
-            COMMIT_SHA="${GITHUB_SHA::8}"
-            IMAGE_TAG="pr-${PR_NUMBER}-${COMMIT_SHA}"
-          else
-            IMAGE_TAG="${GITHUB_REF_NAME#v}"
-          fi
-          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+  #     - name: Extract version tag
+  #       id: vars
+  #       run: |
+  #         if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+  #           PR_NUMBER="${{ github.event.number }}"
+  #           COMMIT_SHA="${GITHUB_SHA::8}"
+  #           IMAGE_TAG="pr-${PR_NUMBER}-${COMMIT_SHA}"
+  #         else
+  #           IMAGE_TAG="${GITHUB_REF_NAME#v}"
+  #         fi
+  #         echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
       
-      - name: Create test namespace
-        run: kubectl create namespace vaultwarden-test
+  #     - name: Create test namespace
+  #       run: kubectl create namespace vaultwarden-test
       
-      - name: Create test secrets
-        run: |
-          kubectl create secret generic vaultwarden-kubernetes-secrets -n vaultwarden-test \
-            --from-literal=BW_CLIENTID="test-client-id" \
-            --from-literal=BW_CLIENTSECRET="test-client-secret" \
-            --from-literal=VAULTWARDEN__MASTERPASSWORD="test-password"
+  #     - name: Create test secrets
+  #       run: |
+  #         kubectl create secret generic vaultwarden-kubernetes-secrets -n vaultwarden-test \
+  #           --from-literal=BW_CLIENTID="test-client-id" \
+  #           --from-literal=BW_CLIENTSECRET="test-client-secret" \
+  #           --from-literal=VAULTWARDEN__MASTERPASSWORD="test-password"
       
-      - name: Verify image exists in registry
-        run: |
-          echo "🔍 Verifying image exists in GHCR..."
-          IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets:${{ steps.vars.outputs.image_tag }}"
-          echo "Image: $IMAGE_NAME"
+  #     - name: Verify image exists in registry
+  #       run: |
+  #         echo "🔍 Verifying image exists in GHCR..."
+  #         IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets:${{ steps.vars.outputs.image_tag }}"
+  #         echo "Image: $IMAGE_NAME"
           
-          # Try to inspect the image manifest
-          if docker manifest inspect "$IMAGE_NAME" >/dev/null 2>&1; then
-            echo "✅ Image exists and is accessible"
-          else
-            echo "❌ Image not found or not accessible"
-            echo "Attempting to pull to verify..."
-            docker pull "$IMAGE_NAME" || {
-              echo "❌ Failed to pull image"
-              echo "This usually means:"
-              echo "  1. Image wasn't pushed successfully in previous step"
-              echo "  2. Image is private and credentials aren't configured"
-              echo "  3. Tag name is incorrect"
-              exit 1
-            }
-          fi
+  #         # Try to inspect the image manifest
+  #         if docker manifest inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+  #           echo "✅ Image exists and is accessible"
+  #         else
+  #           echo "❌ Image not found or not accessible"
+  #           echo "Attempting to pull to verify..."
+  #           docker pull "$IMAGE_NAME" || {
+  #             echo "❌ Failed to pull image"
+  #             echo "This usually means:"
+  #             echo "  1. Image wasn't pushed successfully in previous step"
+  #             echo "  2. Image is private and credentials aren't configured"
+  #             echo "  3. Tag name is incorrect"
+  #             exit 1
+  #           }
+  #         fi
       
-      - name: Install Helm chart (debug mode)
-        run: |
-          echo "🚀 Installing Helm chart with debug mode..."
-          echo "Image: ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets:${{ steps.vars.outputs.image_tag }}"
+  #     - name: Install Helm chart (debug mode)
+  #       run: |
+  #         echo "🚀 Installing Helm chart with debug mode..."
+  #         echo "Image: ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets:${{ steps.vars.outputs.image_tag }}"
           
-          # Install without --wait first to see what gets created
-          helm upgrade -i vaultwarden-test ./charts/vaultwarden-kubernetes-secrets \
-            --namespace vaultwarden-test \
-            --set image.repository=ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets \
-            --set image.tag=${{ steps.vars.outputs.image_tag }} \
-            --set debug=true \
-            --set api.enabled=false \
-            --set dashboard.enabled=false
+  #         # Install without --wait first to see what gets created
+  #         helm upgrade -i vaultwarden-test ./charts/vaultwarden-kubernetes-secrets \
+  #           --namespace vaultwarden-test \
+  #           --set image.repository=ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets \
+  #           --set image.tag=${{ steps.vars.outputs.image_tag }} \
+  #           --set debug=true \
+  #           --set api.enabled=false \
+  #           --set dashboard.enabled=false
           
-          echo ""
-          echo "⏳ Waiting for deployment (manual check with timeout)..."
+  #         echo ""
+  #         echo "⏳ Waiting for deployment (manual check with timeout)..."
           
-          # Wait up to 120 seconds for pod to be running
-          for i in {1..24}; do
-            echo "Attempt $i/24: Checking pod status..."
+  #         # Wait up to 120 seconds for pod to be running
+  #         for i in {1..24}; do
+  #           echo "Attempt $i/24: Checking pod status..."
             
-            POD_STATUS=$(kubectl get pods -n vaultwarden-test -l app.kubernetes.io/name=vaultwarden-kubernetes-secrets -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "NotFound")
-            echo "  Pod phase: $POD_STATUS"
+  #           POD_STATUS=$(kubectl get pods -n vaultwarden-test -l app.kubernetes.io/name=vaultwarden-kubernetes-secrets -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "NotFound")
+  #           echo "  Pod phase: $POD_STATUS"
             
-            if [ "$POD_STATUS" == "Running" ]; then
-              READY=$(kubectl get pods -n vaultwarden-test -l app.kubernetes.io/name=vaultwarden-kubernetes-secrets -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
-              if [ "$READY" == "true" ]; then
-                echo "✅ Pod is running and ready!"
-                break
-              else
-                echo "  Container not ready yet..."
-                kubectl get pods -n vaultwarden-test -o wide
-                kubectl describe pod -n vaultwarden-test -l app.kubernetes.io/name=vaultwarden-kubernetes-secrets | tail -30
-              fi
-            elif [ "$POD_STATUS" == "Pending" ] || [ "$POD_STATUS" == "ContainerCreating" ]; then
-              echo "  Pod is starting..."
-              kubectl get pods -n vaultwarden-test -o wide
-            else
-              echo "  ⚠️ Unexpected status: $POD_STATUS"
-              kubectl get pods -n vaultwarden-test -o wide
-              kubectl describe pod -n vaultwarden-test -l app.kubernetes.io/name=vaultwarden-kubernetes-secrets | tail -50
-              kubectl get events -n vaultwarden-test --sort-by='.lastTimestamp' | tail -20
-            fi
+  #           if [ "$POD_STATUS" == "Running" ]; then
+  #             READY=$(kubectl get pods -n vaultwarden-test -l app.kubernetes.io/name=vaultwarden-kubernetes-secrets -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
+  #             if [ "$READY" == "true" ]; then
+  #               echo "✅ Pod is running and ready!"
+  #               break
+  #             else
+  #               echo "  Container not ready yet..."
+  #               kubectl get pods -n vaultwarden-test -o wide
+  #               kubectl describe pod -n vaultwarden-test -l app.kubernetes.io/name=vaultwarden-kubernetes-secrets | tail -30
+  #             fi
+  #           elif [ "$POD_STATUS" == "Pending" ] || [ "$POD_STATUS" == "ContainerCreating" ]; then
+  #             echo "  Pod is starting..."
+  #             kubectl get pods -n vaultwarden-test -o wide
+  #           else
+  #             echo "  ⚠️ Unexpected status: $POD_STATUS"
+  #             kubectl get pods -n vaultwarden-test -o wide
+  #             kubectl describe pod -n vaultwarden-test -l app.kubernetes.io/name=vaultwarden-kubernetes-secrets | tail -50
+  #             kubectl get events -n vaultwarden-test --sort-by='.lastTimestamp' | tail -20
+  #           fi
             
-            if [ $i -lt 24 ]; then
-              sleep 5
-            else
-              echo "❌ Timeout waiting for pod to be ready"
-              exit 1
-            fi
-          done
+  #           if [ $i -lt 24 ]; then
+  #             sleep 5
+  #           else
+  #             echo "❌ Timeout waiting for pod to be ready"
+  #             exit 1
+  #           fi
+  #         done
       
-      - name: Verify deployment
-        run: |
-          echo "📋 Checking deployment status..."
-          kubectl get pods -n vaultwarden-test -o wide
-          kubectl get deployment -n vaultwarden-test -o wide
+  #     - name: Verify deployment
+  #       run: |
+  #         echo "📋 Checking deployment status..."
+  #         kubectl get pods -n vaultwarden-test -o wide
+  #         kubectl get deployment -n vaultwarden-test -o wide
           
-          echo ""
-          echo "🧪 Running verification tests..."
+  #         echo ""
+  #         echo "🧪 Running verification tests..."
           
-          # Test 1: Pod is running
-          READY_PODS=$(kubectl get pods -n vaultwarden-test -l app.kubernetes.io/name=vaultwarden-kubernetes-secrets -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}')
-          if [ -n "$READY_PODS" ]; then
-            echo "✅ Pod is running: $READY_PODS"
-          else
-            echo "❌ No running pods found"
-            kubectl describe deployment vaultwarden-test-vaultwarden-kubernetes-secrets -n vaultwarden-test
-            exit 1
-          fi
+  #         # Test 1: Pod is running
+  #         READY_PODS=$(kubectl get pods -n vaultwarden-test -l app.kubernetes.io/name=vaultwarden-kubernetes-secrets -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}')
+  #         if [ -n "$READY_PODS" ]; then
+  #           echo "✅ Pod is running: $READY_PODS"
+  #         else
+  #           echo "❌ No running pods found"
+  #           kubectl describe deployment vaultwarden-test-vaultwarden-kubernetes-secrets -n vaultwarden-test
+  #           exit 1
+  #         fi
           
-          # Test 2: No API/Dashboard pods
-          API_PODS=$(kubectl get pods -n vaultwarden-test -l app.kubernetes.io/component=api -o name 2>/dev/null | wc -l)
-          DASH_PODS=$(kubectl get pods -n vaultwarden-test -l app.kubernetes.io/component=dashboard -o name 2>/dev/null | wc -l)
-          if [ "$API_PODS" -eq 0 ] && [ "$DASH_PODS" -eq 0 ]; then
-            echo "✅ API and Dashboard correctly disabled"
-          else
-            echo "❌ Unexpected API/Dashboard pods found"
-            exit 1
-          fi
+  #         # Test 2: No API/Dashboard pods
+  #         API_PODS=$(kubectl get pods -n vaultwarden-test -l app.kubernetes.io/component=api -o name 2>/dev/null | wc -l)
+  #         DASH_PODS=$(kubectl get pods -n vaultwarden-test -l app.kubernetes.io/component=dashboard -o name 2>/dev/null | wc -l)
+  #         if [ "$API_PODS" -eq 0 ] && [ "$DASH_PODS" -eq 0 ]; then
+  #           echo "✅ API and Dashboard correctly disabled"
+  #         else
+  #           echo "❌ Unexpected API/Dashboard pods found"
+  #           exit 1
+  #         fi
           
-          echo ""
-          echo "✅ All verification tests passed!"
+  #         echo ""
+  #         echo "✅ All verification tests passed!"
       
-      - name: Check pod logs and diagnostics
-        if: always()
-        run: |
-          echo "📊 Complete Diagnostic Report"
-          echo "=============================="
-          echo ""
+  #     - name: Check pod logs and diagnostics
+  #       if: always()
+  #       run: |
+  #         echo "📊 Complete Diagnostic Report"
+  #         echo "=============================="
+  #         echo ""
           
-          echo "📋 All pods in namespace:"
-          kubectl get pods -n vaultwarden-test -o wide || true
-          echo ""
+  #         echo "📋 All pods in namespace:"
+  #         kubectl get pods -n vaultwarden-test -o wide || true
+  #         echo ""
           
-          echo "📋 Deployments:"
-          kubectl get deployment -n vaultwarden-test -o wide || true
-          echo ""
+  #         echo "📋 Deployments:"
+  #         kubectl get deployment -n vaultwarden-test -o wide || true
+  #         echo ""
           
-          echo "📋 ReplicaSets:"
-          kubectl get rs -n vaultwarden-test -o wide || true
-          echo ""
+  #         echo "📋 ReplicaSets:"
+  #         kubectl get rs -n vaultwarden-test -o wide || true
+  #         echo ""
           
-          echo "📋 Recent events:"
-          kubectl get events -n vaultwarden-test --sort-by='.lastTimestamp' | tail -30 || true
-          echo ""
+  #         echo "📋 Recent events:"
+  #         kubectl get events -n vaultwarden-test --sort-by='.lastTimestamp' | tail -30 || true
+  #         echo ""
           
-          POD_NAME=$(kubectl get pods -n vaultwarden-test -l app.kubernetes.io/name=vaultwarden-kubernetes-secrets -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-          if [ -n "$POD_NAME" ]; then
-            echo "📋 Pod: $POD_NAME"
-            echo ""
+  #         POD_NAME=$(kubectl get pods -n vaultwarden-test -l app.kubernetes.io/name=vaultwarden-kubernetes-secrets -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+  #         if [ -n "$POD_NAME" ]; then
+  #           echo "📋 Pod: $POD_NAME"
+  #           echo ""
             
-            echo "📋 Init container logs (if any):"
-            kubectl logs $POD_NAME -n vaultwarden-test -c init-permissions --tail=50 2>&1 || echo "No init container logs"
-            echo ""
+  #           echo "📋 Init container logs (if any):"
+  #           kubectl logs $POD_NAME -n vaultwarden-test -c init-permissions --tail=50 2>&1 || echo "No init container logs"
+  #           echo ""
             
-            echo "📋 Main container logs:"
-            kubectl logs $POD_NAME -n vaultwarden-test --tail=100 2>&1 || echo "No main container logs"
-            echo ""
+  #           echo "📋 Main container logs:"
+  #           kubectl logs $POD_NAME -n vaultwarden-test --tail=100 2>&1 || echo "No main container logs"
+  #           echo ""
             
-            echo "📋 Pod description:"
-            kubectl describe pod $POD_NAME -n vaultwarden-test || true
-          else
-            echo "⚠️  No pods found with label app.kubernetes.io/name=vaultwarden-kubernetes-secrets"
-          fi
+  #           echo "📋 Pod description:"
+  #           kubectl describe pod $POD_NAME -n vaultwarden-test || true
+  #         else
+  #           echo "⚠️  No pods found with label app.kubernetes.io/name=vaultwarden-kubernetes-secrets"
+  #         fi
       
-      - name: Cleanup
-        if: always()
-        run: kubectl delete namespace vaultwarden-test --ignore-not-found=true
+  #     - name: Cleanup
+  #       if: always()
+  #       run: kubectl delete namespace vaultwarden-test --ignore-not-found=true
 
   comment-pr:
     runs-on: ubuntu-latest

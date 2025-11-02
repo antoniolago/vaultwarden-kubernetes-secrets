@@ -92,4 +92,301 @@ public class VaultwardenServiceTests
         // Assert
         result.Should().BeFalse();
     }
+
+    [Fact]
+    public async Task AuthenticateAsync_WithValidCredentials_ApiLoginSucceeds_UnlockSucceeds_ShouldReturnTrue()
+    {
+        // Arrange
+        _config.ServerUrl = "https://vault.example.com";
+        _config.ClientId = "test-client-id";
+        _config.ClientSecret = "test-client-secret";
+        _config.MasterPassword = "test-password";
+
+        var loginProcess = new System.Diagnostics.Process();
+        var unlockProcess = new System.Diagnostics.Process();
+        var statusProcess = new System.Diagnostics.Process();
+
+        _processFactoryMock
+            .Setup(x => x.CreateBwProcess("config server https://vault.example.com"))
+            .Returns(statusProcess);
+
+        _processFactoryMock
+            .Setup(x => x.CreateBwProcess("login --apikey --raw"))
+            .Returns(loginProcess);
+
+        _processFactoryMock
+            .Setup(x => x.CreateBwProcess(It.Is<string>(s => s.Contains("status --raw"))))
+            .Returns(statusProcess);
+
+        _processFactoryMock
+            .Setup(x => x.CreateBwProcess("unlock --raw"))
+            .Returns(unlockProcess);
+
+        _processRunnerMock
+            .Setup(x => x.RunAsync(It.Is<System.Diagnostics.Process>(p => p == statusProcess), It.IsAny<int>(), It.IsAny<string>()))
+            .ReturnsAsync(new ProcessResult { Success = true, ExitCode = 0 });
+
+        _processRunnerMock
+            .Setup(x => x.RunAsync(It.Is<System.Diagnostics.Process>(p => p == loginProcess), It.IsAny<int>(), It.IsAny<string>()))
+            .ReturnsAsync(new ProcessResult { Success = true, ExitCode = 0 });
+
+        _processRunnerMock
+            .Setup(x => x.RunAsync(It.Is<System.Diagnostics.Process>(p => p == statusProcess), It.IsAny<int>(), It.IsAny<string>()))
+            .ReturnsAsync(new ProcessResult 
+            { 
+                Success = true, 
+                ExitCode = 0, 
+                Output = "{\"status\":\"locked\",\"token\":null}" 
+            });
+
+        _processRunnerMock
+            .Setup(x => x.RunAsync(It.Is<System.Diagnostics.Process>(p => p == unlockProcess), It.IsAny<int>(), It.Is<string>(s => s == "test-password")))
+            .ReturnsAsync(new ProcessResult 
+            { 
+                Success = true, 
+                ExitCode = 0, 
+                Output = "session-token-12345" 
+            });
+
+        // Act
+        var result = await _service.AuthenticateAsync();
+
+        // Assert
+        result.Should().BeTrue();
+        _processRunnerMock.Verify(x => x.RunAsync(It.Is<System.Diagnostics.Process>(p => p == loginProcess), It.IsAny<int>(), It.IsAny<string>()), Times.Once);
+        _processRunnerMock.Verify(x => x.RunAsync(It.Is<System.Diagnostics.Process>(p => p == unlockProcess), It.IsAny<int>(), It.Is<string>(s => s == "test-password")), Times.Once);
+    }
+
+    [Fact]
+    public async Task AuthenticateAsync_WithValidCredentials_ApiLoginSucceeds_UnlockFails_ShouldReturnFalse()
+    {
+        // Arrange
+        _config.ServerUrl = "https://vault.example.com";
+        _config.ClientId = "test-client-id";
+        _config.ClientSecret = "test-client-secret";
+        _config.MasterPassword = "wrong-password";
+
+        var loginProcess = new System.Diagnostics.Process();
+        var unlockProcess = new System.Diagnostics.Process();
+        var statusProcess = new System.Diagnostics.Process();
+
+        _processFactoryMock
+            .Setup(x => x.CreateBwProcess("config server https://vault.example.com"))
+            .Returns(statusProcess);
+
+        _processFactoryMock
+            .Setup(x => x.CreateBwProcess("login --apikey --raw"))
+            .Returns(loginProcess);
+
+        _processFactoryMock
+            .Setup(x => x.CreateBwProcess(It.Is<string>(s => s.Contains("status --raw"))))
+            .Returns(statusProcess);
+
+        _processFactoryMock
+            .Setup(x => x.CreateBwProcess("unlock --raw"))
+            .Returns(unlockProcess);
+
+        _processRunnerMock
+            .Setup(x => x.RunAsync(It.Is<System.Diagnostics.Process>(p => p == statusProcess), It.IsAny<int>(), It.IsAny<string>()))
+            .ReturnsAsync(new ProcessResult { Success = true, ExitCode = 0 });
+
+        _processRunnerMock
+            .Setup(x => x.RunAsync(It.Is<System.Diagnostics.Process>(p => p == loginProcess), It.IsAny<int>(), It.IsAny<string>()))
+            .ReturnsAsync(new ProcessResult { Success = true, ExitCode = 0 });
+
+        _processRunnerMock
+            .Setup(x => x.RunAsync(It.Is<System.Diagnostics.Process>(p => p == statusProcess), It.IsAny<int>(), It.IsAny<string>()))
+            .ReturnsAsync(new ProcessResult 
+            { 
+                Success = true, 
+                ExitCode = 0, 
+                Output = "{\"status\":\"locked\",\"token\":null}" 
+            });
+
+        _processRunnerMock
+            .Setup(x => x.RunAsync(It.Is<System.Diagnostics.Process>(p => p == unlockProcess), It.IsAny<int>(), It.Is<string>(s => s == "wrong-password")))
+            .ReturnsAsync(new ProcessResult 
+            { 
+                Success = false, 
+                ExitCode = 1, 
+                Error = "Invalid master password." 
+            });
+
+        // Act
+        var result = await _service.AuthenticateAsync();
+
+        // Assert
+        result.Should().BeFalse();
+        _processRunnerMock.Verify(x => x.RunAsync(It.Is<System.Diagnostics.Process>(p => p == unlockProcess), It.IsAny<int>(), It.Is<string>(s => s == "wrong-password")), Times.Once);
+    }
+
+    [Fact]
+    public async Task AuthenticateAsync_ApiLoginFails_ShouldLogExitCodeErrorAndOutput()
+    {
+        // Arrange
+        _config.ServerUrl = "https://vault.example.com";
+        _config.ClientId = "test-client-id";
+        _config.ClientSecret = "test-client-secret";
+
+        var loginProcess = new System.Diagnostics.Process();
+        var statusProcess = new System.Diagnostics.Process();
+
+        _processFactoryMock
+            .Setup(x => x.CreateBwProcess("config server https://vault.example.com"))
+            .Returns(statusProcess);
+
+        _processFactoryMock
+            .Setup(x => x.CreateBwProcess("login --apikey --raw"))
+            .Returns(loginProcess);
+
+        _processRunnerMock
+            .Setup(x => x.RunAsync(It.Is<System.Diagnostics.Process>(p => p == statusProcess), It.IsAny<int>(), It.IsAny<string>()))
+            .ReturnsAsync(new ProcessResult { Success = true, ExitCode = 0 });
+
+        _processRunnerMock
+            .Setup(x => x.RunAsync(It.Is<System.Diagnostics.Process>(p => p == loginProcess), It.IsAny<int>(), It.IsAny<string>()))
+            .ReturnsAsync(new ProcessResult 
+            { 
+                Success = false, 
+                ExitCode = 1, 
+                Error = "Authentication failed",
+                Output = "Some output"
+            });
+
+        // Act
+        var result = await _service.AuthenticateAsync();
+
+        // Assert
+        result.Should().BeFalse();
+        _loggerMock.Verify(
+            x => x.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => 
+                    v.ToString()!.Contains("ExitCode") && 
+                    v.ToString()!.Contains("1") &&
+                    v.ToString()!.Contains("Error") &&
+                    v.ToString()!.Contains("Output")),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task AuthenticateAsync_UnlockFails_ShouldLogExitCodeErrorAndOutput()
+    {
+        // Arrange
+        _config.ServerUrl = "https://vault.example.com";
+        _config.ClientId = "test-client-id";
+        _config.ClientSecret = "test-client-secret";
+        _config.MasterPassword = "wrong-password";
+
+        var loginProcess = new System.Diagnostics.Process();
+        var unlockProcess = new System.Diagnostics.Process();
+        var statusProcess = new System.Diagnostics.Process();
+
+        _processFactoryMock
+            .Setup(x => x.CreateBwProcess("config server https://vault.example.com"))
+            .Returns(statusProcess);
+
+        _processFactoryMock
+            .Setup(x => x.CreateBwProcess("login --apikey --raw"))
+            .Returns(loginProcess);
+
+        _processFactoryMock
+            .Setup(x => x.CreateBwProcess(It.Is<string>(s => s.Contains("status --raw"))))
+            .Returns(statusProcess);
+
+        _processFactoryMock
+            .Setup(x => x.CreateBwProcess("unlock --raw"))
+            .Returns(unlockProcess);
+
+        _processRunnerMock
+            .Setup(x => x.RunAsync(It.Is<System.Diagnostics.Process>(p => p == statusProcess), It.IsAny<int>(), It.IsAny<string>()))
+            .ReturnsAsync(new ProcessResult { Success = true, ExitCode = 0 });
+
+        _processRunnerMock
+            .Setup(x => x.RunAsync(It.Is<System.Diagnostics.Process>(p => p == loginProcess), It.IsAny<int>(), It.IsAny<string>()))
+            .ReturnsAsync(new ProcessResult { Success = true, ExitCode = 0 });
+
+        _processRunnerMock
+            .Setup(x => x.RunAsync(It.Is<System.Diagnostics.Process>(p => p == statusProcess), It.IsAny<int>(), It.IsAny<string>()))
+            .ReturnsAsync(new ProcessResult 
+            { 
+                Success = true, 
+                ExitCode = 0, 
+                Output = "{\"status\":\"locked\",\"token\":null}" 
+            });
+
+        _processRunnerMock
+            .Setup(x => x.RunAsync(It.Is<System.Diagnostics.Process>(p => p == unlockProcess), It.IsAny<int>(), It.Is<string>(s => s == "wrong-password")))
+            .ReturnsAsync(new ProcessResult 
+            { 
+                Success = false, 
+                ExitCode = 1, 
+                Error = "Invalid master password.",
+                Output = "Some stdout output"
+            });
+
+        // Act
+        var result = await _service.AuthenticateAsync();
+
+        // Assert
+        result.Should().BeFalse();
+        _loggerMock.Verify(
+            x => x.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => 
+                    v.ToString()!.Contains("ExitCode") && 
+                    v.ToString()!.Contains("1") &&
+                    v.ToString()!.Contains("Error") &&
+                    v.ToString()!.Contains("Output")),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task AuthenticateAsync_SetServerUrlFails_ShouldLogExitCodeErrorAndOutput()
+    {
+        // Arrange
+        _config.ServerUrl = "https://vault.example.com";
+        _config.ClientId = "test-client-id";
+        _config.ClientSecret = "test-client-secret";
+
+        var statusProcess = new System.Diagnostics.Process();
+
+        _processFactoryMock
+            .Setup(x => x.CreateBwProcess("config server https://vault.example.com"))
+            .Returns(statusProcess);
+
+        _processRunnerMock
+            .Setup(x => x.RunAsync(It.Is<System.Diagnostics.Process>(p => p == statusProcess), It.IsAny<int>(), It.IsAny<string>()))
+            .ReturnsAsync(new ProcessResult 
+            { 
+                Success = false, 
+                ExitCode = 1, 
+                Error = "Failed to set server URL",
+                Output = "Some output"
+            });
+
+        // Act
+        var result = await _service.AuthenticateAsync();
+
+        // Assert
+        result.Should().BeFalse();
+        _loggerMock.Verify(
+            x => x.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => 
+                    v.ToString()!.Contains("ExitCode") && 
+                    v.ToString()!.Contains("1") &&
+                    v.ToString()!.Contains("Error") &&
+                    v.ToString()!.Contains("Output")),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.AtLeastOnce);
+    }
 }

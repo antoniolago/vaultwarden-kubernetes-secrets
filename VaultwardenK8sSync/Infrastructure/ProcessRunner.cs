@@ -25,8 +25,13 @@ public class ProcessRunner : IProcessRunner
             process.Start();
 
             // Write input if provided
+            // Small delay to ensure process is ready to read stdin (important for commands like 'bw unlock')
             if (!string.IsNullOrEmpty(input))
             {
+                // Wait a small amount for the process to initialize and be ready to read stdin
+                // This is especially important for interactive commands like 'bw unlock'
+                await Task.Delay(50);
+                
                 try
                 {
                     await process.StandardInput.WriteLineAsync(input);

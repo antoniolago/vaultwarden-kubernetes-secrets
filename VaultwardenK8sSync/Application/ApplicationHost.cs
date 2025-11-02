@@ -69,20 +69,20 @@ public class ApplicationHost
                 
                 if (!columns.Contains("SyncIntervalSeconds"))
                 {
-                    _logger.LogInformation("⚙️  Adding SyncIntervalSeconds column to SyncLogs...");
+                    _logger.LogInformation("Adding SyncIntervalSeconds column to SyncLogs");
                     using var addCmd = connection.CreateCommand();
                     addCmd.CommandText = "ALTER TABLE SyncLogs ADD COLUMN SyncIntervalSeconds INTEGER NOT NULL DEFAULT 0;";
                     addCmd.ExecuteNonQuery();
-                    _logger.LogInformation("✅ SyncIntervalSeconds column added");
+                    _logger.LogInformation("SyncIntervalSeconds column added");
                 }
                 
                 if (!columns.Contains("ContinuousSync"))
                 {
-                    _logger.LogInformation("⚙️  Adding ContinuousSync column to SyncLogs...");
+                    _logger.LogInformation("Adding ContinuousSync column to SyncLogs");
                     using var addCmd = connection.CreateCommand();
                     addCmd.CommandText = "ALTER TABLE SyncLogs ADD COLUMN ContinuousSync INTEGER NOT NULL DEFAULT 0;";
                     addCmd.ExecuteNonQuery();
-                    _logger.LogInformation("✅ ContinuousSync column added");
+                    _logger.LogInformation("ContinuousSync column added");
                 }
                 
                 connection.Close();
@@ -117,7 +117,7 @@ public class ApplicationHost
             
             if (orphanedLogs.Any())
             {
-                _logger.LogWarning("🧹 Found {Count} orphaned InProgress sync logs from previous runs - marking as Failed", orphanedLogs.Count);
+                _logger.LogWarning("Found {Count} orphaned InProgress sync logs from previous runs - marking as Failed", orphanedLogs.Count);
                 
                 foreach (var log in orphanedLogs)
                 {
@@ -130,7 +130,7 @@ public class ApplicationHost
                 }
                 
                 db.SaveChanges();
-                _logger.LogInformation("✅ Cleaned up {Count} orphaned sync logs", orphanedLogs.Count);
+                _logger.LogInformation("Cleaned up {Count} orphaned sync logs", orphanedLogs.Count);
             }
         }
         catch (Exception ex)
@@ -234,8 +234,8 @@ public class ApplicationHost
     private void LogStartupInformation()
     {
         // Production readiness warning
-        _logger.LogWarning("⚠️  WARNING: This application is not production-ready and may have significant CPU usage");
-        _logger.LogWarning("⚠️  Monitor resource consumption and adjust sync intervals accordingly");
+        _logger.LogWarning("WARNING: This application is not production-ready and may have significant CPU usage");
+        _logger.LogWarning("Monitor resource consumption and adjust sync intervals accordingly");
 
         _logger.LogDebug(
             "Log levels -> Default: {Default}, Microsoft: {Ms}, Microsoft.Hosting.Lifetime: {MsLifetime}",
@@ -272,7 +272,7 @@ public class ApplicationHost
 
     private async Task InitializeAuthTokenAsync(IKubernetesService kubernetesService)
     {
-        _logger.LogDebug("🔐 Starting auth token initialization...");
+        _logger.LogDebug("Starting auth token initialization");
         
         // Skip if loginless mode is enabled
         var loginlessMode = Environment.GetEnvironmentVariable("LOGINLESS_MODE")?.ToLower() == "true";
@@ -280,7 +280,7 @@ public class ApplicationHost
         
         if (loginlessMode)
         {
-            _logger.LogInformation("🔓 Loginless mode enabled - skipping auth token initialization");
+            _logger.LogInformation("Loginless mode enabled - skipping auth token initialization");
             return;
         }
 
@@ -288,7 +288,7 @@ public class ApplicationHost
         var existingToken = Environment.GetEnvironmentVariable("AUTH_TOKEN");
         if (!string.IsNullOrEmpty(existingToken))
         {
-            _logger.LogInformation("🔑 Auth token found in environment variables");
+            _logger.LogInformation("Auth token found in environment variables");
             return;
         }
 
@@ -307,14 +307,14 @@ public class ApplicationHost
             
             if (secretExists)
             {
-                _logger.LogInformation("🔑 Found existing auth token secret in Kubernetes");
+                _logger.LogInformation("Found existing auth token secret in Kubernetes");
                 var secretData = await kubernetesService.GetSecretDataAsync(secretNamespace, secretName);
                 
                 if (secretData != null && secretData.ContainsKey("token"))
                 {
                     var token = secretData["token"];
                     Environment.SetEnvironmentVariable("AUTH_TOKEN", token);
-                    _logger.LogInformation("✅ Loaded auth token from Kubernetes secret");
+                    _logger.LogInformation("Loaded auth token from Kubernetes secret");
                     return;
                 }
                 else
@@ -324,7 +324,7 @@ public class ApplicationHost
             }
 
             // Generate new token and create secret
-            _logger.LogInformation("🔐 Generating new auth token and creating Kubernetes secret...");
+            _logger.LogInformation("Generating new auth token and creating Kubernetes secret");
             _logger.LogDebug("Target namespace: {Namespace}, Secret name: {SecretName}", secretNamespace, secretName);
             
             var newToken = GenerateSecureToken();
@@ -340,26 +340,26 @@ public class ApplicationHost
                 { "description", "Authentication token for Vaultwarden K8s Sync API" }
             };
             
-            _logger.LogDebug("Attempting to create secret...");
+            _logger.LogDebug("Attempting to create secret");
             var result = await kubernetesService.CreateSecretAsync(secretNamespace, secretName, data, annotations);
             _logger.LogDebug("Create secret result: Success={Success}, Error={Error}", result.Success, result.ErrorMessage);
             
             if (result.Success)
             {
                 Environment.SetEnvironmentVariable("AUTH_TOKEN", newToken);
-                _logger.LogInformation("✅ Created new auth token secret in Kubernetes namespace '{Namespace}'", secretNamespace);
-                _logger.LogWarning("🔑 IMPORTANT: Auth token has been generated. Retrieve it with: kubectl get secret {SecretName} -n {Namespace} -o jsonpath='{{.data.token}}' | base64 -d", secretName, secretNamespace);
+                _logger.LogInformation("Created new auth token secret in Kubernetes namespace '{Namespace}'", secretNamespace);
+                _logger.LogWarning("IMPORTANT: Auth token has been generated. Retrieve it with: kubectl get secret {SecretName} -n {Namespace} -o jsonpath='{{.data.token}}' | base64 -d", secretName, secretNamespace);
             }
             else
             {
-                _logger.LogWarning("⚠️  Failed to create auth token secret: {Error}", result.ErrorMessage);
-                _logger.LogWarning("⚠️  API will run without authentication");
+                _logger.LogWarning("Failed to create auth token secret: {Error}", result.ErrorMessage);
+                _logger.LogWarning("API will run without authentication");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "⚠️  Error initializing auth token from Kubernetes");
-            _logger.LogWarning("⚠️  API will run without authentication");
+            _logger.LogError(ex, "Error initializing auth token from Kubernetes");
+            _logger.LogWarning("API will run without authentication");
         }
     }
 
@@ -388,12 +388,12 @@ public class ApplicationHost
             
             if (!authSuccess)
             {
-                progress.Complete("❌ Failed to authenticate with Vaultwarden");
+                progress.Complete("Failed to authenticate with Vaultwarden");
                 _logger.LogError("Failed to authenticate with Vaultwarden");
                 return false;
             }
             
-            progress.Complete("✅ Successfully authenticated with Vaultwarden");
+            progress.Complete("Successfully authenticated with Vaultwarden");
         }
 
         // Initialize Kubernetes client
