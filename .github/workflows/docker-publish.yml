@@ -445,7 +445,7 @@ jobs:
 
   comment-pr:
     runs-on: ubuntu-latest
-    needs: [build-and-push, test-helm-chart]
+    needs: [build-and-push]
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
