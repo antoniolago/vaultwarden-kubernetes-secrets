@@ -30,24 +30,29 @@ public class KubernetesService : IKubernetesService
         {
             _logger.LogDebug("Initializing Kubernetes client...");
 
+            KubernetesClientConfiguration config;
             if (_config.InCluster)
             {
-                _client = new Kubernetes(KubernetesClientConfiguration.InClusterConfig());
+                config = KubernetesClientConfiguration.InClusterConfig();
                 _logger.LogDebug("Using in-cluster configuration");
             }
             else
             {
-                var config = !string.IsNullOrEmpty(_config.KubeConfigPath)
+                config = !string.IsNullOrEmpty(_config.KubeConfigPath)
                     ? KubernetesClientConfiguration.BuildConfigFromConfigFile(_config.KubeConfigPath, _config.Context)
                     : KubernetesClientConfiguration.BuildDefaultConfig();
-
-                _client = new Kubernetes(config);
-                _logger.LogDebug("Using kubeconfig configuration");
+                
+                _logger.LogDebug("Using kubeconfig configuration: {KubeConfigPath}, Context: {Context}, Host: {Host}", 
+                    _config.KubeConfigPath ?? "default", 
+                    _config.Context ?? "current", 
+                    config.Host);
             }
+
+            _client = new Kubernetes(config);
 
             // Test the connection
             var version = await _client.Version.GetCodeAsync();
-            _logger.LogInformation("Connected to Kubernetes API version: {Version}", version.GitVersion);
+            _logger.LogInformation("Connected to Kubernetes API version: {Version} at {Host}", version.GitVersion, config.Host);
 
             return true;
         }
@@ -378,6 +383,20 @@ public class KubernetesService : IKubernetesService
         }
         catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
+            return false;
+        }
+        catch (System.Net.Http.HttpRequestException httpEx)
+        {
+            // Provide more helpful error message for connection issues
+            var message = httpEx.InnerException is System.Net.Sockets.SocketException socketEx
+                ? $"Kubernetes API connection failed: {socketEx.Message}. " +
+                  $"Please check your kubeconfig configuration. " +
+                  $"If using port-forward, ensure it's active. " +
+                  $"If running in-cluster, ensure KUBERNETES__INCLUSTER=true."
+                : $"Kubernetes API connection failed: {httpEx.Message}";
+            
+            _logger.LogError(httpEx, "Failed to check if secret {SecretName} exists in namespace {Namespace}. {Message}", 
+                secretName, namespaceName, message);
             return false;
         }
         catch (Exception ex)
