@@ -1443,9 +1443,14 @@ public class SyncService : ISyncService
         var metadataFields = new[]
         {
             Models.FieldNameConfig.NamespacesFieldName,
+            "namespaces", // Legacy/alternative name
             Models.FieldNameConfig.SecretNameFieldName,
+            "secret-name", // Legacy/alternative name
             Models.FieldNameConfig.SecretKeyPasswordFieldName,
+            "secret-key-password", // Legacy/alternative name
+            "secret-key", // Legacy/alternative name for secret-key-password
             Models.FieldNameConfig.SecretKeyUsernameFieldName,
+            "secret-key-username", // Legacy/alternative name
             Models.FieldNameConfig.IgnoreFieldName
         };
         

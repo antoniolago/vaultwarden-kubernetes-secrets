@@ -441,6 +441,47 @@ public class IntegrationTests : IDisposable
 
     [Fact]
     [Trait("Category", "Integration")]
+    [Trait("Category", "Metadata Fields")]
+    public async Task ExtractSecretDataAsync_WithSecretKeyAlternativeName_ShouldExcludeIt()
+    {
+        // Arrange - Test that the "secret-key" alternative name is also filtered out
+        var item = new VaultwardenItem
+        {
+            Id = "test-id",
+            Name = "Test Item",
+            Type = 1, // Login
+            Login = new LoginInfo
+            {
+                Username = "testuser",
+                Password = "testpass"
+            },
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "secret-key", Value = "DB_PASSWORD", Type = 0 }, // Alternative name for secret-key-password
+                new FieldInfo { Name = "SMTP_PASSWORD", Value = "smtp123", Type = 0 },
+                new FieldInfo { Name = "API_KEY", Value = "api123", Type = 0 }
+            }
+        };
+
+        // Act
+        var result = await ExtractSecretDataAsync(item);
+
+        // Assert - secret-key field itself should be excluded (it's a configuration field)
+        Assert.False(result.ContainsKey("secret-key"), "Should not contain secret-key field itself");
+        
+        // Assert - But it should affect which key name is used for the password
+        Assert.True(result.ContainsKey("DB_PASSWORD"), "Should use DB_PASSWORD as the key name for password");
+        Assert.Equal("testpass", result["DB_PASSWORD"]);
+        
+        // Assert - Regular fields should be included
+        Assert.True(result.ContainsKey("SMTP_PASSWORD"), "Should contain SMTP_PASSWORD key");
+        Assert.True(result.ContainsKey("API_KEY"), "Should contain API_KEY key");
+        Assert.Equal("smtp123", result["SMTP_PASSWORD"]);
+        Assert.Equal("api123", result["API_KEY"]);
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
     [Trait("Category", "Username Password Keys")]
     public async Task ExtractSecretDataAsync_WithCustomUsernamePasswordKeys_ShouldUseThem()
     {
