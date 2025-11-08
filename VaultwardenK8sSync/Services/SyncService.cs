@@ -114,8 +114,11 @@ public class SyncService : ISyncService
                 // This ensures deleted secrets are recreated
             }
             
-            summary.HasChanges = true;
-            
+            // Indicate whether the overall set of items changed since last successful sync.
+            // If the quick-hash indicates no change we still perform existence verification for secrets,
+            // but the sync summary should reflect that there were no item changes.
+            summary.HasChanges = !shouldSkipReconciliation;
+
             _logger.LogDebug("Proceeding with reconciliation (hash changed: {HashChanged})", !shouldSkipReconciliation);
 
             // Group items by namespace (supporting multiple namespaces per item)
