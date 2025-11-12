@@ -88,11 +88,28 @@ public class NoChangesSummaryTests
         // Mock Kubernetes service for secret operations
         mockKubernetesService.Setup(x => x.GetAllNamespacesAsync())
             .ReturnsAsync(new List<string> { "default", "production" });
+
+        // Track whether each secret exists
+        var secretExists = new Dictionary<string, bool>();
         mockKubernetesService.Setup(x => x.SecretExistsAsync(It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(false);  // First sync: secrets don't exist
+            .ReturnsAsync((string ns, string name) => secretExists.GetValueOrDefault($"{ns}/{name}"));
         mockKubernetesService.Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), 
             It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
-            .ReturnsAsync(OperationResult.Successful());
+            .ReturnsAsync((string ns, string name, Dictionary<string, string> data, Dictionary<string, string> annotations) => {
+                secretExists[$"{ns}/{name}"] = true;
+                return OperationResult.Successful();
+            });
+
+        // Set up secret data retrieval
+        mockKubernetesService.Setup(x => x.GetSecretDataAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync((string ns, string name) => {
+                if (secretExists.GetValueOrDefault($"{ns}/{name}"))
+                {
+                    // Return sample data matching what would be created
+                    return new Dictionary<string, string> { { "password", "sample" } };
+                }
+                return null;
+            });
         
         var syncService = new SyncService(
             mockLogger.Object,
@@ -107,8 +124,8 @@ public class NoChangesSummaryTests
         var firstSync = await syncService.SyncAsync();
         var secondSync = await syncService.SyncAsync();
         
-        // Assert - Second sync should show items as skipped
-        Assert.False(secondSync.HasChanges);  // No changes detected
+        // Assert - Second sync should show items as skipped and no changes
+        Assert.False(secondSync.HasChanges, "Second sync should detect no changes");
         Assert.Equal(3, secondSync.TotalItemsFromVaultwarden);  // 3 items fetched
         Assert.Equal(2, secondSync.TotalNamespaces);  // 2 namespaces (default, production)
         Assert.Equal(3, secondSync.TotalSecretsSkipped);  // ✅ THIS IS THE FIX - should be 3, not 0

@@ -6,6 +6,7 @@ public interface IKubernetesService
 {
     Task<bool> InitializeAsync();
     Task<List<string>> GetAllNamespacesAsync();
+    Task<bool> NamespaceExistsAsync(string namespaceName);
     Task<List<string>> GetExistingSecretNamesAsync(string namespaceName);
     Task<List<string>> GetManagedSecretNamesAsync(string namespaceName);
     Task<OperationResult> CreateSecretAsync(string namespaceName, string secretName, Dictionary<string, string> data, Dictionary<string, string>? annotations = null);

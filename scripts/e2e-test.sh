@@ -160,6 +160,17 @@ for i in {1..60}; do
         echo "  📊 Sync summary:"
         grep -A 20 "VAULTWARDEN K8S SYNC SUMMARY" /tmp/sync.log | grep -E "(Duration|Status|Items from|Namespaces|Changes|Created|Updated|Up-to-date|Failed)" | sed 's/^/    /'
         
+        # Check for failures and show details
+        if grep -q "❌ FAILED:" /tmp/sync.log; then
+            echo ""
+            echo -e "${YELLOW}  ⚠️  Failed operations detected:${NC}"
+            grep -A 10 "❌ FAILED:" /tmp/sync.log | head -20 | sed 's/^/    /'
+            
+            echo ""
+            echo "  🔍 Error details from log:"
+            grep "Failed to create secret\|Failed to update secret\|namespaces.*not found" /tmp/sync.log | tail -5 | sed 's/^/    /'
+        fi
+        
         echo -e "${GREEN}✓ Sync completed${NC}"
         break
     fi
@@ -232,11 +243,52 @@ echo "    - Total syncs: $TOTAL_SYNCS ($SUCCESSFUL_SYNCS successful, $FAILED_SYN
 echo "    - Success rate: $SUCCESS_RATE%"
 echo "    - Avg duration: ${AVG_DURATION}s"
 
+# Database diagnostics on failure
+if [ "$TOTAL_NAMESPACES" -eq "0" ] || [ "$ACTIVE_SECRETS" -eq "0" ]; then
+    echo -e "${YELLOW}⚠ Potential issue detected - running diagnostics...${NC}"
+    echo ""
+    echo "  📋 Database Query Results:"
+    echo "  -------------------------"
+    
+    # Query distinct statuses
+    echo "  Secret States Status Distribution:"
+    sqlite3 "$DB_PATH" "SELECT Status, COUNT(*) as Count FROM SecretStates GROUP BY Status;" 2>/dev/null | while read line; do
+        echo "    - $line"
+    done
+    
+    # Query secrets by namespace
+    echo ""
+    echo "  Secrets by Namespace:"
+    sqlite3 "$DB_PATH" "SELECT Namespace, COUNT(*) as Count, GROUP_CONCAT(Status) as Statuses FROM SecretStates GROUP BY Namespace;" 2>/dev/null | while read line; do
+        echo "    - $line"
+    done
+    
+    # Query recent sync failures
+    echo ""
+    echo "  Recent Sync Log Failures (last 5):"
+    sqlite3 "$DB_PATH" "SELECT Id, StartTime, Status, FailedSecrets, ErrorMessage FROM SyncLogs WHERE Status = 'Failed' ORDER BY StartTime DESC LIMIT 5;" 2>/dev/null | while read line; do
+        echo "    - $line"
+    done
+    
+    echo ""
+fi
+
 if [ "$TOTAL_NAMESPACES" -gt "0" ] && [ "$ACTIVE_SECRETS" -gt "0" ]; then
     echo -e "${GREEN}✓ Overview endpoint working${NC}"
 else
     echo -e "${RED}✗ Overview endpoint validation failed${NC}"
-    echo "Full response:"
+    echo ""
+    echo "  🔍 DIAGNOSTIC SUMMARY:"
+    echo "  ====================="
+    echo "  Expected: Active secrets > 0 and Namespaces > 0"
+    echo "  Actual: Active secrets = $ACTIVE_SECRETS, Namespaces = $TOTAL_NAMESPACES"
+    echo ""
+    echo "  Possible causes:"
+    echo "  1. Status mismatch: API queries for 'Active' status but DB has different values"
+    echo "  2. Sync failures: Secrets are failing to sync (check failed secrets in database)"
+    echo "  3. Namespace issues: Namespaces referenced in Vaultwarden don't exist in K8s"
+    echo ""
+    echo "Full API response:"
     echo "$OVERVIEW" | jq '.'
     exit 1
 fi

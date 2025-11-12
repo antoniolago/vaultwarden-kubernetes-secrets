@@ -169,7 +169,7 @@ public class SyncService : ISyncService
             {
                 try
                 {
-                    var namespaceSummary = await SyncNamespaceAsync(namespaceName, namespaceItems, summary, progress);
+                    var namespaceSummary = await SyncNamespaceAsync(namespaceName, namespaceItems, summary, progress, syncLogId);
                     summary.AddNamespace(namespaceSummary);
                 }
                 catch (Exception ex)
@@ -235,7 +235,12 @@ public class SyncService : ISyncService
             }
 
             summary.EndTime = DateTime.UtcNow;
-            
+
+            // Calculate final status and process summary
+            var hasProcessedItems = summary.TotalSecretsProcessed > 0;
+            var allSkipped = hasProcessedItems && summary.TotalSecretsSkipped == summary.TotalSecretsProcessed;
+            var noChanges = !summary.HasChanges || allSkipped;
+
             // Update database with final sync results
             var deletedCount = summary.OrphanCleanup?.TotalOrphansDeleted ?? 0;
             await _dbLogger.UpdateSyncProgressAsync(
@@ -247,13 +252,16 @@ public class SyncService : ISyncService
                 summary.TotalSecretsFailed,
                 deletedCount
             );
-            
-            // Complete database log
-            var status = summary.OverallSuccess ? "Success" : "Failed";
+
+            // Determine final status:
+            // - "Failed" if any failures occurred
+            // - "UP-TO-DATE" if either no changes detected or all items skipped
+            // - "Success" if items processed successfully with changes
+            var status = !summary.OverallSuccess ? "Failed" :
+                        noChanges ? "UP-TO-DATE" : "Success";
+
             var errorMsg = summary.Errors.Any() ? string.Join("; ", summary.Errors) : null;
-            await _dbLogger.CompleteSyncLogAsync(syncLogId, status, errorMsg);
-            
-            // Update secret states in database
+            await _dbLogger.CompleteSyncLogAsync(syncLogId, status, errorMsg);            // Update secret states in database
             foreach (var ns in summary.Namespaces ?? new List<NamespaceSummary>())
             {
                 // This will be populated when we process each secret
@@ -343,7 +351,7 @@ public class SyncService : ISyncService
         _logger.LogDebug("Reset items hash - next sync will process all items");
     }
 
-    private async Task<NamespaceSummary> SyncNamespaceAsync(string namespaceName, List<Models.VaultwardenItem> items, SyncSummary parentSummary, ISyncProgressReporter? progress = null)
+    private async Task<NamespaceSummary> SyncNamespaceAsync(string namespaceName, List<Models.VaultwardenItem> items, SyncSummary parentSummary, ISyncProgressReporter? progress = null, long syncLogId = 0)
     {
         var namespaceSummary = new NamespaceSummary
         {
@@ -372,7 +380,7 @@ public class SyncService : ISyncService
                 {
                     // progress?.UpdateItem(key, "Processing...", $"Items: {secretItems.Count}");
                     
-                    var secretSummary = await SyncSecretAsync(namespaceName, secretName, secretItems);
+                    var secretSummary = await SyncSecretAsync(namespaceName, secretName, secretItems, syncLogId);
                     namespaceSummary.AddSecret(secretSummary);
                     
                     _logger.LogInformation("SyncNamespaceAsync: Secret {SecretName} in namespace {Namespace} completed with outcome: {Outcome}", 
@@ -382,6 +390,34 @@ public class SyncService : ISyncService
                     {
                         _logger.LogError("SyncNamespaceAsync: Secret {SecretName} in namespace {Namespace} failed: {Error}", 
                             secretName, namespaceName, secretSummary.Error);
+                    }
+                    else if (secretSummary.Outcome == ReconcileOutcome.Created || secretSummary.Outcome == ReconcileOutcome.Updated)
+                    {
+                        // Update database state for created/updated items
+                        var itemForState = secretItems.FirstOrDefault();
+                        if (itemForState != null)
+                        {
+                            await _dbLogger.UpsertSecretStateAsync(
+                                namespaceName,
+                                secretName,
+                                itemForState.Id,
+                                itemForState.Name,
+                                SecretStatusConstants.Active,
+                                1, // Using 1 as we don't have the combined secret data count here
+                                null
+                            );
+
+                            // Update sync progress to count skipped items
+                            await _dbLogger.UpdateSyncProgressAsync(
+                                syncLogId,
+                                1, // processed count
+                                0, // created
+                                0, // updated
+                                1, // skipped
+                                0, // failed
+                                0  // deleted
+                            );
+                        }
                     }
                     
                     // Update progress display with final result
@@ -426,7 +462,7 @@ public class SyncService : ISyncService
                             secretName,
                             firstItem.Id,
                             firstItem.Name,
-                            "Failed",
+                            SecretStatusConstants.Failed,
                             0,
                             ex.Message
                         );
@@ -436,8 +472,23 @@ public class SyncService : ISyncService
                 }
             }
 
+            // Log final results for namespace
             _logger.LogDebug("Namespace {Namespace} reconciliation result: created={Created}, updated={Updated}, skipped={Skipped}, failed={Failed}",
                 namespaceName, namespaceSummary.Created, namespaceSummary.Updated, namespaceSummary.Skipped, namespaceSummary.Failed);
+
+            // Update database with namespace totals
+            if (syncLogId > 0)
+            {
+                await _dbLogger.UpdateSyncProgressAsync(
+                    syncLogId,
+                    namespaceSummary.Created + namespaceSummary.Updated + namespaceSummary.Skipped + namespaceSummary.Failed, // processed
+                    namespaceSummary.Created,
+                    namespaceSummary.Updated,
+                    namespaceSummary.Skipped,
+                    namespaceSummary.Failed,
+                    0 // deleted is handled by orphan cleanup
+                );
+            }
 
             return namespaceSummary;
         }
@@ -919,8 +970,8 @@ public class SyncService : ISyncService
                                 namespaceName,
                                 orphanedSecret,
                                 string.Empty, // VaultwardenItemId not known for orphaned secret
-                                orphanedSecret, // Use secret name as item name
-                                "Deleted",
+                                orphanedSecret, // Use secret name as item name fallback
+                                SecretStatusConstants.Deleted,
                                 0, // No data keys for deleted secret
                                 "Secret removed - no longer configured in Vaultwarden"
                             );
@@ -1051,7 +1102,7 @@ public class SyncService : ISyncService
         return itemsBySecretName;
     }
 
-    private async Task<SecretSummary> SyncSecretAsync(string namespaceName, string secretName, List<Models.VaultwardenItem> items)
+    private async Task<SecretSummary> SyncSecretAsync(string namespaceName, string secretName, List<Models.VaultwardenItem> items, long syncLogId)
     {
         var secretSummary = new SecretSummary
         {
@@ -1064,6 +1115,33 @@ public class SyncService : ISyncService
         
         try
         {
+            // Validate that namespace exists before attempting any operations
+            var namespaceExists = await _kubernetesService.NamespaceExistsAsync(namespaceName);
+            if (!namespaceExists)
+            {
+                var errorMsg = $"Namespace '{namespaceName}' does not exist in Kubernetes cluster";
+                _logger.LogError("SyncSecretAsync: {Error}. Skipping secret {SecretName}", errorMsg, secretName);
+                secretSummary.Outcome = ReconcileOutcome.Failed;
+                secretSummary.Error = errorMsg;
+                
+                // Log failed secret state to database
+                var itemForState = items.FirstOrDefault();
+                if (itemForState != null)
+                {
+                    await _dbLogger.UpsertSecretStateAsync(
+                        namespaceName,
+                        secretName,
+                        itemForState.Id,
+                        itemForState.Name,
+                        SecretStatusConstants.Failed,
+                        0,
+                        errorMsg
+                    );
+                }
+                
+                return secretSummary;
+            }
+            
             // Combine all items' data into a single secret
             var combinedSecretData = new Dictionary<string, string>();
             var itemHashes = new List<string>();
@@ -1233,10 +1311,16 @@ public class SyncService : ISyncService
                                 secretName,
                                 itemForState.Id,
                                 itemForState.Name,
-                                "Active",
+                                SecretStatusConstants.Active,
                                 combinedSecretData.Count,
                                 null
                             );
+                        }
+
+                        // Update database logger progress with skipped item
+                        if (syncLogId > 0)
+                        {
+                            await _dbLogger.UpdateSyncProgressAsync(syncLogId, 0, 0, 0, 1, 0, 0);
                         }
                         
                         return secretSummary;
@@ -1350,16 +1434,22 @@ public class SyncService : ISyncService
             else
             {
                 secretSummary.Outcome = ReconcileOutcome.Skipped;
+                // Update database progress immediately for skipped items
+                if (syncLogId > 0)
+                {
+                    await _dbLogger.UpdateSyncProgressAsync(syncLogId, 0, 0, 0, 1, 0, 0);
+                }
             }
             
             // Log secret state to database
+            // All successful outcomes (Created, Updated, Skipped) are marked as Active
             var status = secretSummary.Outcome switch
             {
-                ReconcileOutcome.Created => "Created",
-                ReconcileOutcome.Updated => "Updated",
-                ReconcileOutcome.Skipped => "Active",
-                ReconcileOutcome.Failed => "Failed",
-                _ => "Unknown"
+                ReconcileOutcome.Created => SecretStatusConstants.Active,
+                ReconcileOutcome.Updated => SecretStatusConstants.Active,
+                ReconcileOutcome.Skipped => SecretStatusConstants.Active,
+                ReconcileOutcome.Failed => SecretStatusConstants.Failed,
+                _ => SecretStatusConstants.Failed
             };
             
             var firstItem = items.FirstOrDefault();
@@ -1394,7 +1484,7 @@ public class SyncService : ISyncService
                     secretName,
                     firstItem.Id,
                     firstItem.Name,
-                    "Failed",
+                    SecretStatusConstants.Failed,
                     0,
                     ex.Message
                 );

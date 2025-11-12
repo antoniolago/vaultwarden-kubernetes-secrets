@@ -82,6 +82,30 @@ public class KubernetesService : IKubernetesService
         }
     }
 
+    public async Task<bool> NamespaceExistsAsync(string namespaceName)
+    {
+        if (_client == null)
+        {
+            throw new InvalidOperationException("Kubernetes client not initialized. Call InitializeAsync first.");
+        }
+
+        try
+        {
+            await _client.CoreV1.ReadNamespaceAsync(namespaceName);
+            return true;
+        }
+        catch (k8s.Autorest.HttpOperationException httpEx) when (httpEx.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            _logger.LogDebug("Namespace {Namespace} does not exist", namespaceName);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error checking if namespace {Namespace} exists, assuming it doesn't", namespaceName);
+            return false;
+        }
+    }
+
     public async Task<List<string>> GetExistingSecretNamesAsync(string namespaceName)
     {
         if (_client == null)
