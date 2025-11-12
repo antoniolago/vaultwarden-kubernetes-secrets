@@ -20,26 +20,26 @@ public class RedisSyncOutputPublisher : IRedisSyncOutputPublisher, IDisposable
     {
         _logger = logger;
         
-        var redisConnection = Environment.GetEnvironmentVariable("REDIS_CONNECTION") 
-            ?? Environment.GetEnvironmentVariable("REDIS__CONNECTION");
+        // Valkey is a Redis-compatible fork (https://valkey.io)
+        var connectionString = Environment.GetEnvironmentVariable("VALKEY_CONNECTION");
         
-        if (!string.IsNullOrEmpty(redisConnection))
+        if (!string.IsNullOrEmpty(connectionString))
         {
             try
             {
-                _redis = ConnectionMultiplexer.Connect(redisConnection);
+                _redis = ConnectionMultiplexer.Connect(connectionString);
                 _enabled = true;
-                _logger.LogInformation("Redis connection established for sync output publishing");
+                _logger.LogInformation("Valkey/Redis connection established for sync output publishing");
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to connect to Redis. Sync output publishing disabled.");
+                _logger.LogWarning(ex, "Failed to connect to Valkey/Redis. Sync output publishing disabled.");
                 _enabled = false;
             }
         }
         else
         {
-            _logger.LogInformation("Redis not configured. Sync output publishing disabled.");
+            _logger.LogInformation("Valkey/Redis not configured. Sync output publishing disabled.");
             _enabled = false;
         }
     }

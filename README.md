@@ -1,9 +1,10 @@
-
-
 <div align="center">
   <img src="dashboard/vks.png" alt="VKS Logo" width="120" height="120" />
   
   # Vaultwarden Kubernetes Secrets Sync
+
+> **[🎮 Live Demo](https://antoniolago.github.io/vaultwarden-kubernetes-secrets/)** - Try the dashboard with realistic mock data!
+
   [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/vaultwarden-kubernetes-secrets)](https://artifacthub.io/packages/search?repo=vaultwarden-kubernetes-secrets) [![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/antoniolago/vaultwarden-kubernetes-secrets)
 </div>
 

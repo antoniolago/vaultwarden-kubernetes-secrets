@@ -140,8 +140,8 @@ All services read from `.env` file in the project root.
 SYNC__CONTINUOUSSYNC=true
 SYNC__SYNCINTERVALSECONDS=30
 
-# Redis for WebSocket output
-REDIS_CONNECTION=localhost:6379
+# Valkey (Redis-compatible) for WebSocket output
+VALKEY_CONNECTION=localhost:6379
 
 # Disable dry run to actually sync
 SYNC__DRYRUN=false

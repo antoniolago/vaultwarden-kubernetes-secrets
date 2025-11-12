@@ -103,6 +103,8 @@ public class CommandInjectionTests
             .ReturnsAsync(new List<VaultwardenItem> { item });
         mockKubernetesService.Setup(x => x.GetAllNamespacesAsync())
             .ReturnsAsync(new List<string> { "default" });
+        mockKubernetesService.Setup(x => x.NamespaceExistsAsync(It.IsAny<string>()))
+            .ReturnsAsync(true);
         mockDbLogger.Setup(x => x.StartSyncLogAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool>()))
             .ReturnsAsync(1L);
         mockDbLogger.Setup(x => x.CleanupStaleSecretStatesAsync(It.IsAny<List<VaultwardenItem>>()))

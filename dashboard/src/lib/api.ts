@@ -1,10 +1,19 @@
+import * as mockData from './mockData'
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api'
+const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === 'true'
 
 function getToken(): string | null {
   return localStorage.getItem('auth_token')
 }
 
 async function fetchWithAuth(url: string, options: RequestInit = {}) {
+  // Return mock data if enabled (for GitHub Pages demo)
+  if (USE_MOCK_DATA) {
+    await new Promise(resolve => setTimeout(resolve, 300)) // Simulate network delay
+    return getMockDataForUrl(url)
+  }
+
   const token = getToken()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -49,6 +58,42 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
     }
     throw error
   }
+}
+
+function getMockDataForUrl(url: string): any {
+  // Parse URL and return appropriate mock data
+  if (url.includes('/dashboard/overview')) {
+    return mockData.mockOverview
+  }
+  if (url.includes('/dashboard/namespaces')) {
+    return mockData.mockNamespaces
+  }
+  if (url.includes('/dashboard/sync-status')) {
+    return mockData.mockSyncStatus
+  }
+  if (url.includes('/dashboard/sync-config')) {
+    return mockData.mockSyncConfig
+  }
+  if (url.includes('/dashboard/timeline')) {
+    return [] // Timeline data could be added to mockData if needed
+  }
+  if (url.includes('/synclogs')) {
+    return mockData.mockSyncLogs
+  }
+  if (url.includes('/secrets/namespace/')) {
+    const namespace = url.split('/').pop() || ''
+    return mockData.mockSecrets[namespace as keyof typeof mockData.mockSecrets] || []
+  }
+  if (url.includes('/secrets')) {
+    // Return all secrets flattened
+    return Object.values(mockData.mockSecrets).flat()
+  }
+  if (url.includes('/discovery')) {
+    return mockData.mockDiscovery
+  }
+  
+  // Default fallback
+  return {}
 }
 
 export interface DashboardOverview {

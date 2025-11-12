@@ -59,6 +59,10 @@ public class SecretCacheTests : IDisposable
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()))
             .Returns(Task.CompletedTask);
         
+        // Setup namespace validation (added for namespace existence checks)
+        _kubernetesServiceMock.Setup(x => x.NamespaceExistsAsync(It.IsAny<string>()))
+            .ReturnsAsync(true);
+        
         _syncService = new SyncService(
             _loggerMock.Object,
             _vaultwardenServiceMock.Object,

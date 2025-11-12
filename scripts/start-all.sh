@@ -15,7 +15,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 API_PID=""
 DASHBOARD_PID=""
 SYNC_PID=""
-REDIS_STARTED=false
+VALKEY_STARTED=false
 
 # Cleanup function
 cleanup() {
@@ -24,17 +24,17 @@ cleanup() {
     [ -n "$DASHBOARD_PID" ] && kill $DASHBOARD_PID 2>/dev/null || true
     [ -n "$API_PID" ] && kill $API_PID 2>/dev/null || true
     
-    # Stop Redis if we started it
-    if [ "$REDIS_STARTED" = true ]; then
-        echo "Stopping Redis..."
+    # Stop Valkey if we started it
+    if [ "$VALKEY_STARTED" = true ]; then
+        echo "Stopping Valkey..."
         # Try container runtimes first
-        if command -v podman > /dev/null && podman ps -q --filter name=vaultwarden-redis 2>/dev/null | grep -q .; then
-            podman stop vaultwarden-redis 2>/dev/null || true
-        elif command -v docker > /dev/null && docker ps -q --filter name=vaultwarden-redis 2>/dev/null | grep -q .; then
-            docker stop vaultwarden-redis 2>/dev/null || true
+        if command -v podman > /dev/null && podman ps -q --filter name=vaultwarden-valkey 2>/dev/null | grep -q .; then
+            podman stop vaultwarden-valkey 2>/dev/null || true
+        elif command -v docker > /dev/null && docker ps -q --filter name=vaultwarden-valkey 2>/dev/null | grep -q .; then
+            docker stop vaultwarden-valkey 2>/dev/null || true
         else
-            # Native redis-server
-            redis-cli shutdown 2>/dev/null || true
+            # Native valkey-server (or redis-cli for compatibility)
+            redis-cli shutdown 2>/dev/null || valkey-cli shutdown 2>/dev/null || true
         fi
     fi
     
@@ -69,88 +69,96 @@ sleep 1
 echo -e "${GREEN}✓ Cleanup complete${NC}"
 echo ""
 
-# Check and start Redis for WebSocket sync output
-echo -e "${BLUE}🔴 Checking Redis...${NC}"
-if ! redis-cli ping > /dev/null 2>&1; then
-    echo "Redis not running, attempting to start..."
+# Check and start Valkey for WebSocket sync output
+echo -e "${BLUE}🔴 Checking Valkey...${NC}"
+if ! redis-cli ping > /dev/null 2>&1 && ! valkey-cli ping > /dev/null 2>&1; then
+    echo "Valkey not running, attempting to start..."
     
     # Try Podman first
     if command -v podman > /dev/null; then
-        echo "Starting Redis with Podman..."
+        echo "Starting Valkey with Podman..."
         
         # Remove any existing stopped container
-        podman rm -f vaultwarden-redis 2>/dev/null || true
+        podman rm -f vaultwarden-valkey 2>/dev/null || true
         
-        # Try to start Redis and capture any errors
+        # Try to start Valkey and capture any errors
         # Use fully qualified image name to avoid Podman short-name resolution issues
         PODMAN_ERROR=$(podman run -d \
-            --name vaultwarden-redis \
+            --name vaultwarden-valkey \
             --rm \
             -p 6379:6379 \
-            docker.io/library/redis:alpine 2>&1)
+            docker.io/valkey/valkey:alpine 2>&1)
         PODMAN_EXIT=$?
         
         if [ $PODMAN_EXIT -eq 0 ]; then
             sleep 2
             # Verify container is actually running
-            if podman ps --filter name=vaultwarden-redis --format "{{.Names}}" 2>/dev/null | grep -q vaultwarden-redis; then
-                echo -e "${GREEN}✓ Redis started successfully (Podman)${NC}"
-                REDIS_STARTED=true
+            if podman ps --filter name=vaultwarden-valkey --format "{{.Names}}" 2>/dev/null | grep -q vaultwarden-valkey; then
+                echo -e "${GREEN}✓ Valkey started successfully (Podman)${NC}"
+                VALKEY_STARTED=true
                 
-                # Optional: Try to verify with redis-cli if available
-                if command -v redis-cli > /dev/null && redis-cli ping > /dev/null 2>&1; then
-                    echo -e "${GREEN}  Redis is responding to PING${NC}"
+                # Optional: Try to verify with valkey-cli or redis-cli if available
+                if command -v valkey-cli > /dev/null && valkey-cli ping > /dev/null 2>&1; then
+                    echo -e "${GREEN}  Valkey is responding to PING${NC}"
+                elif command -v redis-cli > /dev/null && redis-cli ping > /dev/null 2>&1; then
+                    echo -e "${GREEN}  Valkey is responding to PING (via redis-cli)${NC}"
                 fi
             else
                 echo -e "${YELLOW}⚠️  Container started but not running${NC}"
             fi
         else
-            echo -e "${YELLOW}⚠️  Could not start Redis via Podman${NC}"
+            echo -e "${YELLOW}⚠️  Could not start Valkey via Podman${NC}"
             echo -e "${YELLOW}   Error: ${PODMAN_ERROR}${NC}"
         fi
     # Try Docker as fallback
     elif command -v docker > /dev/null; then
-        echo "Starting Redis with Docker..."
+        echo "Starting Valkey with Docker..."
         
         # Remove any existing stopped container
-        docker rm -f vaultwarden-redis 2>/dev/null || true
+        docker rm -f vaultwarden-valkey 2>/dev/null || true
         
-        # Try to start Redis and capture any errors
+        # Try to start Valkey and capture any errors
         DOCKER_ERROR=$(docker run -d \
-            --name vaultwarden-redis \
+            --name vaultwarden-valkey \
             --rm \
             -p 6379:6379 \
-            redis:alpine 2>&1)
+            valkey/valkey:alpine 2>&1)
         DOCKER_EXIT=$?
         
         if [ $DOCKER_EXIT -eq 0 ]; then
             sleep 2
             # Verify container is actually running
-            if docker ps --filter name=vaultwarden-redis --format "{{.Names}}" 2>/dev/null | grep -q vaultwarden-redis; then
-                echo -e "${GREEN}✓ Redis started successfully (Docker)${NC}"
-                REDIS_STARTED=true
+            if docker ps --filter name=vaultwarden-valkey --format "{{.Names}}" 2>/dev/null | grep -q vaultwarden-valkey; then
+                echo -e "${GREEN}✓ Valkey started successfully (Docker)${NC}"
+                VALKEY_STARTED=true
                 
-                # Optional: Try to verify with redis-cli if available
-                if command -v redis-cli > /dev/null && redis-cli ping > /dev/null 2>&1; then
-                    echo -e "${GREEN}  Redis is responding to PING${NC}"
+                # Optional: Try to verify with valkey-cli or redis-cli if available
+                if command -v valkey-cli > /dev/null && valkey-cli ping > /dev/null 2>&1; then
+                    echo -e "${GREEN}  Valkey is responding to PING${NC}"
+                elif command -v redis-cli > /dev/null && redis-cli ping > /dev/null 2>&1; then
+                    echo -e "${GREEN}  Valkey is responding to PING (via redis-cli)${NC}"
                 fi
             else
                 echo -e "${YELLOW}⚠️  Container started but not running${NC}"
             fi
         else
-            echo -e "${YELLOW}⚠️  Could not start Redis via Docker${NC}"
+            echo -e "${YELLOW}⚠️  Could not start Valkey via Docker${NC}"
             echo -e "${YELLOW}   Error: ${DOCKER_ERROR}${NC}"
         fi
-    # Try native redis-server as last resort
-    elif command -v redis-server > /dev/null; then
-        echo "Starting Redis natively..."
-        redis-server --daemonize yes --port 6379 > /dev/null 2>&1
-        sleep 1
-        if redis-cli ping > /dev/null 2>&1; then
-            echo -e "${GREEN}✓ Redis started successfully${NC}"
-            REDIS_STARTED=true
+    # Try native valkey-server or redis-server as last resort
+    elif command -v valkey-server > /dev/null || command -v redis-server > /dev/null; then
+        echo "Starting Valkey natively..."
+        if command -v valkey-server > /dev/null; then
+            valkey-server --daemonize yes --port 6379 > /dev/null 2>&1
         else
-            echo -e "${YELLOW}⚠️  Could not start Redis - WebSocket output will be unavailable${NC}"
+            redis-server --daemonize yes --port 6379 > /dev/null 2>&1
+        fi
+        sleep 1
+        if valkey-cli ping > /dev/null 2>&1 || redis-cli ping > /dev/null 2>&1; then
+            echo -e "${GREEN}✓ Valkey started successfully${NC}"
+            VALKEY_STARTED=true
+        else
+            echo -e "${YELLOW}⚠️  Could not start Valkey - WebSocket output will be unavailable${NC}"
         fi
     else
         echo -e "${YELLOW}⚠️  No container runtime found - WebSocket output will be unavailable${NC}"
@@ -158,7 +166,7 @@ if ! redis-cli ping > /dev/null 2>&1; then
         echo -e "${YELLOW}   Or Docker: sudo apt-get install docker.io${NC}"
     fi
 else
-    echo -e "${GREEN}✓ Redis is already running${NC}"
+    echo -e "${GREEN}✓ Valkey is already running${NC}"
 fi
 echo ""
 
@@ -183,9 +191,9 @@ else
     exit 1
 fi
 
-# Export Redis connection for API
-export REDIS_CONNECTION="${REDIS_CONNECTION:-localhost:6379}"
-echo "Using Redis at: $REDIS_CONNECTION"
+# Export Valkey connection for API
+export VALKEY_CONNECTION="${VALKEY_CONNECTION:-localhost:6379}"
+echo "Using Valkey at: $VALKEY_CONNECTION"
 
 dotnet run -c Release --no-build > /tmp/vk8s-api.log 2>&1 &
 API_PID=$!

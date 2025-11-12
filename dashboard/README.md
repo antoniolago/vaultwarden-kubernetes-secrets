@@ -1,5 +1,7 @@
 # Vaultwarden K8s Sync Dashboard
 
+> **[🎮 Live Demo](https://antoniolago.github.io/vaultwarden-kubernetes-secrets/)** - Try it now with realistic mock data!
+
 Modern React dashboard for monitoring and managing Vaultwarden to Kubernetes secret synchronization.
 
 ## Features
@@ -82,6 +84,28 @@ docker run -p 3000:80 vaultwarden-k8s-dashboard
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `VITE_API_URL` | API endpoint URL | `http://localhost:8080/api` |
+| `VITE_USE_MOCK_DATA` | Enable mock data mode (for demo) | `false` |
+| `VITE_LOGINLESS_MODE` | Skip authentication | `false` |
+
+### Demo Mode
+
+The dashboard includes a mock data mode perfect for demonstrations and testing:
+
+```bash
+# Build with mock data enabled
+VITE_USE_MOCK_DATA=true VITE_LOGINLESS_MODE=true bun run build
+
+# Or set in .env
+VITE_USE_MOCK_DATA=true
+VITE_LOGINLESS_MODE=true
+```
+
+This mode:
+- ✅ Uses realistic production-like data
+- ✅ No backend required
+- ✅ Perfect for GitHub Pages deployment
+- ✅ Great for testing UI changes
+- ✅ Live demo at: https://antoniolago.github.io/vaultwarden-kubernetes-secrets/
 
 ### API Authentication
 
