@@ -1,85 +1,103 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "Debug VaultwardenK8sSync",
-            "type": "coreclr",
-            "request": "launch",
-            "preLaunchTask": "build-main",
-            "program": "${workspaceFolder}/VaultwardenK8sSync/bin/Debug/net9.0/VaultwardenK8sSync.dll",
-            "args": [],
-            "cwd": "${workspaceFolder}/VaultwardenK8sSync",
-            "console": "internalConsole",
-            "env": {
-                "ASPNETCORE_ENVIRONMENT": "Development"
-            }
-        },
-        {
-            "name": "Debug Tests",
-            "type": "coreclr",
-            "request": "launch",
-            "preLaunchTask": "build-tests",
-            "program": "dotnet",
-            "args": [
-                "test",
-                "${workspaceFolder}/VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj",
-                "--no-build",
-                "--verbosity",
-                "normal"
-            ],
-            "cwd": "${workspaceFolder}",
-            "console": "internalConsole",
-            "stopAtEntry": false,
-            "env": {
-                "ASPNETCORE_ENVIRONMENT": "Development"
-            }
-        },
-        {
-            "name": "Debug Tests with Filter",
-            "type": "coreclr",
-            "request": "launch",
-            "preLaunchTask": "build-tests",
-            "program": "dotnet",
-            "args": [
-                "test",
-                "${workspaceFolder}/VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj",
-                "--no-build",
-                "--filter",
-                "FullyQualifiedName~SanitizationTests",
-                "--verbosity",
-                "normal"
-            ],
-            "cwd": "${workspaceFolder}",
-            "console": "internalConsole",
-            "stopAtEntry": false,
-            "env": {
-                "ASPNETCORE_ENVIRONMENT": "Development"
-            }
-        },
-        {
-            "name": "Debug Tests with Coverage",
-            "type": "coreclr",
-            "request": "launch",
-            "preLaunchTask": "build-tests",
-            "program": "dotnet",
-            "args": [
-                "test",
-                "${workspaceFolder}/VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj",
-                "--no-build",
-                "--collect",
-                "XPlat Code Coverage",
-                "--verbosity",
-                "normal"
-            ],
-            "cwd": "${workspaceFolder}",
-            "console": "internalConsole",
-            "stopAtEntry": false,
-            "env": {
-                "ASPNETCORE_ENVIRONMENT": "Development"
-            }
-        }
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug VaultwardenK8sSync",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "Build Sync",
+      "program": "${workspaceFolder}/VaultwardenK8sSync/bin/Debug/net9.0/VaultwardenK8sSync.dll",
+      "args": ["sync"],
+      "cwd": "${workspaceFolder}/VaultwardenK8sSync",
+      "console": "internalConsole",
+      "stopAtEntry": false,
+      "env": {
+        "DOTNET_ENVIRONMENT": "Development",
+        "KUBERNETES__CONTEXT": "admin@talos-cluster"
+      }
+    },
+    {
+      "name": "Debug API",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "Build API",
+      "program": "${workspaceFolder}/VaultwardenK8sSync.Api/bin/Debug/net9.0/VaultwardenK8sSync.Api.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/VaultwardenK8sSync.Api",
+      "stopAtEntry": false,
+      "launchSettingsProfile": "",
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "\\bNow listening on:\\s+(https?://\\S+)",
+        "uriFormat": "%s/swagger"
+      },
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_URLS": "http://localhost:8080",
+        "KUBERNETES__CONTEXT": "admin@talos-cluster"
+      }
+    },
+    {
+      "name": "Debug Sync Service (Continuous)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "Build Sync",
+      "program": "${workspaceFolder}/VaultwardenK8sSync/bin/Debug/net9.0/VaultwardenK8sSync.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/VaultwardenK8sSync",
+      "console": "internalConsole",
+      "stopAtEntry": false,
+      "env": {
+        "DOTNET_ENVIRONMENT": "Development",
+        "SYNC__CONTINUOUSSYNC": "true",
+        "SYNC__SYNCINTERVALSECONDS": "30",
+        "KUBERNETES__CONTEXT": "admin@talos-cluster"
+      }
+    },
+    {
+      "name": "Run Frontend (Bun)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "bun run dev",
+      "cwd": "${workspaceFolder}/dashboard",
+      "serverReadyAction": {
+        "pattern": "Local:.*http://localhost:([0-9]+)",
+        "uriFormat": "http://localhost:%s",
+        "action": "openExternally"
+      }
+    }
+  ],
+  "compounds": [
+    {
+      "name": "🚀 Launch Everything",
+      "configurations": [
+        "Debug API",
+        "Debug Sync Service (Continuous)",
+        "Run Frontend (Bun)"
+      ],
+      "preLaunchTask": "Start All Services",
+      "stopAll": true,
+      "presentation": {
+        "order": 1
+      }
+    },
+    {
+      "name": "Debug API + Sync",
+      "configurations": [
+        "Debug API",
+        "Debug Sync Service (Continuous)"
+      ],
+      "preLaunchTask": "Start Valkey",
+      "stopAll": true
+    },
+    {
+      "name": "Debug API + Frontend",
+      "configurations": [
+        "Debug API",
+        "Run Frontend (Bun)"
+      ],
+      "preLaunchTask": "Start Valkey",
+      "stopAll": true
+    }
+  ]
 }

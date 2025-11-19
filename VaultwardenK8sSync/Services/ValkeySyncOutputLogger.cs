@@ -2,12 +2,12 @@ using Microsoft.Extensions.Logging;
 
 namespace VaultwardenK8sSync.Services;
 
-public class RedisSyncOutputLogger : ILogger
+public class ValkeySyncOutputLogger : ILogger
 {
     private readonly string _categoryName;
-    private readonly IRedisSyncOutputPublisher _publisher;
+    private readonly IValkeySyncOutputPublisher _publisher;
 
-    public RedisSyncOutputLogger(string categoryName, IRedisSyncOutputPublisher publisher)
+    public ValkeySyncOutputLogger(string categoryName, IValkeySyncOutputPublisher publisher)
     {
         _categoryName = categoryName;
         _publisher = publisher;
@@ -48,24 +48,25 @@ public class RedisSyncOutputLogger : ILogger
             formattedMessage += $"\n{exception}";
         }
 
-        // Fire and forget - don't wait for Redis
+        // Fire and forget - don't wait for Valkey
         _ = _publisher.PublishAsync(formattedMessage);
     }
 }
 
-public class RedisSyncOutputLoggerProvider : ILoggerProvider
+public class ValkeySyncOutputLoggerProvider : ILoggerProvider
 {
-    private readonly IRedisSyncOutputPublisher _publisher;
+    private readonly IValkeySyncOutputPublisher _publisher;
 
-    public RedisSyncOutputLoggerProvider(IRedisSyncOutputPublisher publisher)
+    public ValkeySyncOutputLoggerProvider(IValkeySyncOutputPublisher publisher)
     {
         _publisher = publisher;
     }
 
     public ILogger CreateLogger(string categoryName)
     {
-        return new RedisSyncOutputLogger(categoryName, _publisher);
+        return new ValkeySyncOutputLogger(categoryName, _publisher);
     }
 
     public void Dispose() { }
 }
+

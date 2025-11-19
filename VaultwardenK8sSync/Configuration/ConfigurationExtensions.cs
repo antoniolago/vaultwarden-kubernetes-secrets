@@ -40,11 +40,11 @@ public static class ConfigurationExtensions
         services.AddLogging(builder =>
         {
             builder.ClearProviders();
-            builder.AddConsole(options =>
+            builder.AddSimpleConsole(options =>
             {
                 options.IncludeScopes = false;
                 options.TimestampFormat = "HH:mm:ss ";
-                options.DisableColors = false;
+                options.ColorBehavior = Microsoft.Extensions.Logging.Console.LoggerColorBehavior.Enabled;
             });
             builder.SetMinimumLevel(LogLevelParser.Parse(loggingSettings.DefaultLevel));
             builder.AddFilter("Microsoft", LogLevelParser.Parse(loggingSettings.MicrosoftLevel));

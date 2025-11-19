@@ -17,8 +17,6 @@ public class SyncService : ISyncService
     private string? _lastItemsHash;
     private string? _currentItemsHash;
     private readonly Dictionary<string, DateTime> _secretExistsCache = new();
-    private List<Models.VaultwardenItem>? _cachedItems;
-    private DateTime? _cacheTime;
     private int _syncCount;
 
     public SyncService(
@@ -928,8 +926,11 @@ public class SyncService : ISyncService
                     : SanitizeSecretName(item.Name);
             }).ToHashSet();
 
-            // Find orphaned secrets
-            var orphanedSecrets = managedSecrets.Where(s => !expectedSecrets.Contains(s)).ToList();
+            // Find orphaned secrets (exclude auth token secret from cleanup)
+            var orphanedSecrets = managedSecrets
+                .Where(s => !expectedSecrets.Contains(s))
+                .Where(s => s != "vaultwarden-kubernetes-secrets-token") // Exclude auth token secret
+                .ToList();
 
             var namespaceSummary = new OrphanNamespaceSummary
             {

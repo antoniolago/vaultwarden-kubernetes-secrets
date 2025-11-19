@@ -3,20 +3,20 @@ using Microsoft.Extensions.Logging;
 
 namespace VaultwardenK8sSync.Services;
 
-public interface IRedisSyncOutputPublisher
+public interface IValkeySyncOutputPublisher
 {
     Task PublishAsync(string message);
     Task ClearAsync();
 }
 
-public class RedisSyncOutputPublisher : IRedisSyncOutputPublisher, IDisposable
+public class ValkeySyncOutputPublisher : IValkeySyncOutputPublisher, IDisposable
 {
-    private readonly IConnectionMultiplexer? _redis;
-    private readonly ILogger<RedisSyncOutputPublisher> _logger;
+    private readonly IConnectionMultiplexer? _valkey;
+    private readonly ILogger<ValkeySyncOutputPublisher> _logger;
     private readonly string _channel = "sync:output";
     private readonly bool _enabled;
 
-    public RedisSyncOutputPublisher(ILogger<RedisSyncOutputPublisher> logger)
+    public ValkeySyncOutputPublisher(ILogger<ValkeySyncOutputPublisher> logger)
     {
         _logger = logger;
         
@@ -27,34 +27,34 @@ public class RedisSyncOutputPublisher : IRedisSyncOutputPublisher, IDisposable
         {
             try
             {
-                _redis = ConnectionMultiplexer.Connect(connectionString);
+                _valkey = ConnectionMultiplexer.Connect(connectionString);
                 _enabled = true;
-                _logger.LogInformation("Valkey/Redis connection established for sync output publishing");
+                _logger.LogInformation("Valkey connection established for sync output publishing");
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to connect to Valkey/Redis. Sync output publishing disabled.");
+                _logger.LogWarning(ex, "Failed to connect to Valkey. Sync output publishing disabled.");
                 _enabled = false;
             }
         }
         else
         {
-            _logger.LogInformation("Valkey/Redis not configured. Sync output publishing disabled.");
+            _logger.LogInformation("Valkey not configured. Sync output publishing disabled.");
             _enabled = false;
         }
     }
 
     public async Task PublishAsync(string message)
     {
-        if (!_enabled || _redis == null) return;
+        if (!_enabled || _valkey == null) return;
 
         try
         {
-            var db = _redis.GetDatabase();
-            var subscriber = _redis.GetSubscriber();
+            var db = _valkey.GetDatabase();
+            var subscriber = _valkey.GetSubscriber();
             
             // Publish to channel for real-time streaming
-            await subscriber.PublishAsync(_channel, message);
+            await subscriber.PublishAsync(RedisChannel.Literal(_channel), message);
             
             // Also append to a list for history (keep last 1000 lines)
             await db.ListRightPushAsync($"{_channel}:history", message);
@@ -62,22 +62,22 @@ public class RedisSyncOutputPublisher : IRedisSyncOutputPublisher, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to publish sync output to Redis");
+            _logger.LogWarning(ex, "Failed to publish sync output to Valkey");
         }
     }
 
     public async Task ClearAsync()
     {
-        if (!_enabled || _redis == null) return;
+        if (!_enabled || _valkey == null) return;
 
         try
         {
-            var db = _redis.GetDatabase();
+            var db = _valkey.GetDatabase();
             await db.KeyDeleteAsync($"{_channel}:history");
             
             // Publish clear signal
-            var subscriber = _redis.GetSubscriber();
-            await subscriber.PublishAsync(_channel, "__CLEAR__");
+            var subscriber = _valkey.GetSubscriber();
+            await subscriber.PublishAsync(RedisChannel.Literal(_channel), "__CLEAR__");
         }
         catch (Exception ex)
         {
@@ -87,6 +87,7 @@ public class RedisSyncOutputPublisher : IRedisSyncOutputPublisher, IDisposable
 
     public void Dispose()
     {
-        _redis?.Dispose();
+        _valkey?.Dispose();
     }
 }
+

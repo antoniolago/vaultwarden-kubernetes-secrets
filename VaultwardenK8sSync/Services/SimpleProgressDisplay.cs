@@ -102,11 +102,11 @@ public class StaticProgressDisplay : IDisposable
     private DateTime _startTime;
     private string _operation = "";
     private bool _disposed = false;
-    private readonly IRedisSyncOutputPublisher? _redisPublisher;
+    private readonly IValkeySyncOutputPublisher? _valkeyPublisher;
 
-    public StaticProgressDisplay(IRedisSyncOutputPublisher? redisPublisher = null)
+    public StaticProgressDisplay(IValkeySyncOutputPublisher? valkeyPublisher = null)
     {
-        _redisPublisher = redisPublisher;
+        _valkeyPublisher = valkeyPublisher;
     }
 
     public void Start(string message)
@@ -134,7 +134,7 @@ public class StaticProgressDisplay : IDisposable
                 .Trim();
                 
             Console.WriteLine($"🔄 {cleanMessage}");
-            _redisPublisher?.PublishAsync($"[{DateTime.UtcNow:HH:mm:ss}] 🔄 {cleanMessage}");
+            _valkeyPublisher?.PublishAsync($"[{DateTime.UtcNow:HH:mm:ss}] 🔄 {cleanMessage}");
         }
     }
 
@@ -158,14 +158,14 @@ public class StaticProgressDisplay : IDisposable
                     var durationText = duration.TotalSeconds > 0.5 ? $" ({duration.TotalSeconds:F1}s)" : "";
                     var fullMessage = $"{finalMessage}{durationText}";
                     Console.WriteLine(fullMessage);
-                    _redisPublisher?.PublishAsync($"[{DateTime.UtcNow:HH:mm:ss}] {fullMessage}");
+                    _valkeyPublisher?.PublishAsync($"[{DateTime.UtcNow:HH:mm:ss}] {fullMessage}");
                 }
                 else
                 {
                     var durationText = duration.TotalSeconds > 0.5 ? $" ({duration.TotalSeconds:F1}s)" : "";
                     var fullMessage = $"✅ Completed{durationText}";
                     Console.WriteLine(fullMessage);
-                    _redisPublisher?.PublishAsync($"[{DateTime.UtcNow:HH:mm:ss}] {fullMessage}");
+                    _valkeyPublisher?.PublishAsync($"[{DateTime.UtcNow:HH:mm:ss}] {fullMessage}");
                 }
             }
         }

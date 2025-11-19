@@ -10,27 +10,26 @@ namespace VaultwardenK8sSync.Api.Controllers;
 public class SyncOutputController : ControllerBase
 {
     private readonly ILogger<SyncOutputController> _logger;
-    private readonly IConnectionMultiplexer? _redis;
-    private readonly bool _redisEnabled;
+    private readonly IConnectionMultiplexer? _valkey;
+    private readonly bool _valkeyEnabled;
 
     public SyncOutputController(ILogger<SyncOutputController> logger)
     {
         _logger = logger;
         
-        var redisConnection = Environment.GetEnvironmentVariable("REDIS_CONNECTION") 
-            ?? Environment.GetEnvironmentVariable("REDIS__CONNECTION");
+        var valkeyConnection = Environment.GetEnvironmentVariable("VALKEY_CONNECTION");
         
-        if (!string.IsNullOrEmpty(redisConnection))
+        if (!string.IsNullOrEmpty(valkeyConnection))
         {
             try
             {
-                _redis = ConnectionMultiplexer.Connect(redisConnection);
-                _redisEnabled = true;
+                _valkey = ConnectionMultiplexer.Connect(valkeyConnection);
+                _valkeyEnabled = true;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to connect to Redis for sync output streaming");
-                _redisEnabled = false;
+                _logger.LogWarning(ex, "Failed to connect to Valkey for sync output streaming");
+                _valkeyEnabled = false;
             }
         }
     }
@@ -49,13 +48,13 @@ public class SyncOutputController : ControllerBase
 
         try
         {
-            // Check Redis availability after accepting the connection
-            if (!_redisEnabled || _redis == null)
+            // Check Valkey availability after accepting the connection
+            if (!_valkeyEnabled || _valkey == null)
             {
-                var errorMsg = "__REDIS_NOT_CONFIGURED__\n" +
-                    "⚠️ Redis is not configured. Real-time sync output is unavailable.\n" +
-                    "Configure REDIS_CONNECTION environment variable to enable this feature.\n" +
-                    "See REDIS_SYNC_OUTPUT.md for setup instructions.";
+                var errorMsg = "__VALKEY_NOT_CONFIGURED__\n" +
+                    "⚠️ Valkey is not configured. Real-time sync output is unavailable.\n" +
+                    "Configure VALKEY_CONNECTION environment variable to enable this feature.\n" +
+                    "See documentation for setup instructions.";
                 
                 var errorBytes = Encoding.UTF8.GetBytes(errorMsg);
                 await webSocket.SendAsync(
@@ -64,21 +63,21 @@ public class SyncOutputController : ControllerBase
                     true,
                     CancellationToken.None);
                 
-                _logger.LogWarning("WebSocket client connected but Redis is not configured");
+                _logger.LogWarning("WebSocket client connected but Valkey is not configured");
                 
                 // Close connection gracefully after sending error
                 await webSocket.CloseAsync(
                     WebSocketCloseStatus.PolicyViolation,
-                    "Redis not configured",
+                    "Valkey not configured",
                     CancellationToken.None);
                 return;
             }
 
-            var subscriber = _redis.GetSubscriber();
+            var subscriber = _valkey.GetSubscriber();
             var channel = "sync:output";
 
             // Send history first
-            var db = _redis.GetDatabase();
+            var db = _valkey.GetDatabase();
             var history = await db.ListRangeAsync($"{channel}:history", 0, -1);
             
             foreach (var item in history)
@@ -96,7 +95,7 @@ public class SyncOutputController : ControllerBase
             // Subscribe to real-time updates
             var messageQueue = System.Threading.Channels.Channel.CreateUnbounded<string>();
             
-            await subscriber.SubscribeAsync(channel, (ch, message) =>
+            await subscriber.SubscribeAsync(RedisChannel.Literal(channel), (ch, message) =>
             {
                 messageQueue.Writer.TryWrite(message.ToString());
             });
@@ -114,7 +113,7 @@ public class SyncOutputController : ControllerBase
                     CancellationToken.None);
             }
 
-            await subscriber.UnsubscribeAsync(channel);
+            await subscriber.UnsubscribeAsync(RedisChannel.Literal(channel));
         }
         catch (Exception ex)
         {

@@ -7,7 +7,9 @@
       "launchBrowser": false,
       "applicationUrl": "http://localhost:8080",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_URLS": "http://localhost:8080",
+        "KUBERNETES__CONTEXT": "admin@talos-cluster"
       }
     }
   }

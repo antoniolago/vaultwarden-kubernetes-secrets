@@ -154,7 +154,7 @@ public class ApplicationHost
         
         // Register application services
         services.AddSingleton<IMetricsService, MetricsService>();
-        services.AddSingleton<IRedisSyncOutputPublisher, RedisSyncOutputPublisher>();
+        services.AddSingleton<IValkeySyncOutputPublisher, ValkeySyncOutputPublisher>();
         // VaultwardenService must be Singleton to maintain authentication state across continuous sync runs
         services.AddSingleton<IVaultwardenService, VaultwardenService>();
         services.AddSingleton<IKubernetesService, KubernetesService>();
@@ -378,8 +378,8 @@ public class ApplicationHost
     {
         // Authenticate with Vaultwarden FIRST (before Kubernetes)
         // This allows the app to work even if K8s is unavailable (e.g., for API/dashboard only)
-        var redisPublisher = _serviceProvider.GetRequiredService<IRedisSyncOutputPublisher>();
-        using (var progress = new Services.StaticProgressDisplay(redisPublisher))
+        var valkeyPublisher = _serviceProvider.GetRequiredService<IValkeySyncOutputPublisher>();
+        using (var progress = new Services.StaticProgressDisplay(valkeyPublisher))
         {
             progress.Start("Authenticating with Vaultwarden...");
             

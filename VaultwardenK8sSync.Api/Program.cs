@@ -112,8 +112,42 @@ var webSocketOptions = new WebSocketOptions
 builder.Services.AddSingleton(webSocketOptions);
 
 // Add authentication
-var authToken = builder.Configuration.GetValue<string>("AuthToken") ?? "";
+var authToken = Environment.GetEnvironmentVariable("AUTH_TOKEN") ?? "";
 var loginlessMode = builder.Configuration.GetValue<bool>("LoginlessMode", false);
+
+// If no token in environment and not in loginless mode, try to load from Kubernetes secret
+if (string.IsNullOrEmpty(authToken) && !loginlessMode)
+{
+    try
+    {
+        var kubernetesService = new KubernetesService(
+            new Microsoft.Extensions.Logging.LoggerFactory().CreateLogger<KubernetesService>(),
+            appSettings.Kubernetes
+        );
+        
+        if (await kubernetesService.InitializeAsync())
+        {
+            var secretNamespace = Environment.GetEnvironmentVariable("APP_NAMESPACE") 
+                ?? "vaultwarden-kubernetes-secrets";
+            var secretName = "vaultwarden-kubernetes-secrets-token";
+            
+            if (await kubernetesService.SecretExistsAsync(secretNamespace, secretName))
+            {
+                var secretData = await kubernetesService.GetSecretDataAsync(secretNamespace, secretName);
+                if (secretData != null && secretData.ContainsKey("token"))
+                {
+                    authToken = secretData["token"];
+                    Console.WriteLine($"✅ Loaded auth token from Kubernetes secret {secretName} in namespace {secretNamespace}");
+                }
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"⚠️  Could not load auth token from Kubernetes: {ex.Message}");
+    }
+}
+
 builder.Services.AddSingleton(new AuthenticationConfig 
 { 
     Token = authToken,
