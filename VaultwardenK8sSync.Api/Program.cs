@@ -112,11 +112,18 @@ var webSocketOptions = new WebSocketOptions
 builder.Services.AddSingleton(webSocketOptions);
 
 // Add authentication
-var authToken = Environment.GetEnvironmentVariable("AUTH_TOKEN") ?? "";
+// Read from configuration first (supports test overrides), then fall back to environment variable
+var authToken = builder.Configuration.GetValue<string>("AuthToken") 
+    ?? Environment.GetEnvironmentVariable("AUTH_TOKEN") 
+    ?? "";
 var loginlessMode = builder.Configuration.GetValue<bool>("LoginlessMode", false);
 
-// If no token in environment and not in loginless mode, try to load from Kubernetes secret
-if (string.IsNullOrEmpty(authToken) && !loginlessMode)
+// Only try to load from Kubernetes secret if:
+// 1. No token configured in environment or configuration
+// 2. Not in loginless mode
+// 3. Not in test environment (check if AuthToken key exists in configuration)
+var authTokenExplicitlySet = builder.Configuration.GetSection("AuthToken").Exists();
+if (string.IsNullOrEmpty(authToken) && !loginlessMode && !authTokenExplicitlySet)
 {
     try
     {
