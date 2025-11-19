@@ -502,7 +502,7 @@ jobs:
             // Check if we already commented on this PR
             const existingComment = comments.find(comment => 
               comment.user.type === 'Bot' && 
-              comment.body.includes('PR Docker Image Ready for Testing')
+              comment.body.includes('PR Build & Test Complete')
             );
             
             if (existingComment) {
