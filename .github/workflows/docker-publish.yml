@@ -157,6 +157,9 @@ jobs:
     name: Build Sync Worker
     runs-on: ubuntu-latest
     needs: [prepare-versions]
+    permissions:
+      contents: read
+      packages: write
     
     steps:
       - name: Checkout
@@ -214,6 +217,9 @@ jobs:
     name: Build API
     runs-on: ubuntu-latest
     needs: [prepare-versions]
+    permissions:
+      contents: read
+      packages: write
     
     steps:
       - name: Checkout
@@ -242,7 +248,7 @@ jobs:
       - name: Build and push API to GHCR
         uses: docker/build-push-action@v6
         with:
-          context: ./api
+          context: .
           file: ./api/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
@@ -256,7 +262,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
-          context: ./api
+          context: .
           file: ./api/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
@@ -271,6 +277,9 @@ jobs:
     name: Build Dashboard
     runs-on: ubuntu-latest
     needs: [prepare-versions]
+    permissions:
+      contents: read
+      packages: write
     
     steps:
       - name: Checkout
@@ -299,7 +308,7 @@ jobs:
       - name: Build and push dashboard to GHCR
         uses: docker/build-push-action@v6
         with:
-          context: ./dashboard
+          context: .
           file: ./dashboard/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
@@ -313,7 +322,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
-          context: ./dashboard
+          context: .
           file: ./dashboard/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
@@ -328,6 +337,9 @@ jobs:
     name: Package and Push Helm Chart
     runs-on: ubuntu-latest
     needs: [prepare-versions, build-sync, build-api, build-dashboard]
+    permissions:
+      contents: read
+      packages: write
     
     steps:
       - name: Checkout
