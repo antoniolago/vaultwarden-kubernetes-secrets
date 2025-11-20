@@ -185,7 +185,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push sync to GHCR
+      - name: Build and push sync worker
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -195,23 +195,11 @@ jobs:
           tags: |
             ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets:latest', github.repository_owner) || '' }}
             ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets:${{ needs.prepare-versions.outputs.raw_tag }}
+            ${{ github.event_name != 'pull_request' && 'harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:latest' || '' }}
+            ${{ github.event_name != 'pull_request' && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:{0}', needs.prepare-versions.outputs.raw_tag) || '' }}
+            ${{ github.event_name != 'pull_request' && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:{0}', needs.prepare-versions.outputs.version) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Build and push sync to Harbor
-        if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./VaultwardenK8sSync/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:latest
-            harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:${{ needs.prepare-versions.outputs.raw_tag }}
-            harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:${{ needs.prepare-versions.outputs.version }}
-          cache-from: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:buildcache
-          cache-to: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:buildcache,mode=max
 
   build-api:
     name: Build API
@@ -245,7 +233,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push API to GHCR
+      - name: Build and push API
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -255,23 +243,11 @@ jobs:
           tags: |
             ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets-api:latest', github.repository_owner) || '' }}
             ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets-api:${{ needs.prepare-versions.outputs.raw_tag }}
+            ${{ github.event_name != 'pull_request' && 'harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:latest' || '' }}
+            ${{ github.event_name != 'pull_request' && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:{0}', needs.prepare-versions.outputs.raw_tag) || '' }}
+            ${{ github.event_name != 'pull_request' && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:{0}', needs.prepare-versions.outputs.version) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Build and push API to Harbor
-        if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: VaultwardenK8sSync.Api/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:latest
-            harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:${{ needs.prepare-versions.outputs.raw_tag }}
-            harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:${{ needs.prepare-versions.outputs.version }}
-          cache-from: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:buildcache
-          cache-to: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:buildcache,mode=max
 
   build-dashboard:
     name: Build Dashboard
@@ -305,7 +281,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push dashboard to GHCR
+      - name: Build and push dashboard
         uses: docker/build-push-action@v6
         with:
           context: dashboard
@@ -315,23 +291,11 @@ jobs:
           tags: |
             ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets-dashboard:latest', github.repository_owner) || '' }}
             ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets-dashboard:${{ needs.prepare-versions.outputs.raw_tag }}
+            ${{ github.event_name != 'pull_request' && 'harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:latest' || '' }}
+            ${{ github.event_name != 'pull_request' && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:{0}', needs.prepare-versions.outputs.raw_tag) || '' }}
+            ${{ github.event_name != 'pull_request' && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:{0}', needs.prepare-versions.outputs.version) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Build and push dashboard to Harbor
-        if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v6
-        with:
-          context: dashboard
-          file: dashboard/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:latest
-            harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:${{ needs.prepare-versions.outputs.raw_tag }}
-            harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:${{ needs.prepare-versions.outputs.version }}
-          cache-from: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:buildcache
-          cache-to: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:buildcache,mode=max
 
   package-helm:
     name: Package and Push Helm Chart
