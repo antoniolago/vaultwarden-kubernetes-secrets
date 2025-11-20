@@ -2,7 +2,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "vaultwarden-kubernetes-secrets.fullname" . }}-dashboard
+  name: {{ include "vaultwarden-kubernetes-secrets.dashboard.fullname" . }}
   labels:
     {{- include "vaultwarden-kubernetes-secrets.labels" . | nindent 4 }}
     app.kubernetes.io/component: dashboard
@@ -57,4 +57,14 @@ spec:
           periodSeconds: 10
         resources:
           {{- toYaml .Values.dashboard.resources | nindent 10 }}
+        volumeMounts:
+        - name: cache
+          mountPath: /var/cache/nginx
+        - name: run
+          mountPath: /var/run
+      volumes:
+      - name: cache
+        emptyDir: {}
+      - name: run
+        emptyDir: {}
 {{- end }}

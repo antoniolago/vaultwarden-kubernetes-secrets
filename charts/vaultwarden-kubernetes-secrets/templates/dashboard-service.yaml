@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "vaultwarden-kubernetes-secrets.fullname" . }}-dashboard
+  name: {{ include "vaultwarden-kubernetes-secrets.dashboard.fullname" . }}
   labels:
     {{- include "vaultwarden-kubernetes-secrets.labels" . | nindent 4 }}
     app.kubernetes.io/component: dashboard

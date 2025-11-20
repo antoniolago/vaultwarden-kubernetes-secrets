@@ -278,6 +278,36 @@ jobs:
           cache-from: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:buildcache
           cache-to: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:buildcache,mode=max
 
+      - name: Build and push API to GHCR (non-PR only)
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          file: ./api/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets-api:latest
+            ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets-api:${{ steps.vars.outputs.raw_tag }}
+            ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets-api:${{ steps.vars.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push API to Harbor (non-PR only)
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          file: ./api/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:latest
+            harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:${{ steps.vars.outputs.raw_tag }}
+            harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:${{ steps.vars.outputs.version }}
+          cache-from: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:buildcache
+          cache-to: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:buildcache,mode=max
+
   # test-helm-chart:
   #   name: Test Helm Chart Installation
   #   runs-on: ubuntu-latest

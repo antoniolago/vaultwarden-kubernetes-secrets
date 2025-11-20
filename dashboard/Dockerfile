@@ -18,6 +18,12 @@ RUN bun run build
 # Production stage
 FROM nginx:alpine
 
+# Create nginx user (101:101) and set up writable directories
+RUN touch /var/run/nginx.pid && \
+    chown -R 101:101 /var/run/nginx.pid && \
+    chown -R 101:101 /var/cache/nginx && \
+    chown -R 101:101 /etc/nginx/conf.d
+
 # Copy built assets from builder
 COPY --from=builder /app/dist /usr/share/nginx/html
 
@@ -26,6 +32,9 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Expose port
 EXPOSE 80
+
+# Run as non-root nginx user
+USER 101
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

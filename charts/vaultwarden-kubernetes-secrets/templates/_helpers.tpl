@@ -41,3 +41,17 @@ Selector labels
 app.kubernetes.io/name: {{ include "vaultwarden-kubernetes-secrets.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
+
+{{/*
+API component name
+*/}}
+{{- define "vaultwarden-kubernetes-secrets.api.fullname" -}}
+{{- printf "%s-api" (include "vaultwarden-kubernetes-secrets.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
+Dashboard component name
+*/}}
+{{- define "vaultwarden-kubernetes-secrets.dashboard.fullname" -}}
+{{- printf "%s-dashboard" (include "vaultwarden-kubernetes-secrets.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}

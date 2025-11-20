@@ -2,7 +2,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "vaultwarden-kubernetes-secrets.fullname" . }}-api
+  name: {{ include "vaultwarden-kubernetes-secrets.api.fullname" . }}
   labels:
     {{- include "vaultwarden-kubernetes-secrets.labels" . | nindent 4 }}
     app.kubernetes.io/component: api
@@ -70,7 +70,7 @@ spec:
       - name: data
         {{- if .Values.api.persistence.enabled }}
         persistentVolumeClaim:
-          claimName: {{ include "vaultwarden-kubernetes-secrets.fullname" . }}-api-data
+          claimName: {{ include "vaultwarden-kubernetes-secrets.api.fullname" . }}-data
         {{- else }}
         emptyDir: {}
         {{- end }}
