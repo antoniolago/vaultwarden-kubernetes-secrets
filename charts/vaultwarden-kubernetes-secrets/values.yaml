@@ -81,25 +81,25 @@ dashboard:
 # Ingress Configuration
 ingress:
   enabled: false
-  className: "nginx"
-  annotations:
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-  hosts:
-    - host: vaultwarden-sync.example.com
-      paths:
-        - path: /
-          pathType: Prefix
-          backend: dashboard
-          port: 80
-        - path: /api
-          pathType: Prefix
-          backend: api
-          port: 8080
-  tls:
-    - secretName: vaultwarden-sync-tls
-      hosts:
-        - vaultwarden-sync.example.com
+  className: "" #e.g: nginx
+  annotations: {}
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts: []
+    # - host: vaultwarden-sync.example.com
+    #   paths:
+    #     - path: /
+    #       pathType: Prefix
+    #       backend: dashboard
+    #       port: 80
+    #     - path: /api
+    #       pathType: Prefix
+    #       backend: api
+    #       port: 8080
+  tls: []
+    # - secretName: vaultwarden-sync-tls
+    #   hosts:
+    #     - vaultwarden-sync.example.com
 
 resources:
   requests:
