@@ -248,6 +248,36 @@ jobs:
           CHART_FILE="dist/vaultwarden-kubernetes-secrets-${{ steps.vars.outputs.version }}.tgz"
           helm push "$CHART_FILE" oci://harbor.lag0.com.br/charts
 
+      - name: Build and push dashboard to GHCR (non-PR only)
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./dashboard
+          file: ./dashboard/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets-dashboard:latest
+            ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets-dashboard:${{ steps.vars.outputs.raw_tag }}
+            ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets-dashboard:${{ steps.vars.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push dashboard to Harbor (non-PR only)
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./dashboard
+          file: ./dashboard/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:latest
+            harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:${{ steps.vars.outputs.raw_tag }}
+            harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:${{ steps.vars.outputs.version }}
+          cache-from: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:buildcache
+          cache-to: type=registry,ref=harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:buildcache,mode=max
+
   # test-helm-chart:
   #   name: Test Helm Chart Installation
   #   runs-on: ubuntu-latest
