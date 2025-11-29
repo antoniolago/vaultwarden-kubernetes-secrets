@@ -11,13 +11,26 @@ export default defineConfig(({ mode }) => {
   
   return {
     plugins: [react()],
+    publicDir: 'public',
     server: {
       port: 3000,
       host: true
     },
     build: {
       outDir: 'dist',
-      sourcemap: false
+      sourcemap: false,
+      assetsInlineLimit: 0,
+      rollupOptions: {
+        output: {
+          assetFileNames: (assetInfo) => {
+            // Keep vks.png without hash
+            if (assetInfo.name === 'vks.png') {
+              return 'vks.png'
+            }
+            return 'assets/[name]-[hash][extname]'
+          }
+        }
+      }
     },
     define: {
       // Expose LOGINLESS_MODE from root .env as VITE_LOGINLESS_MODE
