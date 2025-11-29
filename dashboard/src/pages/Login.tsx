@@ -83,7 +83,7 @@ export default function Login() {
             }}
           >
             {/* VKS.png logo */}
-            <img src="vks.png" alt="vks" width="80" height="80" style={{ borderRadius: '50%' }}/>
+            <img src="/vks.png" alt="vks" width="80" height="80" style={{ borderRadius: '50%' }}/>
           </Box>
           
           <Typography 
