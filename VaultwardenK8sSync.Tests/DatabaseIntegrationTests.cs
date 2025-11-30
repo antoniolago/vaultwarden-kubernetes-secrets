@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using VaultwardenK8sSync.Database;
 using VaultwardenK8sSync.Database.Repositories;
@@ -17,31 +18,46 @@ public class DatabaseIntegrationTests : IDisposable
     private readonly ISecretStateRepository _secretStateRepository;
     private readonly IDatabaseLoggerService _dbLogger;
     private readonly string _testDbPath;
+    private readonly ServiceProvider _serviceProvider;
 
     public DatabaseIntegrationTests()
     {
         // Create a unique test database
         _testDbPath = Path.Combine(Path.GetTempPath(), $"test_sync_{Guid.NewGuid()}.db");
         
-        var options = new DbContextOptionsBuilder<SyncDbContext>()
-            .UseSqlite($"Data Source={_testDbPath}")
-            .Options;
+        var services = new ServiceCollection();
         
-        _context = new SyncDbContext(options);
-        _context.Database.EnsureCreated();
+        // Configure DbContext
+        services.AddDbContext<SyncDbContext>(options =>
+            options.UseSqlite($"Data Source={_testDbPath}"));
         
-        _syncLogRepository = new SyncLogRepository(_context);
-        _secretStateRepository = new SecretStateRepository(_context);
+        // Register repositories
+        services.AddScoped<ISyncLogRepository, SyncLogRepository>();
+        services.AddScoped<ISecretStateRepository, SecretStateRepository>();
         
-        var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
-        var logger = loggerFactory.CreateLogger<DatabaseLoggerService>();
+        // Register logging
+        services.AddLogging(builder => builder.AddConsole());
         
-        _dbLogger = new DatabaseLoggerService(
-            logger,
-            _context,
-            _syncLogRepository,
-            _secretStateRepository
-        );
+        _serviceProvider = services.BuildServiceProvider();
+        
+        // Initialize database
+        using (var scope = _serviceProvider.CreateScope())
+        {
+            _context = scope.ServiceProvider.GetRequiredService<SyncDbContext>();
+            _context.Database.EnsureCreated();
+        }
+        
+        // Get scoped instances for direct test access
+        var scope2 = _serviceProvider.CreateScope();
+        _context = scope2.ServiceProvider.GetRequiredService<SyncDbContext>();
+        _syncLogRepository = scope2.ServiceProvider.GetRequiredService<ISyncLogRepository>();
+        _secretStateRepository = scope2.ServiceProvider.GetRequiredService<ISecretStateRepository>();
+        
+        // Create DatabaseLoggerService with IServiceScopeFactory
+        var logger = _serviceProvider.GetRequiredService<ILogger<DatabaseLoggerService>>();
+        var scopeFactory = _serviceProvider.GetRequiredService<IServiceScopeFactory>();
+        
+        _dbLogger = new DatabaseLoggerService(logger, scopeFactory);
     }
 
     [Fact]
@@ -198,6 +214,7 @@ public class DatabaseIntegrationTests : IDisposable
     public void Dispose()
     {
         _context?.Dispose();
+        _serviceProvider?.Dispose();
         
         // Clean up test database
         if (File.Exists(_testDbPath))

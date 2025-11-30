@@ -401,7 +401,7 @@ public class SanitizationTests
     }
 
     [Fact]
-    public void ExtractSecretDataAsync_WithMetadataFields_ShouldNotIncludeMetadataFields()
+    public async Task ExtractSecretDataAsync_WithMetadataFields_ShouldNotIncludeMetadataFields()
     {
         // Arrange
         var item = new VaultwardenItem
@@ -426,7 +426,7 @@ public class SanitizationTests
         };
 
         // Act
-        var result = ExtractSecretDataAsync(item).Result;
+        var result = await ExtractSecretDataAsync(item);
 
         // Assert
         // Metadata fields should not be included
