@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.Sqlite;
 using VaultwardenK8sSync.Database.Models;
 
 namespace VaultwardenK8sSync.Database;
@@ -7,6 +8,15 @@ public class SyncDbContext : DbContext
 {
     public SyncDbContext(DbContextOptions<SyncDbContext> options) : base(options)
     {
+        // Enable WAL mode for better concurrency
+        var connection = Database.GetDbConnection();
+        if (connection is SqliteConnection sqliteConnection && sqliteConnection.State == System.Data.ConnectionState.Closed)
+        {
+            sqliteConnection.Open();
+            using var command = sqliteConnection.CreateCommand();
+            command.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=30000;";
+            command.ExecuteNonQuery();
+        }
     }
 
     public DbSet<SyncLog> SyncLogs { get; set; }

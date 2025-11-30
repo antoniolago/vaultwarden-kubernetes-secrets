@@ -23,8 +23,12 @@ public static class ConfigurationExtensions
         services.AddSingleton(appSettings);
         
         var dbPath = Environment.GetEnvironmentVariable("DATABASE_PATH") ?? "./data/sync.db";
+        var connectionString = $"Data Source={dbPath};Cache=Shared;Mode=ReadWriteCreate;Pooling=True";
         services.AddDbContext<SyncDbContext>(options =>
-            options.UseSqlite($"Data Source={dbPath}"));
+            options.UseSqlite(connectionString, sqliteOptions =>
+            {
+                sqliteOptions.CommandTimeout(30);
+            }));
         
         services.AddScoped<ISyncLogRepository, SyncLogRepository>();
         services.AddScoped<ISecretStateRepository, SecretStateRepository>();

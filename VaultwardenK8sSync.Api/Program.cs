@@ -44,8 +44,12 @@ if (!string.IsNullOrEmpty(dbDirectory) && !Directory.Exists(dbDirectory))
     Directory.CreateDirectory(dbDirectory);
 }
 
+var connectionString = $"Data Source={dbPath};Cache=Shared;Mode=ReadWriteCreate;Pooling=True";
 builder.Services.AddDbContext<SyncDbContext>(options =>
-    options.UseSqlite($"Data Source={dbPath}"));
+    options.UseSqlite(connectionString, sqliteOptions =>
+    {
+        sqliteOptions.CommandTimeout(30);
+    }));
 
 // Register repositories
 builder.Services.AddScoped<ISyncLogRepository, SyncLogRepository>();
