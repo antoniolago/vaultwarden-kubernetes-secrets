@@ -33,20 +33,6 @@ interface VaultwardenItem {
   namespacesValue: string | null
 }
 
-interface DiscoveryData {
-  vaultwardenItems: VaultwardenItem[]
-  syncedSecrets: Array<{
-    vaultwardenItemId: string
-    vaultwardenItemName: string
-    namespace: string
-    secretName: string
-    status: string
-    dataKeysCount: number
-    lastError: string | null
-  }>
-  lastScanTime: string
-}
-
 export default function Discovery() {
   const [searchTerm, setSearchTerm] = useState('')
   const [activeTab, setActiveTab] = useState(0)
