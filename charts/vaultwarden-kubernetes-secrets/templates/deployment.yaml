@@ -47,7 +47,12 @@ spec:
               mountPath: /data
       volumes:
         - name: data
+          {{- if and .Values.api.enabled .Values.api.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "vaultwarden-kubernetes-secrets.api.fullname" . }}-data
+          {{- else }}
           emptyDir: {}
+          {{- end }}
         - name: tmp
           emptyDir: {}
       containers:

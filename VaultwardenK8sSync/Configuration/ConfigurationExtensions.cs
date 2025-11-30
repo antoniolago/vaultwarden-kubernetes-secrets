@@ -25,12 +25,12 @@ public static class ConfigurationExtensions
         // Configure database
         var dbPath = Environment.GetEnvironmentVariable("DATABASE_PATH") ?? "./data/sync.db";
         services.AddDbContext<SyncDbContext>(options =>
-            options.UseSqlite($"Data Source={dbPath}"));
+            options.UseSqlite($"Data Source={dbPath}"), ServiceLifetime.Singleton);
         
-        // Register repositories
-        services.AddScoped<ISyncLogRepository, SyncLogRepository>();
-        services.AddScoped<ISecretStateRepository, SecretStateRepository>();
-        services.AddScoped<Services.IDatabaseLoggerService, Services.DatabaseLoggerService>();
+        // Register repositories as Singleton to match SyncService lifetime
+        services.AddSingleton<ISyncLogRepository, SyncLogRepository>();
+        services.AddSingleton<ISecretStateRepository, SecretStateRepository>();
+        services.AddSingleton<Services.IDatabaseLoggerService, Services.DatabaseLoggerService>();
         
         return services;
     }
