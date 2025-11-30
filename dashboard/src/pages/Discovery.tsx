@@ -85,26 +85,26 @@ export default function Discovery() {
   })
 
   // Filter out deleted secrets
-  const activeSecrets = data?.syncedSecrets.filter(s => s.status !== 'Deleted') || []
+  const activeSecrets = data?.syncedSecrets.filter((s: { status: string }) => s.status !== 'Deleted') || []
   
   // Separate successfully synced from failed
-  const successfullySyncedItemIds = new Set(activeSecrets.filter(s => s.status !== 'Failed').map(s => s.vaultwardenItemId))
-  const failedSecrets = activeSecrets.filter(s => s.status === 'Failed')
-  const failedItemIds = new Set(failedSecrets.map(s => s.vaultwardenItemId))
+  const successfullySyncedItemIds = new Set(activeSecrets.filter((s: { status: string }) => s.status !== 'Failed').map((s: { vaultwardenItemId: string }) => s.vaultwardenItemId))
+  const failedSecrets = activeSecrets.filter((s: { status: string }) => s.status === 'Failed')
+  const failedItemIds = new Set(failedSecrets.map((s: { vaultwardenItemId: string }) => s.vaultwardenItemId))
   
   // Not synced includes: items without synced secrets OR items with only failed secrets
-  const notSyncedItems = data?.vaultwardenItems.filter(item => 
+  const notSyncedItems = data?.vaultwardenItems.filter((item: VaultwardenItem) => 
     !successfullySyncedItemIds.has(item.id)
   ) || []
   // @ts-ignore - Used in Coverage Analysis section (line 534), but TS can't detect usage in JSX
-  const syncedItems = data?.vaultwardenItems.filter(item => successfullySyncedItemIds.has(item.id)) || []
+  const syncedItems = data?.vaultwardenItems.filter((item: VaultwardenItem) => successfullySyncedItemIds.has(item.id)) || []
   
   // Debug: Log secrets info
   console.log('All Vaultwarden items:', data?.vaultwardenItems)
   console.log('All active secrets:', activeSecrets)
-  console.log('All synced secrets statuses:', activeSecrets.map(s => ({ id: s.vaultwardenItemId, name: s.vaultwardenItemName, status: s.status, error: s.lastError })))
-  console.log('Items with namespaces field:', data?.vaultwardenItems?.filter(i => i.hasNamespacesField))
-  console.log('Not synced items:', notSyncedItems.map(i => ({ id: i.id, name: i.name, hasNsField: i.hasNamespacesField })))
+  console.log('All synced secrets statuses:', activeSecrets.map((s: any) => ({ id: s.vaultwardenItemId, name: s.vaultwardenItemName, status: s.status, error: s.lastError })))
+  console.log('Items with namespaces field:', data?.vaultwardenItems?.filter((i: VaultwardenItem) => i.hasNamespacesField))
+  console.log('Not synced items:', notSyncedItems.map((i: VaultwardenItem) => ({ id: i.id, name: i.name, hasNsField: i.hasNamespacesField })))
   if (failedSecrets.length > 0) {
     console.log('Failed secrets:', failedSecrets)
     console.log('Failed item IDs:', Array.from(failedItemIds))
@@ -113,10 +113,10 @@ export default function Discovery() {
   }
   
   // Use active secrets only (exclude deleted and failed)
-  const syncedSecrets = activeSecrets.filter(s => s.status !== 'Failed')
+  const syncedSecrets = activeSecrets.filter((s: { status: string }) => s.status !== 'Failed')
   
   // Deduplicate synced secrets by grouping namespaces
-  const groupedSyncedSecrets = syncedSecrets.reduce((acc, secret) => {
+  const groupedSyncedSecrets = syncedSecrets.reduce((acc: Record<string, { vaultwardenItemId: string, vaultwardenItemName: string, secretName: string, totalDataKeys: number, namespaces: Array<{namespace: string, secretName: string, status: string, dataKeysCount: number}> }>, secret: any) => {
     const key = secret.vaultwardenItemId
     if (!acc[key]) {
       acc[key] = {
@@ -141,13 +141,13 @@ export default function Discovery() {
   const dedupedSyncedSecrets = Object.values(groupedSyncedSecrets)
   
   const filteredNotSynced = notSyncedItems.filter(
-    item => item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (item: VaultwardenItem) => item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
            (item.folder?.toLowerCase().includes(searchTerm.toLowerCase()) || false)
   )
 
   const filteredSynced = dedupedSyncedSecrets.filter(
-    item => item.vaultwardenItemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.namespaces.some(ns => 
+    (item: any) => item.vaultwardenItemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.namespaces.some((ns: any) => 
         ns.namespace.toLowerCase().includes(searchTerm.toLowerCase()) ||
         ns.secretName.toLowerCase().includes(searchTerm.toLowerCase())
       )
@@ -397,7 +397,7 @@ export default function Discovery() {
                 </thead>
                 <tbody>
                   {filteredNotSynced.length > 0 ? (
-                    filteredNotSynced.map((item) => (
+                    filteredNotSynced.map((item: VaultwardenItem) => (
                       <tr key={item.id}>
                         <td>
                           <Typography level="body-sm" fontWeight="medium">
@@ -452,7 +452,7 @@ export default function Discovery() {
                             
                             // Failed sync with error
                             if (failedItemIds.has(item.id)) {
-                              const failedSecret = failedSecrets.find(s => s.vaultwardenItemId === item.id)
+                              const failedSecret = failedSecrets.find((s: any) => s.vaultwardenItemId === item.id)
                               const error = failedSecret?.lastError
                               return (
                                 <Typography level="body-sm" sx={{ color: 'danger.500', fontFamily: 'monospace' }}>

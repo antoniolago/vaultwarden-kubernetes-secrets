@@ -210,8 +210,30 @@ export const api = {
     fetchWithAuth('/system/sync-service-resources'),
 
   // Discovery
-  getDiscoveryData: (): Promise<any> =>
-    fetchWithAuth('/discovery'),
+  getDiscoveryData: (): Promise<{
+    vaultwardenItems: Array<{
+      id: string
+      name: string
+      folder: string | null
+      organizationId: string | null
+      organizationName: string | null
+      owner: string | null
+      fields: number
+      notes: string | null
+      hasNamespacesField: boolean
+      namespacesValue: string | null
+    }>
+    syncedSecrets: Array<{
+      vaultwardenItemId: string
+      vaultwardenItemName: string
+      namespace: string
+      secretName: string
+      status: string
+      dataKeysCount: number
+      lastError: string | null
+    }>
+    lastScanTime: string
+  }> => fetchWithAuth('/discovery'),
 
   // Test connection
   testConnection: async (token: string): Promise<boolean> => {
