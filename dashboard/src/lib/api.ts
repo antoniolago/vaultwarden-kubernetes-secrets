@@ -209,6 +209,10 @@ export const api = {
   getSyncServiceResources: (): Promise<SystemResources> =>
     fetchWithAuth('/system/sync-service-resources'),
 
+  // Discovery
+  getDiscoveryData: (): Promise<any> =>
+    fetchWithAuth('/discovery'),
+
   // Test connection
   testConnection: async (token: string): Promise<boolean> => {
     try {

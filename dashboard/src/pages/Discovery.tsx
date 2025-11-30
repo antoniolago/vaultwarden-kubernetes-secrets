@@ -79,26 +79,7 @@ export default function Discovery() {
   // Fetch discovery data from API
   const { data, isLoading, error } = useQuery({
     queryKey: ['discovery'],
-    queryFn: async (): Promise<DiscoveryData> => {
-      const response = await fetch('http://localhost:8080/api/discovery')
-      if (!response.ok) {
-        let errorMessage = `Failed to fetch discovery data (HTTP ${response.status})`
-        try {
-          const errorData = await response.json()
-          if (errorData.message) {
-            errorMessage = errorData.message
-          } else if (errorData.error) {
-            errorMessage = errorData.error
-          }
-        } catch {
-          // If JSON parsing fails, try text
-          const errorText = await response.text().catch(() => '')
-          if (errorText) errorMessage += `: ${errorText}`
-        }
-        throw new Error(errorMessage)
-      }
-      return response.json()
-    },
+    queryFn: api.getDiscoveryData,
     refetchInterval: discoveryRefetchInterval,
     retry: 2,
   })
