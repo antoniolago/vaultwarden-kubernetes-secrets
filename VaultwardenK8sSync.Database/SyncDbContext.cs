@@ -8,14 +8,18 @@ public class SyncDbContext : DbContext
 {
     public SyncDbContext(DbContextOptions<SyncDbContext> options) : base(options)
     {
-        // Enable WAL mode for better concurrency
-        var connection = Database.GetDbConnection();
-        if (connection is SqliteConnection sqliteConnection && sqliteConnection.State == System.Data.ConnectionState.Closed)
+        // Enable WAL mode for better concurrency when connection opens
+        if (Database.GetDbConnection() is SqliteConnection sqliteConnection)
         {
-            sqliteConnection.Open();
-            using var command = sqliteConnection.CreateCommand();
-            command.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=30000;";
-            command.ExecuteNonQuery();
+            sqliteConnection.StateChange += (sender, args) =>
+            {
+                if (args.CurrentState == System.Data.ConnectionState.Open)
+                {
+                    using var command = sqliteConnection.CreateCommand();
+                    command.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=30000;";
+                    command.ExecuteNonQuery();
+                }
+            };
         }
     }
 
