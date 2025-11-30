@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="dashboard/vks.png" alt="VKS Logo" width="120" height="120" />
+  <img src="dashboard/public/vks.png" alt="VKS Logo" width="120" height="120" />
   
   # Vaultwarden Kubernetes Secrets Sync
 
