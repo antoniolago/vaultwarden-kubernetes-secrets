@@ -1,9 +1,15 @@
 nameOverride: ""
 fullnameOverride: ""
 
+# Global configuration
+global:
+  # Global image tag - applies to all components unless overridden
+  # Leave empty to use Chart.AppVersion or component-specific tags
+  imageTag: ""
+
 image:
   repository: ghcr.io/antoniolago/vaultwarden-kubernetes-secrets
-  tag: "latest"
+  tag: ""  # Leave empty to use global.imageTag or Chart.AppVersion
   pullPolicy: IfNotPresent
 
 rbac:
@@ -29,7 +35,7 @@ api:
   replicaCount: 1
   image:
     repository: ghcr.io/antoniolago/vaultwarden-kubernetes-secrets-api
-    tag: "latest"
+    tag: ""  # Leave empty to use global.imageTag or Chart.AppVersion
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -62,7 +68,7 @@ dashboard:
   replicaCount: 2
   image:
     repository: ghcr.io/antoniolago/vaultwarden-kubernetes-secrets-dashboard
-    tag: "latest"
+    tag: ""  # Leave empty to use global.imageTag or Chart.AppVersion
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -74,6 +80,9 @@ dashboard:
     limits:
       cpu: 50m
       memory: 64Mi
+  # API URL for dashboard to connect to backend API
+  # If not specified, defaults to in-cluster service: http://<release-name>-api:8080/api
+  apiUrl: ""
   url: "http://localhost:3000"
   # Loginless mode - should match api.auth.loginlessMode
   loginlessMode: false
