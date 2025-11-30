@@ -55,3 +55,17 @@ Dashboard component name
 {{- define "vaultwarden-kubernetes-secrets.dashboard.fullname" -}}
 {{- printf "%s-dashboard" (include "vaultwarden-kubernetes-secrets.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
+
+{{/*
+Resolve image tag with fallback: component tag -> global tag -> Chart.AppVersion
+Usage: {{ include "vaultwarden-kubernetes-secrets.imageTag" (dict "tag" .Values.image.tag "global" .Values.global.imageTag "appVersion" .Chart.AppVersion) }}
+*/}}
+{{- define "vaultwarden-kubernetes-secrets.imageTag" -}}
+{{- if and .tag (ne .tag "") -}}
+{{- .tag -}}
+{{- else if and .global (ne .global "") -}}
+{{- .global -}}
+{{- else -}}
+{{- .appVersion -}}
+{{- end -}}
+{{- end -}}

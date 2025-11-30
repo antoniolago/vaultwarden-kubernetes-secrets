@@ -57,7 +57,7 @@ spec:
           emptyDir: {}
       containers:
         - name: {{ include "vaultwarden-kubernetes-secrets.name" . }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Values.global.imageTag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ include "vaultwarden-kubernetes-secrets.imageTag" (dict "tag" .Values.image.tag "global" .Values.global.imageTag "appVersion" .Chart.AppVersion) }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- if .Values.debug }}
           command: ["tail", "-f", "/dev/null"]

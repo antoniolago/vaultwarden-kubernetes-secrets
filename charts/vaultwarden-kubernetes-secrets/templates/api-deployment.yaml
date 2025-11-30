@@ -25,7 +25,7 @@ spec:
       {{- end }}
       containers:
       - name: api
-        image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag | default .Values.global.imageTag | default .Chart.AppVersion }}"
+        image: "{{ .Values.api.image.repository }}:{{ include "vaultwarden-kubernetes-secrets.imageTag" (dict "tag" .Values.api.image.tag "global" .Values.global.imageTag "appVersion" .Chart.AppVersion) }}"
         imagePullPolicy: {{ .Values.api.image.pullPolicy }}
         {{- with .Values.containerSecurityContext }}
         securityContext:
