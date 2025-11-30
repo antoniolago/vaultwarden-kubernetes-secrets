@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { Modal, ModalDialog, ModalClose, Typography, Box, Sheet, CircularProgress, Chip, Tabs, TabList, TabPanel } from '@mui/joy'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { getApiBaseUrl, getWebSocketUrl } from '../lib/api'
 
 interface SyncLog {
   id: number
@@ -36,7 +37,7 @@ export default function SyncOutputModal({ open, onClose }: SyncOutputModalProps)
   const { data: logs, isLoading } = useQuery({
     queryKey: ['sync-logs-live'],
     queryFn: async (): Promise<SyncLog[]> => {
-      const response = await fetch('http://localhost:8080/api/SyncLogs?count=10')
+      const response = await fetch(`${getApiBaseUrl()}/SyncLogs?count=10`)
       if (!response.ok) throw new Error('Failed to fetch sync logs')
       return response.json()
     },
@@ -48,8 +49,7 @@ export default function SyncOutputModal({ open, onClose }: SyncOutputModalProps)
   useEffect(() => {
     if (!open) return
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//localhost:8080/api/sync-output/stream`
+    const wsUrl = getWebSocketUrl('/api/sync-output/stream')
     
     try {
       const ws = new WebSocket(wsUrl)

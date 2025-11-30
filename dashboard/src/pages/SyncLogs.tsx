@@ -57,25 +57,13 @@ export default function SyncLogs() {
     setResetSuccess(false)
     
     try {
-      const token = localStorage.getItem('authToken')
-      const response = await fetch('http://localhost:8080/api/system/reset-database', {
-        method: 'POST',
-        headers: {
-          'Authorization': token ? `Bearer ${token}` : '',
-        },
-      })
-      
-      if (response.ok) {
-        setResetSuccess(true)
-        setTimeout(() => {
-          setResetModalOpen(false)
-          setResetSuccess(false)
-          window.location.reload() // Refresh to show empty state
-        }, 2000)
-      } else {
-        const error = await response.text()
-        setResetError(error || 'Failed to reset database')
-      }
+      await api.resetDatabase()
+      setResetSuccess(true)
+      setTimeout(() => {
+        setResetModalOpen(false)
+        setResetSuccess(false)
+        window.location.reload() // Refresh to show empty state
+      }, 2000)
     } catch (err) {
       setResetError('Unable to connect to API')
     } finally {

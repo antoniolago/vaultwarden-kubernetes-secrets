@@ -137,14 +137,8 @@ export default function Secrets() {
                             setLoadingDataKeys(true)
                             try {
                               // Fetch actual data keys from K8s secret
-                              const response = await fetch(`http://localhost:8080/api/secrets/${secret.namespace}/${secret.secretName}/keys`)
-                              if (response.ok) {
-                                const keys = await response.json()
-                                handleShowKeys(keys, secret.namespace, secret.secretName)
-                              } else {
-                                // Fallback: show count only
-                                handleShowKeys([`${secret.dataKeysCount} keys (error fetching names)`], secret.namespace, secret.secretName)
-                              }
+                              const keys = await api.getSecretDataKeys(secret.namespace, secret.secretName)
+                              handleShowKeys(keys, secret.namespace, secret.secretName)
                             } catch (err) {
                               console.error('Failed to fetch data keys:', err)
                               handleShowKeys([`${secret.dataKeysCount} keys (error fetching names)`], secret.namespace, secret.secretName)

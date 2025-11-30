@@ -3,6 +3,16 @@ import * as mockData from './mockData'
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api'
 const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === 'true'
 
+// Export API_URL for components that need direct access
+export const getApiBaseUrl = () => API_URL
+
+// Get WebSocket URL based on API URL
+export const getWebSocketUrl = (path: string) => {
+  const apiUrl = new URL(API_URL)
+  const protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${apiUrl.host}${path}`
+}
+
 function getToken(): string | null {
   return localStorage.getItem('auth_token')
 }
@@ -247,5 +257,29 @@ export const api = {
     } catch {
       return false
     }
+  },
+
+  // Secret data keys
+  getSecretDataKeys: (namespace: string, secretName: string): Promise<string[]> =>
+    fetchWithAuth(`/secrets/${namespace}/${secretName}/keys`),
+
+  // Vaultwarden item fields
+  getVaultwardenItemFields: (itemId: string): Promise<Array<{name: string, value: string, type: string}>> =>
+    fetchWithAuth(`/vaultwarden/items/${itemId}/fields`),
+
+  // System operations
+  resetDatabase: async (): Promise<{success: boolean, message: string}> => {
+    const token = localStorage.getItem('authToken')
+    const response = await fetch(`${API_URL}/system/reset-database`, {
+      method: 'POST',
+      headers: {
+        'Authorization': token ? `Bearer ${token}` : '',
+        'Content-Type': 'application/json',
+      },
+    })
+    if (!response.ok) {
+      throw new Error('Failed to reset database')
+    }
+    return response.json()
   },
 }

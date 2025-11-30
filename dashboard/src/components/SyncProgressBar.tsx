@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { Card, CardContent, Typography, LinearProgress, Box, Chip, CircularProgress, Modal, ModalDialog, ModalClose, Sheet, IconButton } from '@mui/joy'
 import { Info } from 'lucide-react'
 import SyncOutputModal from './SyncOutputModal'
+import { getApiBaseUrl } from '../lib/api'
 
 interface SyncStatus {
   syncIntervalSeconds: number
@@ -49,7 +50,7 @@ export default function SyncProgressBar() {
     const fetchData = async () => {
       try {
         // Fetch sync status
-        const statusResponse = await fetch('http://localhost:8080/api/dashboard/sync-status')
+        const statusResponse = await fetch(`${getApiBaseUrl()}/dashboard/sync-status`)
         if (statusResponse.ok) {
           const data: SyncStatus = await statusResponse.json()
           console.log('[SyncBar] Sync status:', {
@@ -65,7 +66,7 @@ export default function SyncProgressBar() {
         }
 
         // Fetch recent sync logs to determine current state
-        const overviewResponse = await fetch('http://localhost:8080/api/dashboard/overview')
+        const overviewResponse = await fetch(`${getApiBaseUrl()}/dashboard/overview`)
         if (overviewResponse.ok) {
           const overview: OverviewData = await overviewResponse.json()
           setAverageDuration(overview.averageSyncDuration || 5)

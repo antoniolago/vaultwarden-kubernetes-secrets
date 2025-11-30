@@ -166,14 +166,8 @@ export default function Dashboard() {
       const secrets = await api.getSecretsByNamespace(namespace)
       const keysPromises = secrets.map(async (secret) => {
         try {
-          const response = await fetch(`http://localhost:8080/api/secrets/${secret.namespace}/${secret.secretName}/keys`)
-          if (response.ok) {
-            const keys = await response.json()
-            return { secretName: secret.secretName, keys }
-          }
-          // API call failed, but secret exists
-          console.warn(`Could not fetch keys for ${secret.secretName}`)
-          return { secretName: secret.secretName, keys: ['Unable to fetch key names'] }
+          const keys = await api.getSecretDataKeys(secret.namespace, secret.secretName)
+          return { secretName: secret.secretName, keys }
         } catch (error) {
           console.error(`Error fetching keys for ${secret.secretName}:`, error)
           return { secretName: secret.secretName, keys: ['Error fetching keys'] }
@@ -211,7 +205,7 @@ export default function Dashboard() {
             <strong>❌ Error:</strong> Failed to load dashboard: {(error as Error).message}
           </Typography>
           <Typography level="body-xs" sx={{ mt: 1 }}>
-            Please check that the API is running at http://localhost:8080 and is accessible. The page will retry automatically.
+            Please check that the API is running and accessible. The page will retry automatically.
           </Typography>
         </Alert>
       </Box>

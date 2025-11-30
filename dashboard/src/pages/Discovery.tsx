@@ -146,13 +146,8 @@ export default function Discovery() {
     setDataKeysModalOpen(true)
     
     try {
-      const response = await fetch(`http://localhost:8080/api/secrets/${namespace}/${secretName}/keys`)
-      if (response.ok) {
-        const keys = await response.json()
-        setSelectedDataKeys([{ label: secretName, keys }])
-      } else {
-        setSelectedDataKeys([{ label: secretName, keys: ['Unable to fetch key names'] }])
-      }
+      const keys = await api.getSecretDataKeys(namespace, secretName)
+      setSelectedDataKeys([{ label: secretName, keys }])
     } catch (error) {
       console.error(`Error fetching keys:`, error)
       setSelectedDataKeys([{ label: secretName, keys: ['Error fetching keys'] }])
@@ -167,13 +162,10 @@ export default function Discovery() {
     setFieldsModalOpen(true)
     
     try {
-      const response = await fetch(`http://localhost:8080/api/vaultwarden/items/${itemId}/fields`)
-      if (response.ok) {
-        const fields = await response.json()
-        setSelectedFields([{ label: 'Custom Fields', keys: fields }])
-      } else {
-        setSelectedFields([{ label: 'Custom Fields', keys: ['Unable to fetch field names'] }])
-      }
+      const fields = await api.getVaultwardenItemFields(itemId)
+      // Map field objects to strings for display
+      const fieldStrings = fields.map(f => `${f.name}: ${f.value}`)
+      setSelectedFields([{ label: 'Custom Fields', keys: fieldStrings }])
     } catch (error) {
       console.error(`Error fetching fields:`, error)
       setSelectedFields([{ label: 'Custom Fields', keys: ['Error fetching fields'] }])
