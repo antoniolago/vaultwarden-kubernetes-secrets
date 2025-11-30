@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using VaultwardenK8sSync.Database;
 using VaultwardenK8sSync.Database.Models;
 using VaultwardenK8sSync.Database.Repositories;
@@ -9,9 +10,7 @@ namespace VaultwardenK8sSync.Services;
 
 public class DatabaseLoggerService : IDatabaseLoggerService
 {
-    private readonly SyncDbContext? _context;
-    private readonly ISyncLogRepository? _syncLogRepository;
-    private readonly ISecretStateRepository? _secretStateRepository;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly IVaultwardenService? _vaultwardenService;
     private readonly ILogger<DatabaseLoggerService> _logger;
     private readonly bool _isEnabled;
@@ -20,21 +19,17 @@ public class DatabaseLoggerService : IDatabaseLoggerService
 
     public DatabaseLoggerService(
         ILogger<DatabaseLoggerService> logger,
-        SyncDbContext? context = null,
-        ISyncLogRepository? syncLogRepository = null,
-        ISecretStateRepository? secretStateRepository = null,
+        IServiceScopeFactory scopeFactory,
         IVaultwardenService? vaultwardenService = null)
     {
         _logger = logger;
-        _context = context;
-        _syncLogRepository = syncLogRepository;
-        _secretStateRepository = secretStateRepository;
+        _scopeFactory = scopeFactory;
         _vaultwardenService = vaultwardenService;
-        _isEnabled = context != null && syncLogRepository != null && secretStateRepository != null;
+        _isEnabled = scopeFactory != null;
 
         if (!_isEnabled)
         {
-            _logger.LogInformation("Database logging is disabled - database context not configured");
+            _logger.LogInformation("Database logging is disabled - service scope factory not configured");
         }
     }
 
@@ -66,7 +61,9 @@ public class DatabaseLoggerService : IDatabaseLoggerService
                 ContinuousSync = continuousSync
             };
 
-            var created = await _syncLogRepository!.CreateAsync(syncLog);
+            using var scope = _scopeFactory.CreateScope();
+            var syncLogRepository = scope.ServiceProvider.GetRequiredService<ISyncLogRepository>();
+            var created = await syncLogRepository.CreateAsync(syncLog);
             _activeSyncLogs[created.Id] = created;
             _syncStartTimes[created.Id] = DateTime.UtcNow;
             
@@ -95,7 +92,9 @@ public class DatabaseLoggerService : IDatabaseLoggerService
                 syncLog.FailedSecrets = failed;
                 syncLog.DeletedSecrets = deleted;
 
-                await _syncLogRepository!.UpdateAsync(syncLog);
+                using var scope = _scopeFactory.CreateScope();
+                var syncLogRepository = scope.ServiceProvider.GetRequiredService<ISyncLogRepository>();
+                await syncLogRepository.UpdateAsync(syncLog);
             }
         }
         catch (Exception ex)
@@ -133,7 +132,9 @@ public class DatabaseLoggerService : IDatabaseLoggerService
                         _syncStartTimes.Remove(syncLogId);
                     }
 
-                    await _syncLogRepository!.UpdateAsync(syncLog);
+                    using var scope = _scopeFactory.CreateScope();
+                    var syncLogRepository = scope.ServiceProvider.GetRequiredService<ISyncLogRepository>();
+                    await syncLogRepository.UpdateAsync(syncLog);
                     _activeSyncLogs.Remove(syncLogId);
                     
                     _logger.LogInformation("✅ Sync log {SyncLogId} saved to database", syncLogId);
@@ -191,8 +192,10 @@ public class DatabaseLoggerService : IDatabaseLoggerService
                 Timestamp = DateTime.UtcNow
             };
 
-            _context!.SyncItems.Add(syncItem);
-            await _context.SaveChangesAsync();
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<SyncDbContext>();
+            context.SyncItems.Add(syncItem);
+            await context.SaveChangesAsync();
         }
         catch (Exception ex)
         {
@@ -225,7 +228,9 @@ public class DatabaseLoggerService : IDatabaseLoggerService
                 LastError = lastError
             };
 
-            await _secretStateRepository!.UpsertAsync(secretState);
+            using var scope = _scopeFactory.CreateScope();
+            var secretStateRepository = scope.ServiceProvider.GetRequiredService<ISecretStateRepository>();
+            await secretStateRepository.UpsertAsync(secretState);
         }
         catch (Exception ex)
         {
@@ -235,7 +240,7 @@ public class DatabaseLoggerService : IDatabaseLoggerService
 
     public async Task CacheVaultwardenItemsAsync(List<Models.VaultwardenItem> items)
     {
-        if (!_isEnabled || _context == null)
+        if (!_isEnabled)
         {
             _logger.LogDebug("Skipping Vaultwarden items cache - database not enabled");
             return;
@@ -272,8 +277,11 @@ public class DatabaseLoggerService : IDatabaseLoggerService
                 }
             }
             
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<SyncDbContext>();
+            
             // Clear old cached items
-            _context.VaultwardenItems.RemoveRange(_context.VaultwardenItems);
+            context.VaultwardenItems.RemoveRange(context.VaultwardenItems);
             
             // Add new items
             foreach (var item in items)
@@ -328,10 +336,10 @@ public class DatabaseLoggerService : IDatabaseLoggerService
                     NamespacesJson = namespaces.Any() ? JsonSerializer.Serialize(namespaces) : null
                 };
                 
-                _context.VaultwardenItems.Add(dbItem);
+                context.VaultwardenItems.Add(dbItem);
             }
             
-            await _context.SaveChangesAsync();
+            await context.SaveChangesAsync();
             _logger.LogInformation("Cached {Count} Vaultwarden items in database", items.Count);
         }
         catch (Exception ex)
@@ -350,6 +358,9 @@ public class DatabaseLoggerService : IDatabaseLoggerService
 
         try
         {
+            using var scope = _scopeFactory.CreateScope();
+            var secretStateRepository = scope.ServiceProvider.GetRequiredService<ISecretStateRepository>();
+            
             // Build a set of all valid (namespace, secretName) combinations from current items
             var validSecretKeys = new HashSet<string>();
             
@@ -370,7 +381,7 @@ public class DatabaseLoggerService : IDatabaseLoggerService
             }
 
             // Get all secret states from database
-            var allSecretStates = await _secretStateRepository!.GetAllAsync();
+            var allSecretStates = await secretStateRepository.GetAllAsync();
             
             // Find stale entries - those that don't match any current Vaultwarden items
             var staleStates = allSecretStates
@@ -385,7 +396,7 @@ public class DatabaseLoggerService : IDatabaseLoggerService
                 {
                     _logger.LogDebug("Removing stale secret state: {Namespace}/{SecretName}", 
                         staleState.Namespace, staleState.SecretName);
-                    await _secretStateRepository.DeleteAsync(staleState.Id);
+                    await secretStateRepository.DeleteAsync(staleState.Id);
                 }
                 
                 _logger.LogInformation("✅ Cleaned up {Count} stale secret state entries", staleStates.Count);
