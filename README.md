@@ -10,7 +10,7 @@
 
 Automatically sync secrets from [Vaultwarden](https://github.com/dani-garcia/vaultwarden) to Kubernetes. Store your secrets in Vaultwarden, tag them with target namespaces, and they'll be created as Kubernetes Secrets.
 
-⚠️ **Early stage**: May have high CPU usage with frequent syncs. Increase `SYNC__SYNCINTERVALSECONDS` if needed.
+⚠️ May have high CPU usage with too frequent syncs. Increase `SYNC__SYNCINTERVALSECONDS` if needed.
 
 ---
 
