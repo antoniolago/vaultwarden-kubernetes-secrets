@@ -3,14 +3,12 @@
   
   # Vaultwarden Kubernetes Secrets Sync
 
-> **[🎮 Live Demo](https://antoniolago.github.io/vaultwarden-kubernetes-secrets/)** - Try the dashboard with realistic mock data!
-
   [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/vaultwarden-kubernetes-secrets)](https://artifacthub.io/packages/search?repo=vaultwarden-kubernetes-secrets) [![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/antoniolago/vaultwarden-kubernetes-secrets)
+[![Gitea](https://img.shields.io/badge/Gitea-34495E?style=for-the-badge&logo=gitea&logoColor=5D9425)](https://gitea.lag0.com.br/antoniolago/vaultwarden-kubernetes-secrets)
 </div>
 
 Automatically sync secrets from [Vaultwarden](https://github.com/dani-garcia/vaultwarden) to Kubernetes. Store your secrets in Vaultwarden, tag them with target namespaces, and they'll be created as Kubernetes Secrets.
 
-⚠️ May have high CPU usage with too frequent syncs. Increase `SYNC__SYNCINTERVALSECONDS` if needed.
 
 ---
 
@@ -52,7 +50,7 @@ helm upgrade -i vaultwarden-kubernetes-secrets oci://ghcr.io/antoniolago/charts/
 **Security tip**: Create a dedicated Vaultwarden user for this service and scope it to a specific Organization/Collection.
 
 **Registry Options:**
-- **GHCR (Recommended)**: `oci://ghcr.io/antoniolago/charts/vaultwarden-kubernetes-secrets` - Public GitHub Container Registry
+- **GHCR (Default)**: `oci://ghcr.io/antoniolago/charts/vaultwarden-kubernetes-secrets` - Public GitHub Container Registry
 - **Harbor**: `oci://harbor.lag0.com.br/charts/vaultwarden-kubernetes-secrets` - Alternative registry 
 
 ### 2. Create a Secret in Vaultwarden
@@ -201,7 +199,7 @@ See [`values.yaml`](charts/vaultwarden-kubernetes-secrets/values.yaml) for all o
 - Ensure target namespaces exist in Kubernetes
 - Confirm the Vaultwarden user has access to the item (check Organization/Collection permissions)
 
-**High CPU usage?**
+**CPU spikes?**
 - Increase `SYNC__SYNCINTERVALSECONDS` (default: 30 seconds)
 - Consider using Organization/Collection filters to reduce item count
 
