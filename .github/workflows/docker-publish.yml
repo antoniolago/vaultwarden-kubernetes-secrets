@@ -195,6 +195,7 @@ jobs:
           tags: |
             ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets:latest', github.repository_owner) || '' }}
             ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets:${{ needs.prepare-versions.outputs.raw_tag }}
+            ${{ github.event_name != 'pull_request' && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets:{1}', github.repository_owner, needs.prepare-versions.outputs.version) || '' }}
             ${{ github.event_name != 'pull_request' && 'harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:latest' || '' }}
             ${{ github.event_name != 'pull_request' && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:{0}', needs.prepare-versions.outputs.raw_tag) || '' }}
             ${{ github.event_name != 'pull_request' && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:{0}', needs.prepare-versions.outputs.version) || '' }}
@@ -243,6 +244,7 @@ jobs:
           tags: |
             ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets-api:latest', github.repository_owner) || '' }}
             ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets-api:${{ needs.prepare-versions.outputs.raw_tag }}
+            ${{ github.event_name != 'pull_request' && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets-api:{1}', github.repository_owner, needs.prepare-versions.outputs.version) || '' }}
             ${{ github.event_name != 'pull_request' && 'harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:latest' || '' }}
             ${{ github.event_name != 'pull_request' && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:{0}', needs.prepare-versions.outputs.raw_tag) || '' }}
             ${{ github.event_name != 'pull_request' && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:{0}', needs.prepare-versions.outputs.version) || '' }}
@@ -291,6 +293,7 @@ jobs:
           tags: |
             ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets-dashboard:latest', github.repository_owner) || '' }}
             ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets-dashboard:${{ needs.prepare-versions.outputs.raw_tag }}
+            ${{ github.event_name != 'pull_request' && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets-dashboard:{1}', github.repository_owner, needs.prepare-versions.outputs.version) || '' }}
             ${{ github.event_name != 'pull_request' && 'harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:latest' || '' }}
             ${{ github.event_name != 'pull_request' && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:{0}', needs.prepare-versions.outputs.raw_tag) || '' }}
             ${{ github.event_name != 'pull_request' && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:{0}', needs.prepare-versions.outputs.version) || '' }}
