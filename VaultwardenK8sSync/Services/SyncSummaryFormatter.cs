@@ -14,30 +14,21 @@ public static class SyncSummaryFormatter
         
         var sb = new StringBuilder();
         
-        // Header with ASCII art
+        // Header
         sb.AppendLine();
-        sb.AppendLine("╔══════════════════════════════════════════════════════════════╗");
-        sb.AppendLine("║              🔄 VAULTWARDEN K8S SYNC SUMMARY 🔄               ║");
-        sb.AppendLine("╚══════════════════════════════════════════════════════════════╝");
+        sb.AppendLine("=============================================================");
+        sb.AppendLine("         🔄 VAULTWARDEN K8S SYNC SUMMARY 🔄");
+        sb.AppendLine("=============================================================");
         sb.AppendLine();
         
-        // Compact overview (all on fewer lines)
-        AppendCompactOverview(sb, summary, isDryRun);
+        // Overview
+        AppendOverview(sb, summary, isDryRun);
         
-        // Namespace details (more compact)
+        // Namespace details
         if (summary.Namespaces?.Any() == true)
         {
-            AppendCompactNamespaceDetails(sb, summary.Namespaces, isDryRun);
+            AppendNamespaceDetails(sb, summary.Namespaces, isDryRun);
         }
-        
-        // Orphan cleanup (more compact)
-        if (summary.OrphanCleanup?.Enabled == true)
-        {
-            AppendCompactOrphanCleanup(sb, summary.OrphanCleanup, isDryRun);
-        }
-        
-        // Errors and warnings (more compact)
-        AppendCompactIssues(sb, summary);
         
         // Footer
         AppendFooter(sb, summary);
@@ -45,13 +36,12 @@ public static class SyncSummaryFormatter
         return sb.ToString();
     }
     
-    private static void AppendCompactOverview(StringBuilder sb, SyncSummary summary, bool isDryRun)
+    private static void AppendOverview(StringBuilder sb, SyncSummary summary, bool isDryRun)
     {
         var dryRunTag = isDryRun ? " [DRY RUN]" : "";
         var statusIcon = summary.GetStatusIcon();
         var statusText = summary.GetStatusText();
         
-        // Combine sync info and stats on fewer lines
         sb.AppendLine($"📊 Sync #{summary.SyncNumber}{dryRunTag}");
         sb.AppendLine($"⏱️  Duration: {summary.Duration.TotalSeconds:F1}s");
         sb.AppendLine($"🎯 Status: {statusIcon} {statusText}");
@@ -60,93 +50,36 @@ public static class SyncSummaryFormatter
         sb.AppendLine($"🔄 Changes detected: {(summary.HasChanges ? "Yes" : "No")}");
         sb.AppendLine();
         
-        // Compact stats on one line
-        sb.AppendLine("📈 QUICK STATS");
-        sb.AppendLine("├─────────────────────────────────────────");
-        sb.AppendLine($"│ 🆕 Created: {summary.TotalSecretsCreated,4}");
-        sb.AppendLine($"│ 🔄 Updated: {summary.TotalSecretsUpdated,4}");
-        sb.AppendLine($"│ ✅ Up-To-Date: {summary.TotalSecretsSkipped,4}");
-        sb.AppendLine($"│ ❌ Failed:  {summary.TotalSecretsFailed,4}");
-        sb.AppendLine($"│ 🧹 Orphans: {summary.OrphanCleanup?.TotalOrphansDeleted ?? 0,4}");
-        sb.AppendLine($"│ ➤  Total:   {summary.TotalSecretsProcessed,4}");
-        sb.AppendLine("└─────────────────────────────────────────");
+        // Stats
+        sb.AppendLine("📈 STATISTICS:");
+        sb.AppendLine($"   🆕 Created: {summary.TotalSecretsCreated}");
+        sb.AppendLine($"   🔄 Updated: {summary.TotalSecretsUpdated}");
+        sb.AppendLine($"   ✅ Up-to-date: {summary.TotalSecretsSkipped}");
+        sb.AppendLine($"   ❌ Failed: {summary.TotalSecretsFailed}");
+        sb.AppendLine($"   🧹 Orphans deleted: {summary.OrphanCleanup?.TotalOrphansDeleted ?? 0}");
+        sb.AppendLine($"   ➤  Total processed: {summary.TotalSecretsProcessed}");
         sb.AppendLine();
-    }
-    
-    private static void AppendCompactNamespaceDetails(StringBuilder sb, List<NamespaceSummary> namespaces, bool isDryRun)
-    {
-        if (namespaces == null || !namespaces.Any()) return;
         
-        sb.AppendLine("🌐 NAMESPACE DETAILS");
-        sb.AppendLine("├─────────────────────────────────────────");
-        
-        foreach (var ns in namespaces.OrderBy(n => n.Name))
+        // Orphan cleanup
+        if (summary.OrphanCleanup?.Enabled == true && summary.OrphanCleanup.TotalOrphansFound > 0)
         {
-            if (ns == null) continue;
-            
-            var statusIcon = ns.GetStatusIcon();
-            
-            // Compact namespace header with stats on one line
-            var parts = new List<string>();
-            if (ns.Created > 0) parts.Add($"🆕 {ns.Created}");
-            if (ns.Updated > 0) parts.Add($"🔄 {ns.Updated}");
-            if (ns.Skipped > 0) parts.Add($"✅ {ns.Skipped}");
-            if (ns.Failed > 0) parts.Add($"❌ {ns.Failed}");
-            
-            var resultsText = parts.Any() ? $" → Results: {string.Join(" ", parts)}" : "";
-            sb.AppendLine($"│ {statusIcon} {ns.Name}");
-            sb.AppendLine($"│   └─ Items: {ns.SourceItems} → Secrets: {ns.Created + ns.Updated + ns.Skipped + ns.Failed}{resultsText}");
-            
-            // Show ALL secrets with outcomes (not filtered)
-            var allSecrets = ns.Secrets?.Where(s => 
-                s.Outcome == ReconcileOutcome.Failed || 
-                s.Outcome == ReconcileOutcome.Created ||
-                s.Outcome == ReconcileOutcome.Updated ||
-                s.Outcome == ReconcileOutcome.Skipped).ToList();
-                
-            if (allSecrets?.Any() == true)
-            {
-                foreach (var secret in allSecrets)
-                {
-                    if (secret == null) continue;
-                    var secretIcon = secret.GetStatusIcon();
-                    var secretStatus = secret.GetStatusText();
-                    sb.AppendLine($"│      • {secretIcon} {secret.Name}: {secretStatus}");
-                }
-            }
-            
-            sb.AppendLine("│");
-        }
-        
-        sb.AppendLine("└─────────────────────────────────────────");
-        sb.AppendLine();
-    }
-    
-    private static void AppendCompactOrphanCleanup(StringBuilder sb, OrphanCleanupSummary cleanup, bool isDryRun)
-    {
-        // Only show if there were orphans found/deleted
-        if (cleanup.TotalOrphansFound > 0)
-        {
-            var statusIcon = cleanup.GetStatusIcon();
+            var orphanStatusIcon = summary.OrphanCleanup.GetStatusIcon();
             var dryRunText = isDryRun ? " (would delete)" : "";
-            
-            sb.AppendLine($"🧹 Orphan Cleanup: {statusIcon} {cleanup.TotalOrphansDeleted}/{cleanup.TotalOrphansFound} deleted{dryRunText}");
+            sb.AppendLine("🧹 ORPHAN CLEANUP:");
+            sb.AppendLine($"   {orphanStatusIcon} {summary.OrphanCleanup.TotalOrphansDeleted}/{summary.OrphanCleanup.TotalOrphansFound} deleted{dryRunText}");
             sb.AppendLine();
         }
-    }
-    
-    private static void AppendCompactIssues(StringBuilder sb, SyncSummary summary)
-    {
+        
+        // Issues
         if (summary?.Errors?.Any() == true || summary?.Warnings?.Any() == true)
         {
-            sb.AppendLine("⚠️  ISSUES");
-            sb.AppendLine("├─────────────────────────────────────────");
+            sb.AppendLine("⚠️  ISSUES:");
             
             if (summary.Errors?.Any() == true)
             {
                 foreach (var error in summary.Errors)
                 {
-                    sb.AppendLine($"│ ❌ {error}");
+                    sb.AppendLine($"   ❌ {error}");
                 }
             }
             
@@ -154,13 +87,120 @@ public static class SyncSummaryFormatter
             {
                 foreach (var warning in summary.Warnings)
                 {
-                    sb.AppendLine($"│ ⚠️  {warning}");
+                    sb.AppendLine($"   ⚠️  {warning}");
                 }
             }
             
-            sb.AppendLine("└─────────────────────────────────────────");
             sb.AppendLine();
         }
+    }
+    
+    private static void AppendNamespaceDetails(StringBuilder sb, List<NamespaceSummary> namespaces, bool isDryRun)
+    {
+        if (namespaces == null || !namespaces.Any()) return;
+        
+        sb.AppendLine("🌐 NAMESPACE DETAILS:");
+        sb.AppendLine();
+        
+        // Group namespaces by status
+        var created = namespaces.Where(n => n.Created > 0 && n.Failed == 0).ToList();
+        var updated = namespaces.Where(n => n.Updated > 0 && n.Created == 0 && n.Failed == 0).ToList();
+        var upToDate = namespaces.Where(n => n.Skipped > 0 && n.Created == 0 && n.Updated == 0 && n.Failed == 0).ToList();
+        var failed = namespaces.Where(n => n.Failed > 0 || !n.Success).ToList();
+        var notFound = namespaces.Where(n => n.Errors.Any(e => e.Contains("not found") || e.Contains("does not exist"))).ToList();
+        
+        // Render each group
+        if (created.Any())
+        {
+            sb.AppendLine("🆕 CREATED:");
+            foreach (var ns in created.OrderBy(n => n.Name))
+            {
+                var stats = GetNamespaceStatsText(ns);
+                sb.AppendLine($"   • {ns.Name}{stats}");
+                foreach (var error in ns.Errors)
+                {
+                    sb.AppendLine($"     ↳ {error}");
+                }
+            }
+            sb.AppendLine();
+        }
+        
+        if (updated.Any())
+        {
+            sb.AppendLine("🔄 UPDATED:");
+            foreach (var ns in updated.OrderBy(n => n.Name))
+            {
+                var stats = GetNamespaceStatsText(ns);
+                sb.AppendLine($"   • {ns.Name}{stats}");
+                foreach (var error in ns.Errors)
+                {
+                    sb.AppendLine($"     ↳ {error}");
+                }
+            }
+            sb.AppendLine();
+        }
+        
+        if (upToDate.Any())
+        {
+            sb.AppendLine("✅ UP-TO-DATE:");
+            foreach (var ns in upToDate.OrderBy(n => n.Name))
+            {
+                var stats = GetNamespaceStatsText(ns);
+                sb.AppendLine($"   • {ns.Name}{stats}");
+            }
+            sb.AppendLine();
+        }
+        
+        if (failed.Any())
+        {
+            sb.AppendLine("❌ FAILED:");
+            foreach (var ns in failed.OrderBy(n => n.Name))
+            {
+                var stats = GetNamespaceStatsText(ns);
+                sb.AppendLine($"   • {ns.Name}{stats}");
+                
+                // Limit to first 3 errors per namespace and truncate long messages
+                var errorsToShow = ns.Errors.Take(3).ToList();
+                for (int i = 0; i < errorsToShow.Count; i++)
+                {
+                    var error = errorsToShow[i];
+                    var truncatedError = error.Length > 100 ? error.Substring(0, 100) + "..." : error;
+                    sb.AppendLine($"     ↳ Error {i + 1}: {truncatedError}");
+                }
+                
+                if (ns.Errors.Count > 3)
+                {
+                    sb.AppendLine($"     ↳ ... and {ns.Errors.Count - 3} more error(s)");
+                }
+            }
+            sb.AppendLine();
+        }
+        
+        if (notFound.Any())
+        {
+            sb.AppendLine("⚠️  NOT FOUND:");
+            foreach (var ns in notFound.OrderBy(n => n.Name))
+            {
+                var stats = GetNamespaceStatsText(ns);
+                sb.AppendLine($"   • {ns.Name}{stats}");
+                foreach (var error in ns.Errors)
+                {
+                    sb.AppendLine($"     ↳ {error}");
+                }
+            }
+            sb.AppendLine();
+        }
+    }
+    
+    private static string GetNamespaceStatsText(NamespaceSummary ns)
+    {
+        var stats = new List<string>();
+        if (ns.Created > 0) stats.Add($"C:{ns.Created}");
+        if (ns.Updated > 0) stats.Add($"U:{ns.Updated}");
+        if (ns.Skipped > 0) stats.Add($"S:{ns.Skipped}");
+        if (ns.Failed > 0) stats.Add($"F:{ns.Failed}");
+        
+        return stats.Any() ? $" [{string.Join(", ", stats)}]" : "";
     }
     
     private static void AppendFooter(StringBuilder sb, SyncSummary summary)
@@ -170,8 +210,8 @@ public static class SyncSummaryFormatter
         var statusIcon = summary.GetStatusIcon();
         var endTime = summary.EndTime.ToString("HH:mm:ss");
         
-        sb.AppendLine("╔══════════════════════════════════════════════════════════════╗");
-        sb.AppendLine($"║ {statusIcon} Sync completed at {endTime} - Next sync in configured interval ║");
-        sb.AppendLine("╚══════════════════════════════════════════════════════════════╝");
+        sb.AppendLine("=============================================================");
+        sb.AppendLine($"{statusIcon} Sync completed at {endTime} - Next sync in configured interval");
+        sb.AppendLine("=============================================================");
     }
 }

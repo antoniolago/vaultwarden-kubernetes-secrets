@@ -139,7 +139,7 @@ public class VaultwardenItem
     public string? ExtractSecretKeyPassword()
     {
         // Prefer custom field if provided
-        var fromField = GetCustomFieldValue(FieldNameConfig.SecretKeyPasswordFieldName, "secret-key-password");
+        var fromField = GetCustomFieldValue(FieldNameConfig.SecretKeyPasswordFieldName, "secret-key-password", "secret-key");
         if (!string.IsNullOrWhiteSpace(fromField))
             return fromField.Trim();
 

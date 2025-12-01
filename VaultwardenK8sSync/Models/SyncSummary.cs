@@ -9,6 +9,7 @@ public class SyncSummary
     public TimeSpan Duration => EndTime - StartTime;
     public int SyncNumber { get; set; }
     public bool OverallSuccess { get; set; } = true;
+    public int SyncIntervalSeconds { get; set; }
     
     public int TotalItemsFromVaultwarden { get; set; }
     public int TotalNamespaces { get; set; }
@@ -47,17 +48,31 @@ public class SyncSummary
     
     public string GetStatusIcon()
     {
-        if (!OverallSuccess) return "❌";
+        // Complete failure: no secrets processed successfully
+        if (!OverallSuccess && TotalSecretsProcessed == 0) return "❌";
+        
+        // Partial success: some failures but also some successes
         if (TotalSecretsFailed > 0) return "⚠️";
+        
+        // Complete success with changes
         if (TotalSecretsCreated > 0 || TotalSecretsUpdated > 0) return "✅";
-        return "⭕"; // No changes
+        
+        // No changes needed
+        return "⭕";
     }
     
     public string GetStatusText()
     {
-        if (!OverallSuccess) return "FAILED";
+        // Complete failure: no secrets processed successfully
+        if (!OverallSuccess && TotalSecretsProcessed == 0) return "FAILED";
+        
+        // Partial success: some failures but also some successes
         if (TotalSecretsFailed > 0) return "PARTIAL";
+        
+        // Complete success with changes
         if (TotalSecretsCreated > 0 || TotalSecretsUpdated > 0) return "SUCCESS";
+        
+        // No changes needed
         return "UP-TO-DATE";
     }
 }

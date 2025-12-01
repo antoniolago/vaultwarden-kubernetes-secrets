@@ -1,0 +1,216 @@
+nameOverride: ""
+fullnameOverride: ""
+
+# Global configuration
+global:
+  # Global image tag - applies to all components unless overridden
+  # Leave empty to use Chart.AppVersion or component-specific tags
+  imageTag: ""
+
+image:
+  repository: ghcr.io/antoniolago/vaultwarden-kubernetes-secrets
+  tag: ""  # Leave empty to use global.imageTag or Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+rbac:
+  create: true
+  clusterWide: true
+
+serviceAccount:
+  create: true
+  name: "vaultwarden-kubernetes-secrets"
+
+# Namespace management
+namespace:
+  create: false
+  name: "vaultwarden-kubernetes-secrets"
+
+debug: false
+
+replicaCount: 1
+
+# API Configuration
+api:
+  enabled: false 
+  replicaCount: 1
+  image:
+    repository: ghcr.io/antoniolago/vaultwarden-kubernetes-secrets-api
+    tag: ""  # Leave empty to use global.imageTag or Chart.AppVersion
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  databasePath: /data/sync.db
+  persistence:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 1Gi
+    storageClass: ""
+  auth:
+    enabled: true
+    # Leave empty to auto-generate a random 32-character token
+    # The token is persisted in a Kubernetes secret and reused on upgrades
+    # Or set explicitly: token: "your-secret-token-here"
+    token: ""
+    # Loginless mode - disables authentication (NOT RECOMMENDED for production)
+    loginlessMode: false
+
+# Dashboard Configuration
+dashboard:
+  enabled: false  
+  replicaCount: 2
+  image:
+    repository: ghcr.io/antoniolago/vaultwarden-kubernetes-secrets-dashboard
+    tag: ""  # Leave empty to use global.imageTag or Chart.AppVersion
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 50m
+      memory: 64Mi
+  # API URL for dashboard to connect to backend API
+  # If not specified, defaults to in-cluster service: http://<release-name>-api:8080/api
+  apiUrl: ""
+  url: "http://localhost:3000"
+  # Loginless mode - should match api.auth.loginlessMode
+  loginlessMode: false
+
+# Ingress Configuration
+ingress:
+  enabled: false
+  className: "" #e.g: nginx
+  annotations: {}
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts: []
+    # - host: vaultwarden-sync.example.com
+    #   paths:
+    #     - path: /
+    #       pathType: Prefix
+    #       backend: dashboard
+    #       port: 80
+    #     - path: /api
+    #       pathType: Prefix
+    #       backend: api
+    #       port: 8080
+  tls: []
+    # - secretName: vaultwarden-sync-tls
+    #   hosts:
+    #     - vaultwarden-sync.example.com
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 128Mi
+  limits:
+    cpu: 100m
+    memory: 256Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  capabilities:
+    drop:
+      - ALL
+
+env:
+  config:
+    # Force Node-based Bitwarden CLI to prefer IPv4 DNS results (avoids IPv6 egress timeouts in many clusters)
+    NODE_OPTIONS: "--dns-result-order=ipv4first"
+    VAULTWARDEN__SERVERURL: "https://your-vaultwarden-server.com"
+    VAULTWARDEN__ORGANIZATIONID: "" #RECOMMENDED
+    VAULTWARDEN__ORGANIZATIONNAME: ""
+    VAULTWARDEN__FOLDERID: ""
+    VAULTWARDEN__FOLDERNAME: ""
+    VAULTWARDEN__COLLECTIONID: "" #RECOMMENDED
+    VAULTWARDEN__COLLECTIONNAME: ""
+    KUBERNETES__INCLUSTER: "true"
+    KUBERNETES__DEFAULTNAMESPACE: "default"
+    SYNC__DRYRUN: "false"
+    SYNC__DELETEORPHANS: "true"
+    SYNC__SECRETPREFIX: ""
+    SYNC__SYNCINTERVALSECONDS: "30"
+    SYNC__CONTINUOUSSYNC: "true"
+    LOGGING__LOGLEVEL__DEFAULT: "Information"
+    LOGGING__LOGLEVEL__MICROSOFT: "Warning"
+    LOGGING__LOGLEVEL__MICROSOFT__HOSTING__LIFETIME: "Information"
+  secrets:
+    # For security, I suggest creating an account just for this purpose
+    # WARNING: Organization API keys are not supported by bw-cli!
+    BW_CLIENTID:
+      secretName: "vaultwarden-kubernetes-secrets"
+      secretKey: "BW_CLIENTID"
+    BW_CLIENTSECRET:
+      secretName: "vaultwarden-kubernetes-secrets"
+      secretKey: "BW_CLIENTSECRET"
+    VAULTWARDEN__MASTERPASSWORD:
+      secretName: "vaultwarden-kubernetes-secrets"
+      secretKey: "VAULTWARDEN__MASTERPASSWORD"
+
+  # Configure note/custom-field tag names understood by the app
+  fields:
+    # SYNC__FIELD__NAMESPACES
+    namespaces: "namespaces"
+    # SYNC__FIELD__SECRETNAME
+    secretName: "secret-name"
+    # SYNC__FIELD__SECRETKEYPASSWORD
+    secretKeyPassword: "secret-key-password"
+    # SYNC__FIELD__SECRETKEYUSERNAME
+    secretKeyUsername: "secret-key-username"
+    # SYNC__FIELD__SECRETKEY (legacy)
+    secretKey: "secret-key"
+    # SYNC__FIELD__INLINEKVPREFIX
+    inlineKvPrefix: "kv"
+    # SYNC__FIELD__SECRETBLOCKPREFIX
+    secretBlockPrefix: "secret"
+    # SYNC__FIELD__REPLACEMENT_CHAR
+    replacementChar: "-"
+
+podAnnotations: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Monitoring configuration
+monitoring:
+  # Enable Prometheus ServiceMonitor (requires Prometheus Operator)
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+    annotations: {}
+    metricRelabelings: []
+    relabelings: []
+  
+  # Enable Grafana dashboard ConfigMap
+  grafanaDashboard:
+    enabled: false
+    namespace: ""  # Leave empty to use release namespace
+    labels:
+      grafana_dashboard: "1"
+    annotations: {}

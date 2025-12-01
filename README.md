@@ -1,99 +1,222 @@
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/vaultwarden-kubernetes-secrets)](https://artifacthub.io/packages/search?repo=vaultwarden-kubernetes-secrets) [![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/antoniolago/vaultwarden-kubernetes-secrets)
-# Vaultwarden Kubernetes Secrets Sync
+<div align="center">
+  <img src="dashboard/public/vks.png" alt="VKS Logo" width="120" height="120" />
+  
+  # Vaultwarden Kubernetes Secrets Sync
 
-This software leverages [bw-cli](https://bitwarden.com/help/cli/) to sync [Vaultwarden](https://github.com/dani-garcia/vaultwarden) items to Kubernetes Secrets.
+  [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/vaultwarden-kubernetes-secrets)](https://artifacthub.io/packages/search?repo=vaultwarden-kubernetes-secrets) [![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/antoniolago/vaultwarden-kubernetes-secrets)
+[![Gitea](https://img.shields.io/badge/Gitea-34495E?style=for-the-badge&logo=gitea&logoColor=5D9425)](https://gitea.lag0.com.br/antoniolago/vaultwarden-kubernetes-secrets)
+</div>
 
-⚠️ **WARNING: This application is not yet stable and may have significant CPU usage in high sync volume scenarios, higher SYNC__SYNCINTERVALSECONDS can reduce resource usage. (needs more testing, you can help!). 
+Automatically sync secrets from [Vaultwarden](https://github.com/dani-garcia/vaultwarden) to Kubernetes. Store your secrets in Vaultwarden, tag them with target namespaces, and they'll be created as Kubernetes Secrets.
 
-## Install (Helm)
 
-Recommended:
+---
+
+## Quick Start
+
+### 1. Install with Helm
 
 ```bash
-# Required inputs
-NAMESPACE="vaultwarden-sync"      # Target namespace
+# Set your values
+NAMESPACE="vaultwarden-kubernetes-secrets"
 SERVER_URL="https://your-vaultwarden-server.com"
-BW_CLIENTID="<your_user_client_id>"
-BW_CLIENTSECRET="<your_user_client_secret>"
+BW_CLIENTID="<your_client_id>"
+BW_CLIENTSECRET="<your_client_secret>"
 MASTER_PASSWORD="<your_master_password>"
 
-# Create namespace and the Secret with required credentials
+# Create credentials secret
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-kubectl create secret generic vaultwarden-sync-secrets -n "$NAMESPACE" \
+kubectl create secret generic vaultwarden-kubernetes-secrets -n "$NAMESPACE" \
   --from-literal=BW_CLIENTID="$BW_CLIENTID" \
   --from-literal=BW_CLIENTSECRET="$BW_CLIENTSECRET" \
   --from-literal=VAULTWARDEN__MASTERPASSWORD="$MASTER_PASSWORD" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-# Install/upgrade via Helm OCI
-helm upgrade -i vaultwarden-sync oci://harbor.lag0.com.br/charts/vaultwarden-k8s-sync \
+# Install the sync service (using GitHub Container Registry)
+helm upgrade -i vaultwarden-kubernetes-secrets oci://ghcr.io/antoniolago/charts/vaultwarden-kubernetes-secrets \
   --version "$CHART_VERSION" \
   --namespace "$NAMESPACE" --create-namespace \
   --set env.config.VAULTWARDEN__SERVERURL="$SERVER_URL" \
   --set image.tag="$CHART_VERSION"
+
+# Alternative: Use Harbor registry (faster in some regions)
+# helm upgrade -i vaultwarden-kubernetes-secrets oci://harbor.lag0.com.br/charts/vaultwarden-kubernetes-secrets \
+#   --version "$CHART_VERSION" \
+#   --namespace "$NAMESPACE" --create-namespace \
+#   --set env.config.VAULTWARDEN__SERVERURL="$SERVER_URL" \
+#   --set image.tag="$CHART_VERSION"
 ```
 
-Notes:
-- The chart references Secret `vaultwarden-sync-secrets` for sensitive values; the commands above create it.
-- Set optional filters (Org/Folder/Collection) via `--set env.config.VAULTWARDEN__ORGANIZATIONID=...` etc.
+**Security tip**: Create a dedicated Vaultwarden user for this service and scope it to a specific Organization/Collection.
 
-Security tips:
-- Create a Vaultwarden user just for this purpose
-- Filter to a specific Collection inside an Organization
+**Registry Options:**
+- **GHCR (Default)**: `oci://ghcr.io/antoniolago/charts/vaultwarden-kubernetes-secrets` - Public GitHub Container Registry
+- **Harbor**: `oci://harbor.lag0.com.br/charts/vaultwarden-kubernetes-secrets` - Alternative registry 
 
-## How to use it
+### 2. Create a Secret in Vaultwarden
 
-- Create an item in Vaultwarden: Login, Secure Note, or SSH Key
-- Add target namespaces (required) via custom field:
-  - Custom field: name `namespaces`, value `staging,production`
-- Optional: set the Kubernetes Secret name via custom field:
-  - Custom field: name `secret-name`, value `my-secret`
-  - Default when omitted: sanitized item name
-- Optional: choose keys for values written to the Secret via custom fields:
-  - Password/content key: custom field name `secret-key-password`, value `db_password`
-  - Username key: custom field name `secret-key-username`, value `db_user`
-  - Defaults: password key = sanitized item name; username key = `<sanitized_item_name>-username`
+In Vaultwarden, create a **Login**, **SSH Key** or **Secure Note** item with:
 
-- Optional:
-  - All the custom fields you add (that are not the ones used by this app for configuration) will also be synced to the secret, if you want a field to not be synced, use custom field "ignore-field" with the fields you want to ignore as values separated by comma.
-- Save the item. The sync job will:
-  - Create/update one Secret per target namespace
-  - Purge old secrets (only the ones created by the sync app)
-  - Merge multiple items pointing to the same `secret-name` into one Secret (last writer wins on key conflicts)
-  - For SSH Key items, store the private key under the password key; if present, also add `<item>-public-key` and `<item>-fingerprint`
+**Required custom field:**
+- Name: `namespaces`
+- Value: `your-namespace` (e.g. `staging,production` for multiple)
 
-## Quick examples
+**Optional custom fields:**
+- `secret-name`: Set the Kubernetes Secret name (default: sanitized item name)
+- `secret-key-password`: Key name for the password field (default: sanitized item name)
+- `secret-key-username`: Key name for the username field (default: `<name>-username`)
 
-### Example 1 - default fields
-Item:
- 
-<img width="406" height="454" alt="image" src="https://github.com/user-attachments/assets/26fa4b39-3a82-435e-bd62-14c9cbd6ee0f" />
+**That's it!** The sync service will create the Secret in your specified namespace(s) within the sync interval.
 
-Will result in:
+---
 
-<img width="1126" height="76" alt="image" src="https://github.com/user-attachments/assets/bf331363-8a61-4deb-b4e7-363bb0d1f599" />
+## Examples
 
-### Example 2 - custom fields
-Item:
+### Basic Example
+**Vaultwarden Item:**
+- Name: `postgres-credentials`
+- Username: `admin`
+- Password: `secret123`
+- Custom field: `namespaces` = `production`
 
-<img width="578" height="622" alt="image" src="https://github.com/user-attachments/assets/3da6e6ba-b169-4910-acbf-31c114a52796" />
+**Result in Kubernetes:**
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-credentials
+  namespace: production
+data:
+  postgres-credentials: c2VjcmV0MTIz  # password
+  postgres-credentials-username: YWRtaW4=  # username
+```
 
-Will result in:
+### Custom Key Names
+**Vaultwarden Item:**
+- Name: `Database Config`
+- Username: `dbuser`
+- Password: `dbpass`
+- Custom fields:
+  - `namespaces` = `staging,production`
+  - `secret-name` = `db-config`
+  - `secret-key-username` = `DB_USER`
+  - `secret-key-password` = `DB_PASSWORD`
 
-<img width="1179" height="69" alt="image" src="https://github.com/user-attachments/assets/5aef594c-5308-4e9f-8a8e-4075165daaa8" />
+**Result in Kubernetes:**
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-config
+  namespace: staging  # Also created in production
+data:
+  DB_USER: ZGJ1c2Vy
+  DB_PASSWORD: ZGJwYXNz
+```
 
-## More docs
+### With Additional Custom Fields
+**Vaultwarden Item:**
+- Name: `app-config`
+- Custom fields:
+  - `namespaces` = `production`
+  - `API_KEY` = `xyz123`
+  - `DATABASE_URL` = `postgres://...`
 
-For detailed app configuration and usage, see `VaultwardenK8sSync/README.md`.
+**Result:** All custom fields (except reserved ones) are synced to the Secret.
 
-## Limitations
+---
 
-- **Multiline support**: Multiline values are reliably supported when the item type is a Secure Note. For Login/Card/Identity items, custom fields are single-line only. If you need multiline content, use a Note item.
-- **Organization API Key**: Bitwarden CLI (`bw`) does not support logging in with an Organization API Key. Only user API keys (`BW_CLIENTID`/`BW_CLIENTSECRET`) are supported. Ensure that user has the required access to the organization/collections.
-- **Attachments**: File attachments are not synchronized. Only text-based fields (passwords, usernames, notes, custom fields) are processed.
-- **Secret type**: Only `Opaque` Kubernetes Secrets are produced. TLS or other special secret types are not generated.
-- **Key sanitization and collisions**: Secret keys are automatically sanitized to comply with Kubernetes naming conventions. Custom field names preserve case while ensuring valid key names. Different source keys may collide after sanitization; in collisions, the last writer wins.
-- **Kubernetes validation**: Invalid secret names or field names will cause sync to fail with Kubernetes API error messages. Users must fix naming issues to comply with Kubernetes naming requirements.
-- **Kubernetes size limits**: A single Secret must remain under the Kubernetes object size limit (~1 MiB). Very large note content or many combined keys under the same secret may cause an update failure.
-- **Name-based filters**: When filtering by organization/folder/collection names, the first matching name is used. Prefer IDs to avoid ambiguity.
-- **Namespace custom field required**: Items without an explicit namespace custom field (default `namespaces`) are skipped. Ensure the target namespaces exist or enable namespace creation in the Helm chart.
+## Configuration Options
+
+### Helm Values
+Common settings you can override with `--set`:
+
+```bash
+# Scope to specific organization/collection (recommended)
+--set env.config.VAULTWARDEN__ORGANIZATIONID="org-id"
+--set env.config.VAULTWARDEN__COLLECTIONID="collection-id"
+
+# Adjust sync frequency (seconds)
+--set env.config.SYNC__SYNCINTERVALSECONDS="3600"
+
+# Enable continuous sync (default: true)
+--set env.config.SYNC__CONTINUOUSSYNC="true"
+
+# Dry run mode (test without creating secrets)
+--set env.config.SYNC__DRYRUN="true"
+```
+
+### Custom Field Names
+You can customize the field names the app looks for:
+
+```bash
+--set env.fields.namespaces="k8s-namespaces"
+--set env.fields.secretName="k8s-secret-name"
+```
+
+See [`values.yaml`](charts/vaultwarden-kubernetes-secrets/values.yaml) for all options.
+
+---
+
+## How It Works
+
+1. The service uses bw-cli to log into Vaultwarden using your credentials
+2. Fetches items (optionally filtered by Organization/Collection/Folder)
+3. For each item with a `namespaces` custom field:
+   - Creates/updates a Kubernetes Secret in each specified namespace
+   - Uses the item's username, password, notes, and custom fields as Secret data
+   - Sanitizes names to comply with Kubernetes requirements
+4. Removes orphaned Secrets (ones previously created but no longer in Vaultwarden)
+5. Repeats on the configured interval
+
+---
+
+## Advanced Features
+
+- **Multi-namespace**: One Vaultwarden item → Secrets in multiple namespaces
+- **Secret merging**: Multiple items with the same `secret-name` merge into one Secret
+- **SSH Keys**: Private key stored as password; public key and fingerprint added automatically
+- **Multiline values**: Use **Secure Note** items for multiline content (e.g., certificates)
+- **Field filtering**: Use `ignore-field` custom field to exclude specific fields from sync
+
+---
+
+## Important Notes
+
+- **Namespace requirement**: Items must have a `namespaces` custom field to be synced
+- **Supported item types**: Login, Secure Note, SSH Key (Card/Identity not recommended)
+- **User API keys only**: Organization API keys are not supported by Bitwarden CLI
+- **Opaque Secrets only**: TLS and other special Secret types are not generated
+- **Size limit**: Secrets must stay under ~1 MiB (Kubernetes limit)
+
+---
+
+## Troubleshooting
+
+**Secrets not appearing?**
+- Check the sync service logs: `kubectl logs -n vaultwarden-kubernetes-secrets deployment/vaultwarden-kubernetes-secrets`
+- Verify the item has a `namespaces` custom field
+- Ensure target namespaces exist in Kubernetes
+- Confirm the Vaultwarden user has access to the item (check Organization/Collection permissions)
+
+**CPU spikes?**
+- Increase `SYNC__SYNCINTERVALSECONDS` (default: 30 seconds)
+- Consider using Organization/Collection filters to reduce item count
+
+---
+
+## Contributing
+
+We welcome contributions! Whether you're fixing bugs, adding features, or improving documentation, your help makes this project better.
+
+**Get started:**
+- Read the [Contributing Guide](CONTRIBUTING.md)
+- Join the [Discussions](https://github.com/antoniolago/vaultwarden-kubernetes-secrets/discussions)
+
+---
+
+## Additional Resources
+
+- [Contributing Guide](CONTRIBUTING.md) - How to contribute to this project
+- [Helm chart values](charts/vaultwarden-kubernetes-secrets/values.yaml)
+- [GitHub Issues](https://github.com/antoniolago/vaultwarden-kubernetes-secrets/issues)

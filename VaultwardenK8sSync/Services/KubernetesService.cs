@@ -20,28 +20,39 @@ public class KubernetesService : IKubernetesService
 
     public async Task<bool> InitializeAsync()
     {
+        // Skip if already initialized
+        if (_client != null)
+        {
+            return true;
+        }
+
         try
         {
             _logger.LogDebug("Initializing Kubernetes client...");
 
+            KubernetesClientConfiguration config;
             if (_config.InCluster)
             {
-                _client = new Kubernetes(KubernetesClientConfiguration.InClusterConfig());
+                config = KubernetesClientConfiguration.InClusterConfig();
                 _logger.LogDebug("Using in-cluster configuration");
             }
             else
             {
-                var config = !string.IsNullOrEmpty(_config.KubeConfigPath)
+                config = !string.IsNullOrEmpty(_config.KubeConfigPath)
                     ? KubernetesClientConfiguration.BuildConfigFromConfigFile(_config.KubeConfigPath, _config.Context)
                     : KubernetesClientConfiguration.BuildDefaultConfig();
-
-                _client = new Kubernetes(config);
-                _logger.LogDebug("Using kubeconfig configuration");
+                
+                _logger.LogDebug("Using kubeconfig configuration: {KubeConfigPath}, Context: {Context}, Host: {Host}", 
+                    _config.KubeConfigPath ?? "default", 
+                    _config.Context ?? "current", 
+                    config.Host);
             }
+
+            _client = new Kubernetes(config);
 
             // Test the connection
             var version = await _client.Version.GetCodeAsync();
-            _logger.LogInformation("Connected to Kubernetes API version: {Version}", version.GitVersion);
+            _logger.LogInformation("Connected to Kubernetes API version: {Version} at {Host}", version.GitVersion, config.Host);
 
             return true;
         }
@@ -68,6 +79,30 @@ public class KubernetesService : IKubernetesService
         {
             _logger.LogError(ex, "Failed to get all namespaces");
             return new List<string>();
+        }
+    }
+
+    public async Task<bool> NamespaceExistsAsync(string namespaceName)
+    {
+        if (_client == null)
+        {
+            throw new InvalidOperationException("Kubernetes client not initialized. Call InitializeAsync first.");
+        }
+
+        try
+        {
+            await _client.CoreV1.ReadNamespaceAsync(namespaceName);
+            return true;
+        }
+        catch (k8s.Autorest.HttpOperationException httpEx) when (httpEx.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            _logger.LogDebug("Namespace {Namespace} does not exist", namespaceName);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error checking if namespace {Namespace} exists, assuming it doesn't", namespaceName);
+            return false;
         }
     }
 
@@ -117,11 +152,11 @@ public class KubernetesService : IKubernetesService
             
             foreach (var secret in secrets.Items)
             {
-                // Check if the secret has our management labels
+                // Check if the secret was created by the sync service (not just managed by the app)
                 if (secret.Metadata?.Labels != null)
                 {
-                    if (secret.Metadata.Labels.ContainsKey(Constants.Kubernetes.ManagedByLabel) &&
-                        secret.Metadata.Labels[Constants.Kubernetes.ManagedByLabel] == Constants.Kubernetes.ManagedByValue)
+                    if (secret.Metadata.Labels.ContainsKey(Constants.Kubernetes.CreatedByLabel) &&
+                        secret.Metadata.Labels[Constants.Kubernetes.CreatedByLabel] == Constants.Kubernetes.SyncServiceValue)
                     {
                         managedSecrets.Add(secret.Metadata.Name);
                     }
@@ -166,7 +201,7 @@ public class KubernetesService : IKubernetesService
                 Labels = new Dictionary<string, string>
                 {
                     { Constants.Kubernetes.ManagedByLabel, Constants.Kubernetes.ManagedByValue },
-                    { Constants.Kubernetes.CreatedByLabel, Constants.Kubernetes.ManagedByValue }
+                    { Constants.Kubernetes.CreatedByLabel, Constants.Kubernetes.SyncServiceValue }
                 }
             };
 
@@ -246,7 +281,7 @@ public class KubernetesService : IKubernetesService
                 Labels = new Dictionary<string, string>
                 {
                     { Constants.Kubernetes.ManagedByLabel, Constants.Kubernetes.ManagedByValue },
-                    { Constants.Kubernetes.CreatedByLabel, Constants.Kubernetes.ManagedByValue }
+                    { Constants.Kubernetes.CreatedByLabel, Constants.Kubernetes.SyncServiceValue }
                 }
             };
 
@@ -372,6 +407,20 @@ public class KubernetesService : IKubernetesService
         }
         catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
+            return false;
+        }
+        catch (System.Net.Http.HttpRequestException httpEx)
+        {
+            // Provide more helpful error message for connection issues
+            var message = httpEx.InnerException is System.Net.Sockets.SocketException socketEx
+                ? $"Kubernetes API connection failed: {socketEx.Message}. " +
+                  $"Please check your kubeconfig configuration. " +
+                  $"If using port-forward, ensure it's active. " +
+                  $"If running in-cluster, ensure KUBERNETES__INCLUSTER=true."
+                : $"Kubernetes API connection failed: {httpEx.Message}";
+            
+            _logger.LogError(httpEx, "Failed to check if secret {SecretName} exists in namespace {Namespace}. {Message}", 
+                secretName, namespaceName, message);
             return false;
         }
         catch (Exception ex)

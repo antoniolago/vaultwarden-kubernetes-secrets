@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using System.Text.RegularExpressions;
 using VaultwardenK8sSync.Models;
 using VaultwardenK8sSync.Configuration;
+using VaultwardenK8sSync.Infrastructure;
 
 namespace VaultwardenK8sSync.Services;
 
@@ -10,23 +11,27 @@ public class SyncService : ISyncService
     private readonly ILogger<SyncService> _logger;
     private readonly IVaultwardenService _vaultwardenService;
     private readonly IKubernetesService _kubernetesService;
+    private readonly IMetricsService _metricsService;
+    private readonly IDatabaseLoggerService _dbLogger;
     private readonly SyncSettings _syncConfig;
     private string? _lastItemsHash;
     private string? _currentItemsHash;
     private readonly Dictionary<string, DateTime> _secretExistsCache = new();
-    private List<Models.VaultwardenItem>? _cachedItems;
-    private DateTime? _cacheTime;
     private int _syncCount;
 
     public SyncService(
         ILogger<SyncService> logger,
         IVaultwardenService vaultwardenService,
         IKubernetesService kubernetesService,
+        IMetricsService metricsService,
+        IDatabaseLoggerService dbLogger,
         SyncSettings syncConfig)
     {
         _logger = logger;
         _vaultwardenService = vaultwardenService;
         _kubernetesService = kubernetesService;
+        _metricsService = metricsService;
+        _dbLogger = dbLogger;
         _syncConfig = syncConfig;
     }
 
@@ -37,13 +42,33 @@ public class SyncService : ISyncService
 
     public async Task<SyncSummary> SyncAsync(ISyncProgressReporter? progressReporter)
     {
-        var progress = progressReporter ?? new NullProgressReporter();
+        // Prevent concurrent syncs with global file-based lock (works across all processes)
+        using var syncLock = new GlobalSyncLock(_logger);
         
+        if (!await syncLock.TryAcquireAsync())
+        {
+            _logger.LogWarning("⚠️  Sync already in progress (in another process or thread) - rejecting concurrent sync attempt");
+            return new SyncSummary
+            {
+                SyncNumber = _syncCount,
+                OverallSuccess = false,
+                StartTime = DateTime.UtcNow,
+                EndTime = DateTime.UtcNow,
+                Errors = new List<string> { "Sync already in progress" }
+            };
+        }
+        
+        var progress = progressReporter ?? new NullProgressReporter();
+        var syncStartTime = DateTime.UtcNow;
+    
         var summary = new SyncSummary
         {
-            StartTime = DateTime.UtcNow,
+            StartTime = syncStartTime,
             SyncNumber = GetSyncCount()
         };
+        
+        // Start database logging
+        long syncLogId = 0;
         
         try
         {
@@ -56,33 +81,43 @@ public class SyncService : ISyncService
             var items = await _vaultwardenService.GetItemsAsync();
             summary.TotalItemsFromVaultwarden = items.Count;
             
+            // Cache items in database for API to use (no auth needed in API)
+            await _dbLogger.CacheVaultwardenItemsAsync(items);
+            
+            // Start sync log in database
+            syncLogId = await _dbLogger.StartSyncLogAsync("Full Sync", items.Count);
+            
+            // Record items watched
+            _metricsService.RecordItemsWatched(items.Count);
+            
             if (!items.Any())
             {
                 summary.AddWarning("No items found in Vaultwarden vault");
                 summary.EndTime = DateTime.UtcNow;
+                await _dbLogger.CompleteSyncLogAsync(syncLogId, "Success", "No items found in vault");
                 progress.Complete("No items found in vault");
                 return summary;
             }
 
             // Quick change detection - avoid expensive processing if nothing changed
+            // BUT: We still need to verify secrets exist (they might have been deleted externally)
             progress.SetPhase("Analyzing changes");
             _currentItemsHash = CalculateQuickItemsHash(items);
             var shouldSkipReconciliation = _lastItemsHash == _currentItemsHash && _lastItemsHash != null;
             
             if (shouldSkipReconciliation)
             {
-                _logger.LogDebug("No changes detected in Vaultwarden items - skipping reconciliation");
-                summary.HasChanges = false;
-                summary.EndTime = DateTime.UtcNow;
-                progress.Complete("No changes detected - all secrets up to date");
-                return summary;
+                _logger.LogInformation("No changes detected in Vaultwarden items hash - but will verify all secrets exist");
+                // Don't skip - we still need to verify secrets exist even when hash unchanged
+                // This ensures deleted secrets are recreated
             }
             
-            summary.HasChanges = true;
-            
-            _logger.LogDebug("Items changed (hash: {CurrentHash} vs {LastHash}) - proceeding with reconciliation", 
-                _currentItemsHash?.Substring(0, Math.Min(8, _currentItemsHash?.Length ?? 0)), 
-                _lastItemsHash?.Substring(0, Math.Min(8, _lastItemsHash?.Length ?? 0)));
+            // Indicate whether the overall set of items changed since last successful sync.
+            // If the quick-hash indicates no change we still perform existence verification for secrets,
+            // but the sync summary should reflect that there were no item changes.
+            summary.HasChanges = !shouldSkipReconciliation;
+
+            _logger.LogDebug("Proceeding with reconciliation (hash changed: {HashChanged})", !shouldSkipReconciliation);
 
             // Group items by namespace (supporting multiple namespaces per item)
             var itemsByNamespace = new Dictionary<string, List<Models.VaultwardenItem>>();
@@ -132,7 +167,7 @@ public class SyncService : ISyncService
             {
                 try
                 {
-                    var namespaceSummary = await SyncNamespaceAsync(namespaceName, namespaceItems, summary, progress);
+                    var namespaceSummary = await SyncNamespaceAsync(namespaceName, namespaceItems, summary, progress, syncLogId);
                     summary.AddNamespace(namespaceSummary);
                 }
                 catch (Exception ex)
@@ -183,7 +218,70 @@ public class SyncService : ISyncService
                 summary.OrphanCleanup = new OrphanCleanupSummary { Enabled = false };
             }
 
+            // Cleanup stale secret states (database entries for secrets that no longer exist in Vaultwarden)
+            try
+            {
+                var staleCount = await _dbLogger.CleanupStaleSecretStatesAsync(items);
+                if (staleCount > 0)
+                {
+                    _logger.LogInformation("Cleaned up {Count} stale secret state entries", staleCount);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to cleanup stale secret states, but sync completed");
+            }
+
             summary.EndTime = DateTime.UtcNow;
+
+            // Calculate final status and process summary
+            var hasProcessedItems = summary.TotalSecretsProcessed > 0;
+            var allSkipped = hasProcessedItems && summary.TotalSecretsSkipped == summary.TotalSecretsProcessed;
+            var noChanges = !summary.HasChanges || allSkipped;
+
+            // Update database with final sync results
+            var deletedCount = summary.OrphanCleanup?.TotalOrphansDeleted ?? 0;
+            await _dbLogger.UpdateSyncProgressAsync(
+                syncLogId,
+                summary.TotalSecretsProcessed,
+                summary.TotalSecretsCreated,
+                summary.TotalSecretsUpdated,
+                summary.TotalSecretsSkipped,
+                summary.TotalSecretsFailed,
+                deletedCount
+            );
+
+            // Determine final status:
+            // - "Failed" if any failures occurred
+            // - "UP-TO-DATE" if either no changes detected or all items skipped
+            // - "Success" if items processed successfully with changes
+            var status = !summary.OverallSuccess ? "Failed" :
+                        noChanges ? "UP-TO-DATE" : "Success";
+
+            var errorMsg = summary.Errors.Any() ? string.Join("; ", summary.Errors) : null;
+            await _dbLogger.CompleteSyncLogAsync(syncLogId, status, errorMsg);            // Update secret states in database
+            foreach (var ns in summary.Namespaces ?? new List<NamespaceSummary>())
+            {
+                // This will be populated when we process each secret
+            }
+            
+            // Record sync metrics
+            var syncDuration = (summary.EndTime - syncStartTime).TotalSeconds;
+            _metricsService.RecordSyncDuration(syncDuration, summary.OverallSuccess);
+            
+            // Record secrets synced
+            _metricsService.RecordSecretsSynced(summary.TotalSecretsCreated, "created");
+            _metricsService.RecordSecretsSynced(summary.TotalSecretsUpdated, "updated");
+            if (summary.OrphanCleanup != null)
+            {
+                _metricsService.RecordSecretsSynced(summary.OrphanCleanup.TotalOrphansDeleted, "deleted");
+            }
+            
+            // Update last successful sync timestamp
+            if (summary.OverallSuccess)
+            {
+                _metricsService.SetLastSuccessfulSync();
+            }
             
             // Only update the hash if the sync completed successfully (no failed items)
             if (summary.OverallSuccess)
@@ -203,12 +301,29 @@ public class SyncService : ISyncService
         }
         catch (Exception ex)
         {
+            // Re-throw authentication failures immediately - these are critical
+            if (ex is InvalidOperationException)
+            {
+                _logger.LogError(ex, "Authentication failed during sync - re-throwing");
+                throw;
+            }
+            
             _logger.LogError(ex, "Failed to perform sync");
             summary.AddError($"Sync failed: {ex.Message}");
             summary.EndTime = DateTime.UtcNow;
+            
+            // Complete database log with error
+            await _dbLogger.CompleteSyncLogAsync(syncLogId, "Failed", ex.Message);
+            
+            // Record sync failure
+            var syncDuration = (summary.EndTime - syncStartTime).TotalSeconds;
+            _metricsService.RecordSyncDuration(syncDuration, false);
+            _metricsService.RecordSyncError(ex.GetType().Name);
+            
             progress.Complete($"Sync failed: {ex.Message}");
             return summary;
         }
+        // Global sync lock is automatically released by 'using' statement
     }
 
     public async Task<bool> SyncNamespaceAsync(string namespaceName)
@@ -234,7 +349,7 @@ public class SyncService : ISyncService
         _logger.LogDebug("Reset items hash - next sync will process all items");
     }
 
-    private async Task<NamespaceSummary> SyncNamespaceAsync(string namespaceName, List<Models.VaultwardenItem> items, SyncSummary parentSummary, ISyncProgressReporter? progress = null)
+    private async Task<NamespaceSummary> SyncNamespaceAsync(string namespaceName, List<Models.VaultwardenItem> items, SyncSummary parentSummary, ISyncProgressReporter? progress = null, long syncLogId = 0)
     {
         var namespaceSummary = new NamespaceSummary
         {
@@ -249,16 +364,59 @@ public class SyncService : ISyncService
             // Group items by secret name to handle multiple items pointing to the same secret
             var itemsBySecretName = GroupItemsBySecretName(items);
             
+            _logger.LogInformation("SyncNamespaceAsync: Namespace {Namespace} has {SecretCount} secret(s) to process: {SecretNames}", 
+                namespaceName, itemsBySecretName.Count, string.Join(", ", itemsBySecretName.Keys));
+            
             foreach (var (secretName, secretItems) in itemsBySecretName)
             {
                 var key = $"{namespaceName}/{secretName}";
+                
+                _logger.LogInformation("SyncNamespaceAsync: Processing secret {SecretName} in namespace {Namespace} from {Count} item(s)", 
+                    secretName, namespaceName, secretItems.Count);
                 
                 try
                 {
                     // progress?.UpdateItem(key, "Processing...", $"Items: {secretItems.Count}");
                     
-                    var secretSummary = await SyncSecretAsync(namespaceName, secretName, secretItems);
+                    var secretSummary = await SyncSecretAsync(namespaceName, secretName, secretItems, syncLogId);
                     namespaceSummary.AddSecret(secretSummary);
+                    
+                    _logger.LogInformation("SyncNamespaceAsync: Secret {SecretName} in namespace {Namespace} completed with outcome: {Outcome}", 
+                        secretName, namespaceName, secretSummary.Outcome);
+                    
+                    if (secretSummary.Outcome == ReconcileOutcome.Failed)
+                    {
+                        _logger.LogError("SyncNamespaceAsync: Secret {SecretName} in namespace {Namespace} failed: {Error}", 
+                            secretName, namespaceName, secretSummary.Error);
+                    }
+                    else if (secretSummary.Outcome == ReconcileOutcome.Created || secretSummary.Outcome == ReconcileOutcome.Updated)
+                    {
+                        // Update database state for created/updated items
+                        var itemForState = secretItems.FirstOrDefault();
+                        if (itemForState != null)
+                        {
+                            await _dbLogger.UpsertSecretStateAsync(
+                                namespaceName,
+                                secretName,
+                                itemForState.Id,
+                                itemForState.Name,
+                                SecretStatusConstants.Active,
+                                1, // Using 1 as we don't have the combined secret data count here
+                                null
+                            );
+
+                            // Update sync progress to count skipped items
+                            await _dbLogger.UpdateSyncProgressAsync(
+                                syncLogId,
+                                1, // processed count
+                                0, // created
+                                0, // updated
+                                1, // skipped
+                                0, // failed
+                                0  // deleted
+                            );
+                        }
+                    }
                     
                     // Update progress display with final result
                     if (progress != null)
@@ -281,7 +439,8 @@ public class SyncService : ISyncService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to sync secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
+                    _logger.LogError(ex, "SyncNamespaceAsync: Exception syncing secret {SecretName} in namespace {Namespace}. Exception: {ExceptionType}, Message: {Message}", 
+                        secretName, namespaceName, ex.GetType().Name, ex.Message);
                     var failedSecret = new SecretSummary
                     {
                         Name = secretName,
@@ -292,12 +451,42 @@ public class SyncService : ISyncService
                     namespaceSummary.AddSecret(failedSecret);
                     namespaceSummary.Errors.Add($"Secret {secretName}: {ex.Message}");
                     
+                    // Log failed secret state to database
+                    var firstItem = secretItems.FirstOrDefault();
+                    if (firstItem != null)
+                    {
+                        await _dbLogger.UpsertSecretStateAsync(
+                            namespaceName,
+                            secretName,
+                            firstItem.Id,
+                            firstItem.Name,
+                            SecretStatusConstants.Failed,
+                            0,
+                            ex.Message
+                        );
+                    }
+                    
                     // progress?.UpdateItem(key, "FAILED", ex.Message, SyncItemOutcome.Failed);
                 }
             }
 
+            // Log final results for namespace
             _logger.LogDebug("Namespace {Namespace} reconciliation result: created={Created}, updated={Updated}, skipped={Skipped}, failed={Failed}",
                 namespaceName, namespaceSummary.Created, namespaceSummary.Updated, namespaceSummary.Skipped, namespaceSummary.Failed);
+
+            // Update database with namespace totals
+            if (syncLogId > 0)
+            {
+                await _dbLogger.UpdateSyncProgressAsync(
+                    syncLogId,
+                    namespaceSummary.Created + namespaceSummary.Updated + namespaceSummary.Skipped + namespaceSummary.Failed, // processed
+                    namespaceSummary.Created,
+                    namespaceSummary.Updated,
+                    namespaceSummary.Skipped,
+                    namespaceSummary.Failed,
+                    0 // deleted is handled by orphan cleanup
+                );
+            }
 
             return namespaceSummary;
         }
@@ -433,9 +622,10 @@ public class SyncService : ISyncService
             if (string.IsNullOrEmpty(usernameKey))
             {
                 // Use the sanitized secret name (which preserves hyphens) instead of item name
-                var secretName = !string.IsNullOrEmpty(item.ExtractSecretName()) 
-                    ? SanitizeSecretName(item.ExtractSecretName()) 
-                    : SanitizeSecretName(item.Name);
+                var extractedName = item.ExtractSecretName();
+                var secretName = !string.IsNullOrEmpty(extractedName) 
+                    ? SanitizeSecretName(extractedName) 
+                    : SanitizeSecretName(item.Name ?? string.Empty);
                 usernameKey = $"{SanitizeFieldName(secretName)}-username";
             }
             data[usernameKey] = FormatMultilineValue(username);
@@ -449,9 +639,10 @@ public class SyncService : ISyncService
         if (string.IsNullOrEmpty(passwordKeyResolved))
         {
             // Use the sanitized item name for the field key (preserves case and uses underscores)
-            var itemName = !string.IsNullOrEmpty(item.ExtractSecretName()) 
-                ? item.ExtractSecretName() 
-                : item.Name;
+            var extractedSecName = item.ExtractSecretName();
+            var itemName = !string.IsNullOrEmpty(extractedSecName) 
+                ? extractedSecName 
+                : (item.Name ?? string.Empty);
             passwordKeyResolved = SanitizeFieldName(itemName);
         }
 
@@ -465,16 +656,19 @@ public class SyncService : ISyncService
             // If no password found, store the item's note content (excluding metadata tags) when present,
             // otherwise fall back to the item name as a placeholder.
             var noteBody = ExtractPureNoteBody(item.Notes);
-            data[passwordKeyResolved] = string.IsNullOrWhiteSpace(noteBody) ? item.Name : noteBody;
+            data[passwordKeyResolved] = string.IsNullOrWhiteSpace(noteBody) 
+                ? (item.Name ?? string.Empty) 
+                : FormatMultilineValue(noteBody);
         }
 
         // Include SSH-specific extras if present
         if (item.SshKey != null)
         {
             // Use the sanitized secret name (which preserves hyphens) instead of item name
-            var secretName = !string.IsNullOrEmpty(item.ExtractSecretName()) 
-                ? SanitizeSecretName(item.ExtractSecretName()) 
-                : SanitizeSecretName(item.Name);
+            var sshExtractedName = item.ExtractSecretName();
+            var secretName = !string.IsNullOrEmpty(sshExtractedName) 
+                ? SanitizeSecretName(sshExtractedName) 
+                : SanitizeSecretName(item.Name ?? string.Empty);
                 
             if (!string.IsNullOrWhiteSpace(item.SshKey.PublicKey))
             {
@@ -519,7 +713,19 @@ public class SyncService : ISyncService
 
                 if (!data.ContainsKey(fieldKey))
                 {
-                    data[fieldKey] = FormatMultilineValue(field.Value);
+                    // Log before conversion for debugging
+                    var hasEscapesBefore = field.Value.Contains("\\n") || field.Value.Contains("\\r") || field.Value.Contains("\\t");
+                    var hasNewlinesBefore = field.Value.Contains('\n') || field.Value.Contains('\r');
+                    var formattedValue = FormatMultilineValue(field.Value);
+                    var hasNewlinesAfter = formattedValue.Contains('\n') || formattedValue.Contains('\r');
+                    
+                    if (hasEscapesBefore && !hasNewlinesBefore)
+                    {
+                        _logger.LogDebug("Field {FieldName}: Converting escape sequences (hasEscapes={HasEscapes}, hasNewlinesAfter={HasNewlinesAfter})", 
+                            field.Name, hasEscapesBefore, hasNewlinesAfter);
+                    }
+                    
+                    data[fieldKey] = formattedValue;
                 }
             }
         }
@@ -720,8 +926,11 @@ public class SyncService : ISyncService
                     : SanitizeSecretName(item.Name);
             }).ToHashSet();
 
-            // Find orphaned secrets
-            var orphanedSecrets = managedSecrets.Where(s => !expectedSecrets.Contains(s)).ToList();
+            // Find orphaned secrets (exclude auth token secret from cleanup)
+            var orphanedSecrets = managedSecrets
+                .Where(s => !expectedSecrets.Contains(s))
+                .Where(s => s != "vaultwarden-kubernetes-secrets-token") // Exclude auth token secret
+                .ToList();
 
             var namespaceSummary = new OrphanNamespaceSummary
             {
@@ -756,6 +965,19 @@ public class SyncService : ISyncService
                             _logger.LogDebug("Namespace {Namespace}: deleted orphaned secret {SecretName}", 
                                 namespaceName, orphanedSecret);
                             namespaceSummary.OrphansDeleted++;
+                            
+                            // Update database status to Deleted
+                            await _dbLogger.UpsertSecretStateAsync(
+                                namespaceName,
+                                orphanedSecret,
+                                string.Empty, // VaultwardenItemId not known for orphaned secret
+                                orphanedSecret, // Use secret name as item name fallback
+                                SecretStatusConstants.Deleted,
+                                0, // No data keys for deleted secret
+                                "Secret removed - no longer configured in Vaultwarden"
+                            );
+                            _logger.LogDebug("Updated database status to Deleted for {Namespace}/{SecretName}", 
+                                namespaceName, orphanedSecret);
                         }
                     }
                 }
@@ -828,6 +1050,12 @@ public class SyncService : ISyncService
             throw new ArgumentException($"Secret name cannot be null, empty, or whitespace. '{name}' becomes empty after sanitization. Please provide a name with at least one alphanumeric character or use the 'secret-name' custom field to specify a valid Kubernetes secret name.", nameof(name));
         }
         
+        // Truncate to Kubernetes limit (253 characters for secret names)
+        if (sanitized.Length > 253)
+        {
+            sanitized = sanitized.Substring(0, 253).TrimEnd('-');
+        }
+        
         return sanitized;
     }
 
@@ -875,7 +1103,7 @@ public class SyncService : ISyncService
         return itemsBySecretName;
     }
 
-    private async Task<SecretSummary> SyncSecretAsync(string namespaceName, string secretName, List<Models.VaultwardenItem> items)
+    private async Task<SecretSummary> SyncSecretAsync(string namespaceName, string secretName, List<Models.VaultwardenItem> items, long syncLogId)
     {
         var secretSummary = new SecretSummary
         {
@@ -883,8 +1111,38 @@ public class SyncService : ISyncService
             SourceItemCount = items.Count
         };
         
+        _logger.LogInformation("SyncSecretAsync: Starting sync for secret {SecretName} in namespace {Namespace} from {Count} item(s)", 
+            secretName, namespaceName, items.Count);
+        
         try
         {
+            // Validate that namespace exists before attempting any operations
+            var namespaceExists = await _kubernetesService.NamespaceExistsAsync(namespaceName);
+            if (!namespaceExists)
+            {
+                var errorMsg = $"Namespace '{namespaceName}' does not exist in Kubernetes cluster";
+                _logger.LogError("SyncSecretAsync: {Error}. Skipping secret {SecretName}", errorMsg, secretName);
+                secretSummary.Outcome = ReconcileOutcome.Failed;
+                secretSummary.Error = errorMsg;
+                
+                // Log failed secret state to database
+                var itemForState = items.FirstOrDefault();
+                if (itemForState != null)
+                {
+                    await _dbLogger.UpsertSecretStateAsync(
+                        namespaceName,
+                        secretName,
+                        itemForState.Id,
+                        itemForState.Name,
+                        SecretStatusConstants.Failed,
+                        0,
+                        errorMsg
+                    );
+                }
+                
+                return secretSummary;
+            }
+            
             // Combine all items' data into a single secret
             var combinedSecretData = new Dictionary<string, string>();
             var itemHashes = new List<string>();
@@ -906,6 +1164,9 @@ public class SyncService : ISyncService
                 // LogHashCalculationData(item, _logger);
             }
 
+            _logger.LogDebug("SyncSecretAsync: Combined secret data for {SecretName} has {KeyCount} keys: {Keys}", 
+                secretName, combinedSecretData.Count, string.Join(", ", combinedSecretData.Keys));
+
             // Create a combined hash for all items
             var combinedHash = string.Join("|", itemHashes.OrderBy(h => h));
             var hashAnnotationKey = Constants.Kubernetes.HashAnnotationKey;
@@ -915,6 +1176,22 @@ public class SyncService : ISyncService
                 _logger.LogDebug("[DRY RUN] Secret {SecretName} in {Namespace}: ensure up-to-date from {Count} item(s)", 
                     secretName, namespaceName, items.Count);
                 secretSummary.Outcome = ReconcileOutcome.Skipped;
+                
+                // Log to database even in dry run
+                var itemForLog = items.FirstOrDefault();
+                if (itemForLog != null)
+                {
+                    await _dbLogger.UpsertSecretStateAsync(
+                        namespaceName,
+                        secretName,
+                        itemForLog.Id,
+                        itemForLog.Name,
+                        "DryRun",
+                        combinedSecretData.Count,
+                        null
+                    );
+                }
+                
                 return secretSummary;
             }
 
@@ -952,13 +1229,47 @@ public class SyncService : ISyncService
             }
 
             // Create or update the new secret
-            if (newSecretExists)
+            // Note: Verify secret actually exists even if cache says it does (cache may be stale if secret was deleted externally)
+            _logger.LogDebug("SyncSecretAsync: Checking if secret {SecretName} exists in namespace {Namespace}", secretName, namespaceName);
+            var existingData = await _kubernetesService.GetSecretDataAsync(namespaceName, secretName);
+            var actuallyExists = existingData != null;
+            _logger.LogDebug("SyncSecretAsync: Secret {SecretName} exists check result: {Exists}", secretName, actuallyExists);
+            
+            // If cache said it exists but it doesn't, clear the cache entry
+            if (newSecretExists && !actuallyExists)
+            {
+                _logger.LogInformation("Secret {SecretName} in namespace {Namespace} was cached as existing but doesn't exist - clearing cache and will create", 
+                    secretName, namespaceName);
+                var cacheKey = $"{namespaceName}/{secretName}";
+                _secretExistsCache.Remove(cacheKey);
+            }
+            
+            // Also verify via SecretExistsAsync if GetSecretDataAsync returned null (in case of connection errors)
+            if (!actuallyExists)
+            {
+                var verifiedExists = await _kubernetesService.SecretExistsAsync(namespaceName, secretName);
+                if (verifiedExists)
+                {
+                    _logger.LogDebug("Secret {SecretName} in namespace {Namespace} exists but GetSecretDataAsync returned null - will retry", 
+                        secretName, namespaceName);
+                    // Retry getting data
+                    existingData = await _kubernetesService.GetSecretDataAsync(namespaceName, secretName);
+                    actuallyExists = existingData != null;
+                }
+                else
+                {
+                    _logger.LogDebug("Secret {SecretName} in namespace {Namespace} does not exist - will create", 
+                        secretName, namespaceName);
+                }
+            }
+            
+            if (actuallyExists)
             {
                 // Check if the secret data has changed
-                var existingData = await _kubernetesService.GetSecretDataAsync(namespaceName, secretName);
-                var hasDataChanged = existingData == null || HasSecretDataChanged(existingData, combinedSecretData);
+                var hasDataChanged = HasSecretDataChanged(existingData!, combinedSecretData);
 
                 // Check if the hash has changed (stored in annotations)
+                // Note: GetSecretAnnotationsAsync may return null if secret doesn't exist or on error
                 var existingAnnotations = await _kubernetesService.GetSecretAnnotationsAsync(namespaceName, secretName);
                 string? oldHashValue = existingAnnotations?.GetValueOrDefault(hashAnnotationKey);
                 bool hasHashChanged = oldHashValue != combinedHash;
@@ -972,41 +1283,119 @@ public class SyncService : ISyncService
 
                 if (!hasDataChanged && !hasHashChanged)
                 {
-                    _logger.LogDebug("Reconciled secret {SecretName} in namespace {Namespace}: Skipped (UpToDate)", secretName, namespaceName);
-                    secretSummary.Outcome = ReconcileOutcome.Skipped;
-                    return secretSummary;
+                    // Even if no changes detected, verify the secret still exists
+                    // It might have been deleted externally after we retrieved the data
+                    var stillExists = await _kubernetesService.SecretExistsAsync(namespaceName, secretName);
+                    if (!stillExists)
+                    {
+                        _logger.LogInformation("Secret {SecretName} in namespace {Namespace} was found but no longer exists - will recreate", 
+                            secretName, namespaceName);
+                        
+                        // Clear cache entry
+                        var cacheKey = $"{namespaceName}/{secretName}";
+                        _secretExistsCache.Remove(cacheKey);
+                        
+                        // Fall through to create logic below by setting actuallyExists to false
+                        actuallyExists = false;
+                    }
+                    else
+                    {
+                        _logger.LogDebug("Reconciled secret {SecretName} in namespace {Namespace}: Skipped (UpToDate and exists)", secretName, namespaceName);
+                        secretSummary.Outcome = ReconcileOutcome.Skipped;
+                        
+                        // Log secret state to database
+                        var itemForState = items.FirstOrDefault();
+                        if (itemForState != null)
+                        {
+                            await _dbLogger.UpsertSecretStateAsync(
+                                namespaceName,
+                                secretName,
+                                itemForState.Id,
+                                itemForState.Name,
+                                SecretStatusConstants.Active,
+                                combinedSecretData.Count,
+                                null
+                            );
+                        }
+
+                        // Update database logger progress with skipped item
+                        if (syncLogId > 0)
+                        {
+                            await _dbLogger.UpdateSyncProgressAsync(syncLogId, 0, 0, 0, 1, 0, 0);
+                        }
+                        
+                        return secretSummary;
+                    }
                 }
 
-                // Store the hash in annotations instead of secret data
-                var annotations = new Dictionary<string, string>
+                // If we reach here, changes were detected and secret exists - proceed with update
+                if (actuallyExists)
                 {
-                    { hashAnnotationKey, combinedHash }
-                };
+                    // Store the hash in annotations instead of secret data
+                    var annotations = new Dictionary<string, string>
+                    {
+                        { hashAnnotationKey, combinedHash }
+                    };
 
-                var updateResult = await _kubernetesService.UpdateSecretAsync(namespaceName, secretName, combinedSecretData, annotations);
-                success = updateResult.Success;
-                if (success)
-                {
-                    didUpdate = true;
-                    if (hasDataChanged && hasHashChanged)
-                        changeReason = "content+metadata";
-                    else if (hasDataChanged)
-                        changeReason = "content";
-                    else if (hasHashChanged)
-                        changeReason = "metadata";
-                    else if (string.IsNullOrEmpty(oldHashValue))
-                        changeReason = "initial-hash";
-                    
-                    _logger.LogDebug("Reconciled secret {SecretName} in namespace {Namespace}: Updated ({Reason})", 
-                        secretName, namespaceName, changeReason);
-                }
-                else
-                {
-                    secretSummary.Error = updateResult.ErrorMessage ?? "Failed to update secret";
+                    var updateResult = await _kubernetesService.UpdateSecretAsync(namespaceName, secretName, combinedSecretData, annotations);
+                    success = updateResult.Success;
+                    if (success)
+                    {
+                        didUpdate = true;
+                        if (hasDataChanged && hasHashChanged)
+                            changeReason = "content+metadata";
+                        else if (hasDataChanged)
+                            changeReason = "content";
+                        else if (hasHashChanged)
+                            changeReason = "metadata";
+                        else if (string.IsNullOrEmpty(oldHashValue))
+                            changeReason = "initial-hash";
+                        
+                        _logger.LogDebug("Reconciled secret {SecretName} in namespace {Namespace}: Updated ({Reason})", 
+                            secretName, namespaceName, changeReason);
+                    }
+                    else
+                    {
+                        // If update failed with NotFound (secret was deleted externally), retry as create
+                        if (updateResult.ErrorMessage?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true ||
+                            updateResult.ErrorMessage?.Contains("does not exist", StringComparison.OrdinalIgnoreCase) == true)
+                        {
+                            _logger.LogInformation("Update failed because secret doesn't exist - retrying as create: {SecretName} in namespace {Namespace}", 
+                                secretName, namespaceName);
+                            
+                            // Clear cache entry
+                            var cacheKey = $"{namespaceName}/{secretName}";
+                            _secretExistsCache.Remove(cacheKey);
+                            
+                            // Retry as create
+                            var createResult = await _kubernetesService.CreateSecretAsync(namespaceName, secretName, combinedSecretData, annotations);
+                            success = createResult.Success;
+                            if (success)
+                            {
+                                didCreate = true;
+                                _logger.LogInformation("Reconciled secret {SecretName} in namespace {Namespace}: Created (after update failed)", 
+                                    secretName, namespaceName);
+                            }
+                            else
+                            {
+                                secretSummary.Error = createResult.ErrorMessage ?? "Failed to create secret after update failed";
+                            }
+                        }
+                        else
+                        {
+                            secretSummary.Error = updateResult.ErrorMessage ?? "Failed to update secret";
+                        }
+                    }
                 }
             }
-            else
+            
+            // If secret doesn't exist (or was deleted), create it
+            if (!actuallyExists)
             {
+                // Secret doesn't exist - create it
+                _logger.LogInformation("Creating secret {SecretName} in namespace {Namespace} (secret does not exist). Data keys: {Keys}", 
+                    secretName, namespaceName, string.Join(", ", combinedSecretData.Keys));
+                
                 // Store the hash in annotations instead of secret data
                 var annotations = new Dictionary<string, string>
                 {
@@ -1018,10 +1407,12 @@ public class SyncService : ISyncService
                 if (success)
                 {
                     didCreate = true;
-                    _logger.LogDebug("Reconciled secret {SecretName} in namespace {Namespace}: Created", secretName, namespaceName);
+                    _logger.LogInformation("Successfully created secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
                 }
                 else
                 {
+                    _logger.LogError("Failed to create secret {SecretName} in namespace {Namespace}: {Error}", 
+                        secretName, namespaceName, createResult.ErrorMessage ?? "Unknown error");
                     secretSummary.Error = createResult.ErrorMessage ?? "Failed to create secret";
                 }
             }
@@ -1044,15 +1435,62 @@ public class SyncService : ISyncService
             else
             {
                 secretSummary.Outcome = ReconcileOutcome.Skipped;
+                // Update database progress immediately for skipped items
+                if (syncLogId > 0)
+                {
+                    await _dbLogger.UpdateSyncProgressAsync(syncLogId, 0, 0, 0, 1, 0, 0);
+                }
+            }
+            
+            // Log secret state to database
+            // All successful outcomes (Created, Updated, Skipped) are marked as Active
+            var status = secretSummary.Outcome switch
+            {
+                ReconcileOutcome.Created => SecretStatusConstants.Active,
+                ReconcileOutcome.Updated => SecretStatusConstants.Active,
+                ReconcileOutcome.Skipped => SecretStatusConstants.Active,
+                ReconcileOutcome.Failed => SecretStatusConstants.Failed,
+                _ => SecretStatusConstants.Failed
+            };
+            
+            var firstItem = items.FirstOrDefault();
+            if (firstItem != null)
+            {
+                await _dbLogger.UpsertSecretStateAsync(
+                    namespaceName,
+                    secretName,
+                    firstItem.Id,
+                    firstItem.Name,
+                    status,
+                    combinedSecretData.Count,
+                    secretSummary.Error
+                );
             }
             
             return secretSummary;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to reconcile secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
+            _logger.LogError(ex, "Failed to reconcile secret {SecretName} in namespace {Namespace}. Exception: {ExceptionType}, Message: {Message}, StackTrace: {StackTrace}", 
+                secretName, namespaceName, ex.GetType().Name, ex.Message, ex.StackTrace);
             secretSummary.Outcome = ReconcileOutcome.Failed;
             secretSummary.Error = ex.Message;
+            
+            // Log failed secret state to database
+            var firstItem = items.FirstOrDefault();
+            if (firstItem != null)
+            {
+                await _dbLogger.UpsertSecretStateAsync(
+                    namespaceName,
+                    secretName,
+                    firstItem.Id,
+                    firstItem.Name,
+                    SecretStatusConstants.Failed,
+                    0,
+                    ex.Message
+                );
+            }
+            
             return secretSummary;
         }
     }
@@ -1063,12 +1501,17 @@ public class SyncService : ISyncService
         var now = DateTime.UtcNow;
         
         // Cache secret existence checks to reduce Kubernetes API calls
+        // However, don't trust the cache blindly - if cached as existing, we still verify
+        // before critical operations. The cache mainly helps avoid repeated checks.
         if (_secretExistsCache.TryGetValue(cacheKey, out var cachedTime) && 
             (now - cachedTime).TotalSeconds < Constants.Cache.SecretExistsCacheTimeoutSeconds)
         {
-            return true; // If cached, assume it still exists
+            // Cache says it exists, but we'll verify when we actually need the data
+            // This is just a hint to avoid unnecessary API calls
+            return true;
         }
         
+        // Cache miss or expired - check actual existence
         var exists = await _kubernetesService.SecretExistsAsync(namespaceName, secretName);
         if (exists)
         {
@@ -1094,9 +1537,14 @@ public class SyncService : ISyncService
         var metadataFields = new[]
         {
             Models.FieldNameConfig.NamespacesFieldName,
+            "namespaces", // Legacy/alternative name
             Models.FieldNameConfig.SecretNameFieldName,
+            "secret-name", // Legacy/alternative name
             Models.FieldNameConfig.SecretKeyPasswordFieldName,
+            "secret-key-password", // Legacy/alternative name
+            "secret-key", // Legacy/alternative name for secret-key-password
             Models.FieldNameConfig.SecretKeyUsernameFieldName,
+            "secret-key-username", // Legacy/alternative name
             Models.FieldNameConfig.IgnoreFieldName
         };
         
@@ -1358,6 +1806,7 @@ public class SyncService : ISyncService
     /// Formats a value to ensure proper handling of multiline content.
     /// This method ensures that multiline values (like SSH keys, certificates, etc.)
     /// are preserved correctly when stored in Kubernetes secrets.
+    /// Also converts literal escape sequences (like \n) to actual characters.
     /// </summary>
     /// <param name="value">The value to format</param>
     /// <returns>The formatted value with proper multiline handling</returns>
@@ -1366,19 +1815,31 @@ public class SyncService : ISyncService
         if (string.IsNullOrEmpty(value))
             return string.Empty;
 
-        // Normalize line endings to ensure consistent handling across platforms
-        var normalizedValue = value.Replace("\r\n", "\n").Replace("\r", "\n");
+        // Check if value contains literal escape sequences (backslash + character)
+        // Note: In C# strings, "\\n" represents the literal characters backslash + n
+        var hasLiteralEscapes = value.Contains("\\n") || value.Contains("\\r") || value.Contains("\\t");
+        var hasActualNewlines = value.Contains('\n') || value.Contains('\r');
         
-        // If the value contains newlines, log it for debugging purposes
-        if (normalizedValue.Contains('\n'))
+        // First, convert literal escape sequences to actual characters
+        // This handles cases where values are stored as strings with \n escape sequences
+        // (e.g., "users:\n  authelia:\n..." should become actual multiline content)
+        // Note: We need to handle double backslashes first to avoid converting \\n incorrectly
+        var withEscapesConverted = value
+            .Replace("\\\\", "\u0001")  // Temporarily replace \\ with a placeholder (must be first)
+            .Replace("\\n", "\n")        // Convert \n to actual newline
+            .Replace("\\r", "\r")        // Convert \r to actual carriage return
+            .Replace("\\t", "\t")        // Convert \t to actual tab
+            .Replace("\u0001", "\\");    // Restore literal backslashes
+
+        // Normalize line endings to ensure consistent handling across platforms
+        var normalizedValue = withEscapesConverted.Replace("\r\n", "\n").Replace("\r", "\n");
+        
+        // Verify conversion happened
+        var hasNewlinesAfter = normalizedValue.Contains('\n');
+        if (hasLiteralEscapes && !hasNewlinesAfter)
         {
-            // This is a multiline value - ensure it's properly formatted
-            // The current implementation already handles this correctly by preserving all characters
-            // including newlines when converting to bytes for Kubernetes storage
-            var lineCount = normalizedValue.Split('\n').Length;
-            // Note: We can't use _logger here since this is a static method
-            // The multiline handling is working correctly - this is just for reference
-            return normalizedValue;
+            // This shouldn't happen, but if it does, log it (can't use _logger in static method)
+            // The conversion should have worked
         }
         
         return normalizedValue;
@@ -1396,7 +1857,16 @@ public class SyncService : ISyncService
         if (string.IsNullOrEmpty(value))
             return string.Empty;
 
-        var normalized = value.Replace("\r\n", "\n").Replace("\r", "\n");
+        // First convert escape sequences, then normalize line endings
+        // Note: We need to handle double backslashes first to avoid converting \\n incorrectly
+        var withEscapesConverted = value
+            .Replace("\\\\", "\u0001")  // Temporarily replace \\ with a placeholder (must be first)
+            .Replace("\\n", "\n")        // Convert \n to actual newline
+            .Replace("\\r", "\r")        // Convert \r to actual carriage return
+            .Replace("\\t", "\t")        // Convert \t to actual tab
+            .Replace("\u0001", "\\");    // Restore literal backslashes
+
+        var normalized = withEscapesConverted.Replace("\r\n", "\n").Replace("\r", "\n");
 
         // Detect PEM private key markers
         var headerMatch = Regex.Match(normalized, "-+BEGIN ([A-Z ]*PRIVATE KEY)-+", RegexOptions.CultureInvariant);
@@ -1429,8 +1899,6 @@ public class SyncService : ISyncService
         }
 
         var bodyRaw = normalized.Substring(startIdx, endIdx - startIdx);
-        // Convert escaped newlines when users paste with literal \n
-        bodyRaw = bodyRaw.Replace("\\n", "\n");
         // Remove all whitespace to re-wrap cleanly
         var base64Body = Regex.Replace(bodyRaw, "\\s+", string.Empty, RegexOptions.CultureInvariant);
 

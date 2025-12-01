@@ -14,6 +14,8 @@ public class KubernetesValidationTests
     private readonly Mock<ILogger<SyncService>> _loggerMock;
     private readonly Mock<IVaultwardenService> _vaultwardenServiceMock;
     private readonly Mock<IKubernetesService> _kubernetesServiceMock;
+    private readonly Mock<IMetricsService> _metricsServiceMock;
+    private readonly Mock<IDatabaseLoggerService> _dbLoggerMock;
     private readonly SyncSettings _syncConfig;
 
     public KubernetesValidationTests()
@@ -21,12 +23,20 @@ public class KubernetesValidationTests
         _loggerMock = new Mock<ILogger<SyncService>>();
         _vaultwardenServiceMock = new Mock<IVaultwardenService>();
         _kubernetesServiceMock = new Mock<IKubernetesService>();
+        _metricsServiceMock = new Mock<IMetricsService>();
+        _dbLoggerMock = new Mock<IDatabaseLoggerService>();
         _syncConfig = new SyncSettings();
+        
+        // Setup database logger to return a sync log ID
+        _dbLoggerMock.Setup(x => x.StartSyncLogAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool>()))
+            .ReturnsAsync(1L);
         
         _syncService = new SyncService(
             _loggerMock.Object,
             _vaultwardenServiceMock.Object,
             _kubernetesServiceMock.Object,
+            _metricsServiceMock.Object,
+            _dbLoggerMock.Object,
             _syncConfig);
     }
 

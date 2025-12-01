@@ -8,6 +8,8 @@ public class AppSettings
     public KubernetesSettings Kubernetes { get; set; } = new();
     public SyncSettings Sync { get; set; } = new();
     public LoggingSettings Logging { get; set; } = new();
+    public MetricsSettings Metrics { get; set; } = new();
+    public WebhookSettings Webhook { get; set; } = new();
 
     public static AppSettings FromEnvironment()
     {
@@ -24,7 +26,8 @@ public class AppSettings
                 FolderId = Environment.GetEnvironmentVariable("VAULTWARDEN__FOLDERID"),
                 FolderName = Environment.GetEnvironmentVariable("VAULTWARDEN__FOLDERNAME"),
                 CollectionId = Environment.GetEnvironmentVariable("VAULTWARDEN__COLLECTIONID"),
-                CollectionName = Environment.GetEnvironmentVariable("VAULTWARDEN__COLLECTIONNAME")
+                CollectionName = Environment.GetEnvironmentVariable("VAULTWARDEN__COLLECTIONNAME"),
+                DataDirectory = Environment.GetEnvironmentVariable("VAULTWARDEN__DATADIRECTORY") ?? Path.Combine(Path.GetTempPath(), "bw-data")
             },
             Kubernetes = new KubernetesSettings
             {
@@ -45,6 +48,18 @@ public class AppSettings
                 DefaultLevel = Environment.GetEnvironmentVariable("LOGGING__LOGLEVEL__DEFAULT") ?? "Information",
                 MicrosoftLevel = Environment.GetEnvironmentVariable("LOGGING__LOGLEVEL__MICROSOFT") ?? "Warning",
                 MicrosoftHostingLifetimeLevel = Environment.GetEnvironmentVariable("LOGGING__LOGLEVEL__MICROSOFT__HOSTING__LIFETIME") ?? "Information"
+            },
+            Metrics = new MetricsSettings
+            {
+                Enabled = bool.TryParse(Environment.GetEnvironmentVariable("METRICS__ENABLED"), out var metricsEnabled) ? metricsEnabled : true,
+                Port = int.TryParse(Environment.GetEnvironmentVariable("METRICS__PORT"), out var metricsPort) ? metricsPort : 9090
+            },
+            Webhook = new WebhookSettings
+            {
+                Enabled = bool.TryParse(Environment.GetEnvironmentVariable("WEBHOOK__ENABLED"), out var webhookEnabled) && webhookEnabled,
+                Path = Environment.GetEnvironmentVariable("WEBHOOK__PATH") ?? "/webhook",
+                Secret = Environment.GetEnvironmentVariable("WEBHOOK__SECRET"),
+                RequireSignature = bool.TryParse(Environment.GetEnvironmentVariable("WEBHOOK__REQUIRESIGNATURE"), out var requireSig) ? requireSig : true
             }
         };
     }
@@ -83,6 +98,9 @@ public class VaultwardenSettings
     public string? CollectionId { get; set; }
     public string? CollectionName { get; set; }
 
+    // Data directory for bw CLI state (ensures consistent session across commands)
+    public string DataDirectory { get; set; } = Path.Combine(Path.GetTempPath(), "bw-data");
+
     // Password login removed; API key is the only supported mode
 }
 
@@ -107,4 +125,18 @@ public class LoggingSettings
     public string DefaultLevel { get; set; } = "Information";
     public string MicrosoftLevel { get; set; } = "Warning";
     public string MicrosoftHostingLifetimeLevel { get; set; } = "Information";
+}
+
+public class MetricsSettings
+{
+    public bool Enabled { get; set; } = true;
+    public int Port { get; set; } = 9090;
+}
+
+public class WebhookSettings
+{
+    public bool Enabled { get; set; } = false;
+    public string Path { get; set; } = "/webhook";
+    public string? Secret { get; set; }
+    public bool RequireSignature { get; set; } = true;
 } 

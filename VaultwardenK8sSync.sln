@@ -1,10 +1,13 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.0.31903.59
-MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VaultwardenK8sSync", "VaultwardenK8sSync\VaultwardenK8sSync.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+VisualStudioVersion = 17.0.31912.275
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VaultwardenK8sSync", "VaultwardenK8sSync\VaultwardenK8sSync.csproj", "{AB5EFF3F-2E6B-446C-B57E-4FC5C71B7FBF}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VaultwardenK8sSync.Tests", "VaultwardenK8sSync.Tests\VaultwardenK8sSync.Tests.csproj", "{B2C3D4E5-F6G7-8901-BCDE-F23456789012}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VaultwardenK8sSync.Tests", "VaultwardenK8sSync.Tests\VaultwardenK8sSync.Tests.csproj", "{05BD7D68-FE75-42CF-AE9A-F9D5DFE6BB5E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VaultwardenK8sSync.Database", "VaultwardenK8sSync.Database\VaultwardenK8sSync.Database.csproj", "{C5B8E8A4-1A2F-4D3E-9F7C-8E3D4B5A6C7D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VaultwardenK8sSync.Api", "VaultwardenK8sSync.Api\VaultwardenK8sSync.Api.csproj", "{D6C9F9B5-2B3F-4E4F-AF8D-9F4E5C6B7D8E}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -12,21 +15,26 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.Build.0 = Release|Any CPU
-		{B2C3D4E5-F6G7-8901-BCDE-F23456789012}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{B2C3D4E5-F6G7-8901-BCDE-F23456789012}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{B2C3D4E5-F6G7-8901-BCDE-F23456789012}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{B2C3D4E5-F6G7-8901-BCDE-F23456789012}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AB5EFF3F-2E6B-446C-B57E-4FC5C71B7FBF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AB5EFF3F-2E6B-446C-B57E-4FC5C71B7FBF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AB5EFF3F-2E6B-446C-B57E-4FC5C71B7FBF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AB5EFF3F-2E6B-446C-B57E-4FC5C71B7FBF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{05BD7D68-FE75-42CF-AE9A-F9D5DFE6BB5E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{05BD7D68-FE75-42CF-AE9A-F9D5DFE6BB5E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{05BD7D68-FE75-42CF-AE9A-F9D5DFE6BB5E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{05BD7D68-FE75-42CF-AE9A-F9D5DFE6BB5E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C5B8E8A4-1A2F-4D3E-9F7C-8E3D4B5A6C7D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C5B8E8A4-1A2F-4D3E-9F7C-8E3D4B5A6C7D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C5B8E8A4-1A2F-4D3E-9F7C-8E3D4B5A6C7D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C5B8E8A4-1A2F-4D3E-9F7C-8E3D4B5A6C7D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D6C9F9B5-2B3F-4E4F-AF8D-9F4E5C6B7D8E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D6C9F9B5-2B3F-4E4F-AF8D-9F4E5C6B7D8E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D6C9F9B5-2B3F-4E4F-AF8D-9F4E5C6B7D8E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D6C9F9B5-2B3F-4E4F-AF8D-9F4E5C6B7D8E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
-		SolutionGuid = {C3D4E5F6-G7H8-9012-CDEF-345678901234}
 	EndGlobalSection
 EndGlobal
-
-

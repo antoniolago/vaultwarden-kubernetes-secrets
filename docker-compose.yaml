@@ -1,11 +1,11 @@
 version: "3.9"
 
 services:
-  vaultwarden-k8s-sync:
+  vaultwarden-kubernetes-secrets:
     build:
       context: ./VaultwardenK8sSync
       dockerfile: Dockerfile
-    image: vaultwarden-k8s-sync:local
+    image: vaultwarden-kubernetes-secrets:local
     env_file:
       - VaultwardenK8sSync/.env
     environment:

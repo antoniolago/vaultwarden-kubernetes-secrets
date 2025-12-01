@@ -2,17 +2,20 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# Copy project files
-COPY ["VaultwardenK8sSync.csproj", "./"]
-RUN dotnet restore "VaultwardenK8sSync.csproj"
+# Copy solution and all project files
+COPY ["VaultwardenK8sSync.sln", "./"]
+COPY ["VaultwardenK8sSync/VaultwardenK8sSync.csproj", "VaultwardenK8sSync/"]
+COPY ["VaultwardenK8sSync.Database/VaultwardenK8sSync.Database.csproj", "VaultwardenK8sSync.Database/"]
+COPY ["VaultwardenK8sSync.Api/VaultwardenK8sSync.Api.csproj", "VaultwardenK8sSync.Api/"]
+RUN dotnet restore "VaultwardenK8sSync/VaultwardenK8sSync.csproj"
 
-# Copy source code
+# Copy all source code
 COPY . .
-RUN dotnet build "VaultwardenK8sSync.csproj" -c Release -o /app/build
+RUN dotnet build "VaultwardenK8sSync/VaultwardenK8sSync.csproj" -c Release -o /app/build
 
 # Publish stage
 FROM build AS publish
-RUN dotnet publish "VaultwardenK8sSync.csproj" -c Release -o /app/publish
+RUN dotnet publish "VaultwardenK8sSync/VaultwardenK8sSync.csproj" -c Release -o /app/publish
 
 # Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime

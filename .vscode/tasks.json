@@ -1,94 +1,56 @@
 {
-    "version": "2.0.0",
-    "tasks": [
-        {
-            "label": "build",
-            "command": "dotnet",
-            "type": "process",
-            "args": [
-                "build",
-                "${workspaceFolder}/VaultwardenK8sSync/VaultwardenK8sSync.csproj",
-                "${workspaceFolder}/VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj",
-                "/property:GenerateFullPaths=true",
-                "/consoleloggerparameters:NoSummary"
-            ],
-            "problemMatcher": "$msCompile",
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
-            "options": {
-                "cwd": "${workspaceFolder}"
-            }
-        },
-        {
-            "label": "build-main",
-            "command": "dotnet",
-            "type": "process",
-            "args": [
-                "build",
-                "${workspaceFolder}/VaultwardenK8sSync/VaultwardenK8sSync.csproj",
-                "/property:GenerateFullPaths=true",
-                "/consoleloggerparameters:NoSummary"
-            ],
-            "problemMatcher": "$msCompile"
-        },
-        {
-            "label": "build-tests",
-            "command": "dotnet",
-            "type": "process",
-            "args": [
-                "build",
-                "${workspaceFolder}/VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj",
-                "/property:GenerateFullPaths=true",
-                "/consoleloggerparameters:NoSummary"
-            ],
-            "problemMatcher": "$msCompile"
-        },
-        {
-            "label": "test",
-            "command": "dotnet",
-            "type": "process",
-            "args": [
-                "test",
-                "${workspaceFolder}/VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj",
-                "/property:GenerateFullPaths=true",
-                "/consoleloggerparameters:NoSummary"
-            ],
-            "group": {
-                "kind": "test",
-                "isDefault": true
-            },
-            "problemMatcher": "$msCompile",
-            "options": {
-                "cwd": "${workspaceFolder}"
-            }
-        },
-        {
-            "label": "test-with-coverage",
-            "command": "dotnet",
-            "type": "process",
-            "args": [
-                "test",
-                "${workspaceFolder}/VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj",
-                "--collect",
-                "XPlat Code Coverage",
-                "/property:GenerateFullPaths=true",
-                "/consoleloggerparameters:NoSummary"
-            ],
-            "group": "test",
-            "problemMatcher": "$msCompile"
-        },
-        {
-            "label": "clean",
-            "command": "dotnet",
-            "type": "process",
-            "args": [
-                "clean",
-                "${workspaceFolder}/VaultwardenK8sSync/VaultwardenK8sSync.csproj",
-                "${workspaceFolder}/VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj"
-            ],
-            "problemMatcher": "$msCompile"
-        }
-    ]
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start Valkey",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/valkey-podman.sh start",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "group": "services"
+      }
+    },
+    {
+      "label": "Stop Valkey",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/valkey-podman.sh stop",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Build API",
+      "type": "shell",
+      "command": "dotnet build ${workspaceFolder}/VaultwardenK8sSync.Api/VaultwardenK8sSync.Api.csproj",
+      "group": "build",
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Build Sync",
+      "type": "shell",
+      "command": "dotnet build ${workspaceFolder}/VaultwardenK8sSync/VaultwardenK8sSync.csproj",
+      "group": "build",
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Start All Services",
+      "dependsOn": [
+        "Start Valkey"
+      ],
+      "problemMatcher": []
+    }
+  ]
 }
