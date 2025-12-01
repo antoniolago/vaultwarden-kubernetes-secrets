@@ -49,10 +49,6 @@ helm upgrade -i vaultwarden-kubernetes-secrets oci://ghcr.io/antoniolago/charts/
 
 **Security tip**: Create a dedicated Vaultwarden user for this service and scope it to a specific Organization/Collection.
 
-**Registry Options:**
-- **GHCR (Default)**: `oci://ghcr.io/antoniolago/charts/vaultwarden-kubernetes-secrets` - Public GitHub Container Registry
-- **Harbor**: `oci://harbor.lag0.com.br/charts/vaultwarden-kubernetes-secrets` - Alternative registry 
-
 ### 2. Create a Secret in Vaultwarden
 
 In Vaultwarden, create a **Login**, **SSH Key** or **Secure Note** item with:
