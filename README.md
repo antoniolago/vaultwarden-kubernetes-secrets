@@ -1,7 +1,7 @@
 <div align="center">
   <img src="dashboard/public/vks.png" alt="VKS Logo" width="120" height="120" />
   
-  # Vaultwarden Kubernetes Secrets Sync
+  # Vaultwarden Kubernetes Secrets
 
   [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/vaultwarden-kubernetes-secrets)](https://artifacthub.io/packages/search?repo=vaultwarden-kubernetes-secrets) [![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/antoniolago/vaultwarden-kubernetes-secrets)
 [![Gitea](https://img.shields.io/badge/Gitea-34495E?style=for-the-badge&logo=gitea&logoColor=5D9425)](https://gitea.lag0.com.br/antoniolago/vaultwarden-kubernetes-secrets)
