@@ -38,13 +38,6 @@ helm upgrade -i vaultwarden-kubernetes-secrets oci://ghcr.io/antoniolago/charts/
   --namespace "$NAMESPACE" --create-namespace \
   --set env.config.VAULTWARDEN__SERVERURL="$SERVER_URL" \
   --set image.tag="$CHART_VERSION"
-
-# Alternative: Use Harbor registry (faster in some regions)
-# helm upgrade -i vaultwarden-kubernetes-secrets oci://harbor.lag0.com.br/charts/vaultwarden-kubernetes-secrets \
-#   --version "$CHART_VERSION" \
-#   --namespace "$NAMESPACE" --create-namespace \
-#   --set env.config.VAULTWARDEN__SERVERURL="$SERVER_URL" \
-#   --set image.tag="$CHART_VERSION"
 ```
 
 **Security tip**: Create a dedicated Vaultwarden user for this service and scope it to a specific Organization/Collection.
@@ -194,25 +187,4 @@ See [`values.yaml`](charts/vaultwarden-kubernetes-secrets/values.yaml) for all o
 - Verify the item has a `namespaces` custom field
 - Ensure target namespaces exist in Kubernetes
 - Confirm the Vaultwarden user has access to the item (check Organization/Collection permissions)
-
-**CPU spikes?**
-- Increase `SYNC__SYNCINTERVALSECONDS` (default: 30 seconds)
-- Consider using Organization/Collection filters to reduce item count
-
----
-
-## Contributing
-
-We welcome contributions! Whether you're fixing bugs, adding features, or improving documentation, your help makes this project better.
-
-**Get started:**
-- Read the [Contributing Guide](CONTRIBUTING.md)
-- Join the [Discussions](https://github.com/antoniolago/vaultwarden-kubernetes-secrets/discussions)
-
----
-
-## Additional Resources
-
-- [Contributing Guide](CONTRIBUTING.md) - How to contribute to this project
-- [Helm chart values](charts/vaultwarden-kubernetes-secrets/values.yaml)
-- [GitHub Issues](https://github.com/antoniolago/vaultwarden-kubernetes-secrets/issues)
+- Enable api and dashboard to visualize the sync status
