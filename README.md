@@ -32,7 +32,7 @@ kubectl create secret generic vaultwarden-kubernetes-secrets -n "$NAMESPACE" \
   --from-literal=VAULTWARDEN__MASTERPASSWORD="$MASTER_PASSWORD" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-# Install the sync service (using GitHub Container Registry)
+# Install the sync service
 helm upgrade -i vaultwarden-kubernetes-secrets oci://ghcr.io/antoniolago/charts/vaultwarden-kubernetes-secrets \
   --version "$CHART_VERSION" \
   --namespace "$NAMESPACE" --create-namespace \
