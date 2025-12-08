@@ -98,14 +98,14 @@ public class SecretCacheTests : IDisposable
         // First sync: Secret doesn't exist, should create it
         _kubernetesServiceMock.Setup(x => x.SecretExistsAsync("default", "test-secret"))
             .ReturnsAsync(false);
-        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync("default", "test-secret", It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync("default", "test-secret", It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
             .ReturnsAsync(OperationResult.Successful());
 
         // Act: First sync
         var firstSyncResult = await _syncService.SyncAsync();
 
         // Assert: Secret should be created
-        _kubernetesServiceMock.Verify(x => x.CreateSecretAsync("default", "test-secret", It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()), Times.Once);
+        _kubernetesServiceMock.Verify(x => x.CreateSecretAsync("default", "test-secret", It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()), Times.Once);
 
         // Arrange: Simulate secret being deleted externally
         _kubernetesServiceMock.Setup(x => x.SecretExistsAsync("default", "test-secret"))
@@ -120,7 +120,7 @@ public class SecretCacheTests : IDisposable
         var secondSyncResult = await _syncService.SyncAsync();
 
         // Assert: Secret should be recreated (CreateSecretAsync called again)
-        _kubernetesServiceMock.Verify(x => x.CreateSecretAsync("default", "test-secret", It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()), Times.Exactly(2));
+        _kubernetesServiceMock.Verify(x => x.CreateSecretAsync("default", "test-secret", It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()), Times.Exactly(2));
     }
 
     [Fact]
@@ -154,7 +154,7 @@ public class SecretCacheTests : IDisposable
         // Setup current secret exists
         _kubernetesServiceMock.Setup(x => x.SecretExistsAsync("default", "current-secret"))
             .ReturnsAsync(false); // Will be created
-        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync("default", "current-secret", It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync("default", "current-secret", It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
             .ReturnsAsync(OperationResult.Successful());
 
         // Setup orphaned secret deletion
@@ -201,7 +201,7 @@ public class SecretCacheTests : IDisposable
         // Setup delete and create operations
         _kubernetesServiceMock.Setup(x => x.DeleteSecretAsync("default", "original-name"))
             .ReturnsAsync(true);
-        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync("default", "custom-secret-name", It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync("default", "custom-secret-name", It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
             .ReturnsAsync(OperationResult.Successful());
 
         // Act
@@ -209,7 +209,7 @@ public class SecretCacheTests : IDisposable
 
         // Assert: Old secret should be deleted and new one created
         _kubernetesServiceMock.Verify(x => x.DeleteSecretAsync("default", "original-name"), Times.Once);
-        _kubernetesServiceMock.Verify(x => x.CreateSecretAsync("default", "custom-secret-name", It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()), Times.Once);
+        _kubernetesServiceMock.Verify(x => x.CreateSecretAsync("default", "custom-secret-name", It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()), Times.Once);
     }
 
     [Fact]
@@ -238,7 +238,7 @@ public class SecretCacheTests : IDisposable
         // Simulate namespace doesn't exist (returns failure)
         _kubernetesServiceMock.Setup(x => x.SecretExistsAsync("nonexistent-namespace", "failing-secret"))
             .ReturnsAsync(false);
-        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync("nonexistent-namespace", "failing-secret", It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync("nonexistent-namespace", "failing-secret", It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
             .ReturnsAsync(OperationResult.Failed("Namespace 'nonexistent-namespace' does not exist"));
 
         // Act

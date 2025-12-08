@@ -185,7 +185,91 @@ public class VaultwardenItem
         // Always add the ignore-field itself to the ignored list to prevent it from being synced
         ignoredFields.Add(FieldNameConfig.IgnoreFieldName);
         
+        // Also add secret-annotations and secret-labels to prevent them from being synced as secret data
+        ignoredFields.Add(FieldNameConfig.SecretAnnotationsFieldName);
+        ignoredFields.Add(FieldNameConfig.SecretLabelsFieldName);
+        
         return ignoredFields;
+    }
+
+    /// <summary>
+    /// Extract custom annotations from the secret-annotations field.
+    /// Expected format: multiline Note field where each line is "key=value" or "key: value"
+    /// </summary>
+    public Dictionary<string, string> ExtractSecretAnnotations()
+    {
+        var annotations = new Dictionary<string, string>();
+        
+        var annotationsField = GetCustomFieldValue(FieldNameConfig.SecretAnnotationsFieldName);
+        if (string.IsNullOrWhiteSpace(annotationsField))
+            return annotations;
+
+        // Parse multiline format where each line is "key=value" or "key: value"
+        var lines = annotationsField.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var line in lines)
+        {
+            var trimmedLine = line.Trim();
+            if (string.IsNullOrEmpty(trimmedLine) || trimmedLine.StartsWith("#"))
+                continue;
+
+            // Try to split by '=' first, then ':'
+            var separatorIndex = trimmedLine.IndexOf('=');
+            if (separatorIndex < 0)
+                separatorIndex = trimmedLine.IndexOf(':');
+            
+            if (separatorIndex > 0)
+            {
+                var key = trimmedLine.Substring(0, separatorIndex).Trim();
+                var value = trimmedLine.Substring(separatorIndex + 1).Trim();
+                
+                if (!string.IsNullOrEmpty(key))
+                {
+                    annotations[key] = value;
+                }
+            }
+        }
+        
+        return annotations;
+    }
+
+    /// <summary>
+    /// Extract custom labels from the secret-labels field.
+    /// Expected format: multiline Note field where each line is "key=value" or "key: value"
+    /// </summary>
+    public Dictionary<string, string> ExtractSecretLabels()
+    {
+        var labels = new Dictionary<string, string>();
+        
+        var labelsField = GetCustomFieldValue(FieldNameConfig.SecretLabelsFieldName);
+        if (string.IsNullOrWhiteSpace(labelsField))
+            return labels;
+
+        // Parse multiline format where each line is "key=value" or "key: value"
+        var lines = labelsField.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var line in lines)
+        {
+            var trimmedLine = line.Trim();
+            if (string.IsNullOrEmpty(trimmedLine) || trimmedLine.StartsWith("#"))
+                continue;
+
+            // Try to split by '=' first, then ':'
+            var separatorIndex = trimmedLine.IndexOf('=');
+            if (separatorIndex < 0)
+                separatorIndex = trimmedLine.IndexOf(':');
+            
+            if (separatorIndex > 0)
+            {
+                var key = trimmedLine.Substring(0, separatorIndex).Trim();
+                var value = trimmedLine.Substring(separatorIndex + 1).Trim();
+                
+                if (!string.IsNullOrEmpty(key))
+                {
+                    labels[key] = value;
+                }
+            }
+        }
+        
+        return labels;
     }
 }
 
@@ -193,6 +277,7 @@ internal static class FieldNameConfig
 {
     // These can be overridden via environment variables
     // SYNC__FIELD__NAMESPACES, SYNC__FIELD__SECRETNAME, SYNC__FIELD__SECRETKEYPASSWORD, SYNC__FIELD__SECRETKEYUSERNAME, SYNC__FIELD__IGNOREFIELD
+    // SYNC__FIELD__SECRETANNOTATIONS, SYNC__FIELD__SECRETLABELS
     public static readonly string NamespacesFieldName =
         Environment.GetEnvironmentVariable("SYNC__FIELD__NAMESPACES")?.Trim() ?? "namespaces";
     public static readonly string SecretNameFieldName =
@@ -203,6 +288,10 @@ internal static class FieldNameConfig
         Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETKEYUSERNAME")?.Trim() ?? "secret-key-username";
     public static readonly string IgnoreFieldName =
         Environment.GetEnvironmentVariable("SYNC__FIELD__IGNOREFIELD")?.Trim() ?? "ignore-field";
+    public static readonly string SecretAnnotationsFieldName =
+        Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETANNOTATIONS")?.Trim() ?? "secret-annotations";
+    public static readonly string SecretLabelsFieldName =
+        Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETLABELS")?.Trim() ?? "secret-labels";
 }
 
 public class LoginInfo

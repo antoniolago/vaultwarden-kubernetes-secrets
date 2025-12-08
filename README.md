@@ -54,6 +54,8 @@ In Vaultwarden, create a **Login**, **SSH Key** or **Secure Note** item with:
 - `secret-name`: Set the Kubernetes Secret name (default: sanitized item name)
 - `secret-key-password`: Key name for the password field (default: sanitized item name)
 - `secret-key-username`: Key name for the username field (default: `<name>-username`)
+- `secret-annotations`: Multiline Note field to add custom annotations to the Secret metadata
+- `secret-labels`: Multiline Note field to add custom labels to the Secret metadata
 
 **That's it!** The sync service will create the Secret in your specified namespace(s) within the sync interval.
 
@@ -113,6 +115,43 @@ data:
 
 **Result:** All custom fields (except reserved ones) are synced to the Secret.
 
+### With Custom Annotations and Labels
+**Vaultwarden Item:**
+- Name: `monitoring-config`
+- Custom fields:
+  - `namespaces` = `production`
+  - `secret-annotations` (Note field):
+    ```
+    app.kubernetes.io/version=1.2.3
+    example.com/owner: platform-team
+    monitoring.enabled=true
+    ```
+  - `secret-labels` (Note field):
+    ```
+    environment=production
+    team=backend
+    app=myapp
+    ```
+
+**Result in Kubernetes:**
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: monitoring-config
+  namespace: production
+  annotations:
+    app.kubernetes.io/version: "1.2.3"
+    example.com/owner: "platform-team"
+    monitoring.enabled: "true"
+  labels:
+    environment: production
+    team: backend
+    app: myapp
+data:
+  # ... secret data ...
+```
+
 ---
 
 ## Configuration Options
@@ -141,6 +180,8 @@ You can customize the field names the app looks for:
 ```bash
 --set env.fields.namespaces="k8s-namespaces"
 --set env.fields.secretName="k8s-secret-name"
+--set env.fields.secretAnnotations="k8s-annotations"
+--set env.fields.secretLabels="k8s-labels"
 ```
 
 See [`values.yaml`](charts/vaultwarden-kubernetes-secrets/values.yaml) for all options.
@@ -167,6 +208,10 @@ See [`values.yaml`](charts/vaultwarden-kubernetes-secrets/values.yaml) for all o
 - **SSH Keys**: Private key stored as password; public key and fingerprint added automatically
 - **Multiline values**: Use **Secure Note** items for multiline content (e.g., certificates)
 - **Field filtering**: Use `ignore-field` custom field to exclude specific fields from sync
+- **Custom annotations/labels**: Add Kubernetes metadata (annotations and labels) using multiline Note fields
+  - Format: Each line as `key=value` or `key: value`
+  - Comments supported with `#` prefix
+  - Automatically excluded from secret data
 
 ---
 

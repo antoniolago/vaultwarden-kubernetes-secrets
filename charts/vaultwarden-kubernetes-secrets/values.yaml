@@ -186,6 +186,12 @@ env:
     secretBlockPrefix: "secret"
     # SYNC__FIELD__REPLACEMENT_CHAR
     replacementChar: "-"
+    # SYNC__FIELD__SECRETANNOTATIONS
+    # Multiline Note field where each line is "key=value" or "key: value"
+    secretAnnotations: "secret-annotations"
+    # SYNC__FIELD__SECRETLABELS
+    # Multiline Note field where each line is "key=value" or "key: value"
+    secretLabels: "secret-labels"
 
 podAnnotations: {}
 
