@@ -185,7 +185,7 @@ public class KubernetesService : IKubernetesService
         }
     }
 
-    public async Task<OperationResult> CreateSecretAsync(string namespaceName, string secretName, Dictionary<string, string> data, Dictionary<string, string>? annotations = null)
+    public async Task<OperationResult> CreateSecretAsync(string namespaceName, string secretName, Dictionary<string, string> data, Dictionary<string, string>? annotations = null, Dictionary<string, string>? customLabels = null)
     {
         if (_client == null)
         {
@@ -194,15 +194,30 @@ public class KubernetesService : IKubernetesService
 
         try
         {
+            // Start with required management labels
+            var labels = new Dictionary<string, string>
+            {
+                { Constants.Kubernetes.ManagedByLabel, Constants.Kubernetes.ManagedByValue },
+                { Constants.Kubernetes.CreatedByLabel, Constants.Kubernetes.SyncServiceValue }
+            };
+
+            // Merge custom labels if provided (custom labels cannot override management labels)
+            if (customLabels != null)
+            {
+                foreach (var kvp in customLabels)
+                {
+                    if (!labels.ContainsKey(kvp.Key))
+                    {
+                        labels[kvp.Key] = kvp.Value;
+                    }
+                }
+            }
+
             var metadata = new V1ObjectMeta
             {
                 Name = secretName,
                 NamespaceProperty = namespaceName,
-                Labels = new Dictionary<string, string>
-                {
-                    { Constants.Kubernetes.ManagedByLabel, Constants.Kubernetes.ManagedByValue },
-                    { Constants.Kubernetes.CreatedByLabel, Constants.Kubernetes.SyncServiceValue }
-                }
+                Labels = labels
             };
 
             // Add annotations if provided
@@ -265,7 +280,7 @@ public class KubernetesService : IKubernetesService
         }
     }
 
-    public async Task<OperationResult> UpdateSecretAsync(string namespaceName, string secretName, Dictionary<string, string> data, Dictionary<string, string>? annotations = null)
+    public async Task<OperationResult> UpdateSecretAsync(string namespaceName, string secretName, Dictionary<string, string> data, Dictionary<string, string>? annotations = null, Dictionary<string, string>? customLabels = null)
     {
         if (_client == null)
         {
@@ -274,15 +289,30 @@ public class KubernetesService : IKubernetesService
 
         try
         {
+            // Start with required management labels
+            var labels = new Dictionary<string, string>
+            {
+                { Constants.Kubernetes.ManagedByLabel, Constants.Kubernetes.ManagedByValue },
+                { Constants.Kubernetes.CreatedByLabel, Constants.Kubernetes.SyncServiceValue }
+            };
+
+            // Merge custom labels if provided (custom labels cannot override management labels)
+            if (customLabels != null)
+            {
+                foreach (var kvp in customLabels)
+                {
+                    if (!labels.ContainsKey(kvp.Key))
+                    {
+                        labels[kvp.Key] = kvp.Value;
+                    }
+                }
+            }
+
             var metadata = new V1ObjectMeta
             {
                 Name = secretName,
                 NamespaceProperty = namespaceName,
-                Labels = new Dictionary<string, string>
-                {
-                    { Constants.Kubernetes.ManagedByLabel, Constants.Kubernetes.ManagedByValue },
-                    { Constants.Kubernetes.CreatedByLabel, Constants.Kubernetes.SyncServiceValue }
-                }
+                Labels = labels
             };
 
             // Add annotations if provided

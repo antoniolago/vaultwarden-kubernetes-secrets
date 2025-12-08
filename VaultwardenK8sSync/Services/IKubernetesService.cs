@@ -9,8 +9,8 @@ public interface IKubernetesService
     Task<bool> NamespaceExistsAsync(string namespaceName);
     Task<List<string>> GetExistingSecretNamesAsync(string namespaceName);
     Task<List<string>> GetManagedSecretNamesAsync(string namespaceName);
-    Task<OperationResult> CreateSecretAsync(string namespaceName, string secretName, Dictionary<string, string> data, Dictionary<string, string>? annotations = null);
-    Task<OperationResult> UpdateSecretAsync(string namespaceName, string secretName, Dictionary<string, string> data, Dictionary<string, string>? annotations = null);
+    Task<OperationResult> CreateSecretAsync(string namespaceName, string secretName, Dictionary<string, string> data, Dictionary<string, string>? annotations = null, Dictionary<string, string>? customLabels = null);
+    Task<OperationResult> UpdateSecretAsync(string namespaceName, string secretName, Dictionary<string, string> data, Dictionary<string, string>? annotations = null, Dictionary<string, string>? customLabels = null);
     Task<bool> DeleteSecretAsync(string namespaceName, string secretName);
     Task<bool> SecretExistsAsync(string namespaceName, string secretName);
     Task<Dictionary<string, string>?> GetSecretDataAsync(string namespaceName, string secretName);

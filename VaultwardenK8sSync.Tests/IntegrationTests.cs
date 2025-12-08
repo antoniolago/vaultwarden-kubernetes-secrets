@@ -688,8 +688,8 @@ public class IntegrationTests : IDisposable
 
         // Mock CreateSecretAsync and UpdateSecretAsync to store both data and annotations
         _kubernetesServiceMock
-            .Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
-            .ReturnsAsync((string ns, string name, Dictionary<string, string> data, Dictionary<string, string> annotations) =>
+            .Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+            .ReturnsAsync((string ns, string name, Dictionary<string, string> data, Dictionary<string, string> annotations, Dictionary<string, string> labels) =>
             {
                 var key = $"{ns}/{name}";
                 secretData[key] = new Dictionary<string, string>(data);
@@ -701,8 +701,8 @@ public class IntegrationTests : IDisposable
             });
 
         _kubernetesServiceMock
-            .Setup(x => x.UpdateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
-            .ReturnsAsync((string ns, string name, Dictionary<string, string> data, Dictionary<string, string> annotations) =>
+            .Setup(x => x.UpdateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+            .ReturnsAsync((string ns, string name, Dictionary<string, string> data, Dictionary<string, string> annotations, Dictionary<string, string> labels) =>
             {
                 var key = $"{ns}/{name}";
                 secretData[key] = new Dictionary<string, string>(data);
@@ -818,8 +818,8 @@ public class IntegrationTests : IDisposable
             });
 
         _kubernetesServiceMock
-            .Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
-            .ReturnsAsync((string ns, string name, Dictionary<string, string> data, Dictionary<string, string> annotations) =>
+            .Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+            .ReturnsAsync((string ns, string name, Dictionary<string, string> data, Dictionary<string, string> annotations, Dictionary<string, string> labels) =>
             {
                 var key = $"{ns}/{name}";
                 secretData[key] = new Dictionary<string, string>(data);
@@ -831,8 +831,8 @@ public class IntegrationTests : IDisposable
             });
 
         _kubernetesServiceMock
-            .Setup(x => x.UpdateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
-            .ReturnsAsync((string ns, string name, Dictionary<string, string> data, Dictionary<string, string> annotations) =>
+            .Setup(x => x.UpdateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+            .ReturnsAsync((string ns, string name, Dictionary<string, string> data, Dictionary<string, string> annotations, Dictionary<string, string> labels) =>
             {
                 var key = $"{ns}/{name}";
                 secretData[key] = new Dictionary<string, string>(data);
@@ -931,7 +931,7 @@ public class IntegrationTests : IDisposable
         _kubernetesServiceMock.Setup(x => x.SecretExistsAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(false);
 
-        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
             .ReturnsAsync(new OperationResult { Success = true });
 
         // Act
@@ -1065,7 +1065,7 @@ public class IntegrationTests : IDisposable
         _kubernetesServiceMock.Setup(x => x.SecretExistsAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(false);
 
-        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
+        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>()))
             .ReturnsAsync(new OperationResult { Success = true });
 
         // Act

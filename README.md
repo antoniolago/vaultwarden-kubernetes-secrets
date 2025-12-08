@@ -54,6 +54,8 @@ In Vaultwarden, create a **Login**, **SSH Key** or **Secure Note** item with:
 - `secret-name`: Set the Kubernetes Secret name (default: sanitized item name)
 - `secret-key-password`: Key name for the password field (default: sanitized item name)
 - `secret-key-username`: Key name for the username field (default: `<name>-username`)
+- `secret-annotation`: Add custom annotations to the Secret metadata (see examples below)
+- `secret-label`: Add custom labels to the Secret metadata (see examples below)
 
 **That's it!** The sync service will create the Secret in your specified namespace(s) within the sync interval.
 
@@ -113,6 +115,40 @@ data:
 
 **Result:** All custom fields (except reserved ones) are synced to the Secret.
 
+### With Custom Annotations and Labels
+
+You can add Kubernetes metadata:
+
+**Vaultwarden Item Example:**
+- Name: `monitoring-config`
+- Custom fields:
+  - `namespaces` = `production`
+  - `secret-annotation` = `app.kubernetes.io/version=1.2.3`
+  - `secret-annotation` = `example.com/owner: platform-team`
+  - `secret-annotation` = `monitoring.enabled=true`
+  - `secret-label` = `environment=production`
+  - `secret-label` = `argocd.argoproj.io/secret-type=repository`
+  - `secret-label` = `app=myapp`
+
+**Result in Kubernetes:**
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: monitoring-config
+  namespace: production
+  annotations:
+    app.kubernetes.io/version: "1.2.3"
+    example.com/owner: "platform-team"
+    monitoring.enabled: "true"
+  labels:
+    environment: production
+    argocd.argoproj.io/secret-type: repository
+    app: myapp
+data:
+  # ... secret data ...
+```
+
 ---
 
 ## Configuration Options
@@ -135,12 +171,6 @@ Common settings you can override with `--set`:
 --set env.config.SYNC__DRYRUN="true"
 ```
 
-### Custom Field Names
-You can customize the field names the app looks for:
-
-```bash
---set env.fields.namespaces="k8s-namespaces"
---set env.fields.secretName="k8s-secret-name"
 ```
 
 See [`values.yaml`](charts/vaultwarden-kubernetes-secrets/values.yaml) for all options.
@@ -167,6 +197,9 @@ See [`values.yaml`](charts/vaultwarden-kubernetes-secrets/values.yaml) for all o
 - **SSH Keys**: Private key stored as password; public key and fingerprint added automatically
 - **Multiline values**: Use **Secure Note** items for multiline content (e.g., certificates)
 - **Field filtering**: Use `ignore-field` custom field to exclude specific fields from sync
+- **Custom annotations/labels**: Add Kubernetes metadata (annotations and labels) via custom fields
+  - Multiple text fields with the same name (one `key=value` per field)
+  - Automatically excluded from secret data
 
 ---
 

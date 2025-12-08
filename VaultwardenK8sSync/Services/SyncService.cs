@@ -1146,6 +1146,8 @@ public class SyncService : ISyncService
             // Combine all items' data into a single secret
             var combinedSecretData = new Dictionary<string, string>();
             var itemHashes = new List<string>();
+            var customAnnotations = new Dictionary<string, string>();
+            var customLabels = new Dictionary<string, string>();
 
             foreach (var item in items)
             {
@@ -1154,6 +1156,21 @@ public class SyncService : ISyncService
                 {
                     // If multiple items have the same key, the last one wins
                     combinedSecretData[kvp.Key] = kvp.Value;
+                }
+                
+                // Extract custom annotations and labels from the item
+                var itemAnnotations = item.ExtractSecretAnnotations();
+                foreach (var kvp in itemAnnotations)
+                {
+                    // Merge annotations (last item wins if there are duplicates)
+                    customAnnotations[kvp.Key] = kvp.Value;
+                }
+                
+                var itemLabels = item.ExtractSecretLabels();
+                foreach (var kvp in itemLabels)
+                {
+                    // Merge labels (last item wins if there are duplicates)
+                    customLabels[kvp.Key] = kvp.Value;
                 }
                 
                 // Calculate hash for this item
@@ -1332,12 +1349,12 @@ public class SyncService : ISyncService
                 if (actuallyExists)
                 {
                     // Store the hash in annotations instead of secret data
-                    var annotations = new Dictionary<string, string>
+                    var annotations = new Dictionary<string, string>(customAnnotations)
                     {
                         { hashAnnotationKey, combinedHash }
                     };
 
-                    var updateResult = await _kubernetesService.UpdateSecretAsync(namespaceName, secretName, combinedSecretData, annotations);
+                    var updateResult = await _kubernetesService.UpdateSecretAsync(namespaceName, secretName, combinedSecretData, annotations, customLabels);
                     success = updateResult.Success;
                     if (success)
                     {
@@ -1368,7 +1385,7 @@ public class SyncService : ISyncService
                             _secretExistsCache.Remove(cacheKey);
                             
                             // Retry as create
-                            var createResult = await _kubernetesService.CreateSecretAsync(namespaceName, secretName, combinedSecretData, annotations);
+                            var createResult = await _kubernetesService.CreateSecretAsync(namespaceName, secretName, combinedSecretData, annotations, customLabels);
                             success = createResult.Success;
                             if (success)
                             {
@@ -1397,12 +1414,12 @@ public class SyncService : ISyncService
                     secretName, namespaceName, string.Join(", ", combinedSecretData.Keys));
                 
                 // Store the hash in annotations instead of secret data
-                var annotations = new Dictionary<string, string>
+                var annotations = new Dictionary<string, string>(customAnnotations)
                 {
                     { hashAnnotationKey, combinedHash }
                 };
 
-                var createResult = await _kubernetesService.CreateSecretAsync(namespaceName, secretName, combinedSecretData, annotations);
+                var createResult = await _kubernetesService.CreateSecretAsync(namespaceName, secretName, combinedSecretData, annotations, customLabels);
                 success = createResult.Success;
                 if (success)
                 {
@@ -1545,7 +1562,11 @@ public class SyncService : ISyncService
             "secret-key", // Legacy/alternative name for secret-key-password
             Models.FieldNameConfig.SecretKeyUsernameFieldName,
             "secret-key-username", // Legacy/alternative name
-            Models.FieldNameConfig.IgnoreFieldName
+            Models.FieldNameConfig.IgnoreFieldName,
+            Models.FieldNameConfig.SecretAnnotationsFieldName,
+            "secret-annotation", // Legacy/alternative name
+            Models.FieldNameConfig.SecretLabelsFieldName,
+            "secret-label" // Legacy/alternative name
         };
         
         return metadataFields.Any(meta => 
