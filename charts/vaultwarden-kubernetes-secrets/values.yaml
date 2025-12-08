@@ -188,10 +188,10 @@ env:
     replacementChar: "-"
     # SYNC__FIELD__SECRETANNOTATIONS
     # Multiline Note field where each line is "key=value" or "key: value"
-    secretAnnotations: "secret-annotations"
+    secretAnnotations: "secret-annotation"
     # SYNC__FIELD__SECRETLABELS
     # Multiline Note field where each line is "key=value" or "key: value"
-    secretLabels: "secret-labels"
+    secretLabels: "secret-label"
 
 podAnnotations: {}
 

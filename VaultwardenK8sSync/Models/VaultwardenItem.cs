@@ -88,6 +88,25 @@ public class VaultwardenItem
         return null;
     }
 
+    /// <summary>
+    /// Get all custom field values matching any of the candidate names.
+    /// Useful for fields that can have multiple entries with the same name.
+    /// </summary>
+    private List<string> GetAllCustomFieldValues(params string[] candidateNames)
+    {
+        var values = new List<string>();
+        if (Fields == null || Fields.Count == 0)
+            return values;
+
+        foreach (var name in candidateNames)
+        {
+            var matches = Fields.Where(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase) 
+                                             && !string.IsNullOrEmpty(f.Value));
+            values.AddRange(matches.Select(m => m.Value));
+        }
+        return values;
+    }
+
     public string? ExtractNamespace()
     {
         // Get from custom field
@@ -185,7 +204,7 @@ public class VaultwardenItem
         // Always add the ignore-field itself to the ignored list to prevent it from being synced
         ignoredFields.Add(FieldNameConfig.IgnoreFieldName);
         
-        // Also add secret-annotations and secret-labels to prevent them from being synced as secret data
+        // Also add secret-annotation and secret-label to prevent them from being synced as secret data
         ignoredFields.Add(FieldNameConfig.SecretAnnotationsFieldName);
         ignoredFields.Add(FieldNameConfig.SecretLabelsFieldName);
         
@@ -193,38 +212,48 @@ public class VaultwardenItem
     }
 
     /// <summary>
-    /// Extract custom annotations from the secret-annotations field.
-    /// Expected format: multiline Note field where each line is "key=value" or "key: value"
+    /// Extract custom annotations from the secret-annotation field(s).
+    /// Supports two formats:
+    /// 1. Single field with multiline content where each line is "key=value" or "key: value"
+    /// 2. Multiple fields with the same name, each containing one "key=value" or "key: value" entry
     /// </summary>
     public Dictionary<string, string> ExtractSecretAnnotations()
     {
         var annotations = new Dictionary<string, string>();
         
-        var annotationsField = GetCustomFieldValue(FieldNameConfig.SecretAnnotationsFieldName);
-        if (string.IsNullOrWhiteSpace(annotationsField))
+        // Get all fields matching the annotation field name (supports multiple fields with same name)
+        var annotationFields = GetAllCustomFieldValues(FieldNameConfig.SecretAnnotationsFieldName, "secret-annotation");
+        if (annotationFields.Count == 0)
             return annotations;
 
-        // Parse multiline format where each line is "key=value" or "key: value"
-        var lines = annotationsField.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-        foreach (var line in lines)
+        // Process each field value (each might be multiline or single line)
+        foreach (var fieldValue in annotationFields)
         {
-            var trimmedLine = line.Trim();
-            if (string.IsNullOrEmpty(trimmedLine) || trimmedLine.StartsWith("#"))
+            if (string.IsNullOrWhiteSpace(fieldValue))
                 continue;
 
-            // Try to split by '=' first, then ':'
-            var separatorIndex = trimmedLine.IndexOf('=');
-            if (separatorIndex < 0)
-                separatorIndex = trimmedLine.IndexOf(':');
-            
-            if (separatorIndex > 0)
+            // Parse format where each line is "key=value" or "key: value"
+            var lines = fieldValue.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var line in lines)
             {
-                var key = trimmedLine.Substring(0, separatorIndex).Trim();
-                var value = trimmedLine.Substring(separatorIndex + 1).Trim();
+                var trimmedLine = line.Trim();
+                if (string.IsNullOrEmpty(trimmedLine) || trimmedLine.StartsWith("#"))
+                    continue;
+
+                // Try to split by '=' first, then ':'
+                var separatorIndex = trimmedLine.IndexOf('=');
+                if (separatorIndex < 0)
+                    separatorIndex = trimmedLine.IndexOf(':');
                 
-                if (!string.IsNullOrEmpty(key))
+                if (separatorIndex > 0)
                 {
-                    annotations[key] = value;
+                    var key = trimmedLine.Substring(0, separatorIndex).Trim();
+                    var value = trimmedLine.Substring(separatorIndex + 1).Trim();
+                    
+                    if (!string.IsNullOrEmpty(key))
+                    {
+                        annotations[key] = value;
+                    }
                 }
             }
         }
@@ -233,38 +262,48 @@ public class VaultwardenItem
     }
 
     /// <summary>
-    /// Extract custom labels from the secret-labels field.
-    /// Expected format: multiline Note field where each line is "key=value" or "key: value"
+    /// Extract custom labels from the secret-label field(s).
+    /// Supports two formats:
+    /// 1. Single field with multiline content where each line is "key=value" or "key: value"
+    /// 2. Multiple fields with the same name, each containing one "key=value" or "key: value" entry
     /// </summary>
     public Dictionary<string, string> ExtractSecretLabels()
     {
         var labels = new Dictionary<string, string>();
         
-        var labelsField = GetCustomFieldValue(FieldNameConfig.SecretLabelsFieldName);
-        if (string.IsNullOrWhiteSpace(labelsField))
+        // Get all fields matching the label field name (supports multiple fields with same name)
+        var labelFields = GetAllCustomFieldValues(FieldNameConfig.SecretLabelsFieldName, "secret-label");
+        if (labelFields.Count == 0)
             return labels;
 
-        // Parse multiline format where each line is "key=value" or "key: value"
-        var lines = labelsField.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-        foreach (var line in lines)
+        // Process each field value (each might be multiline or single line)
+        foreach (var fieldValue in labelFields)
         {
-            var trimmedLine = line.Trim();
-            if (string.IsNullOrEmpty(trimmedLine) || trimmedLine.StartsWith("#"))
+            if (string.IsNullOrWhiteSpace(fieldValue))
                 continue;
 
-            // Try to split by '=' first, then ':'
-            var separatorIndex = trimmedLine.IndexOf('=');
-            if (separatorIndex < 0)
-                separatorIndex = trimmedLine.IndexOf(':');
-            
-            if (separatorIndex > 0)
+            // Parse format where each line is "key=value" or "key: value"
+            var lines = fieldValue.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var line in lines)
             {
-                var key = trimmedLine.Substring(0, separatorIndex).Trim();
-                var value = trimmedLine.Substring(separatorIndex + 1).Trim();
+                var trimmedLine = line.Trim();
+                if (string.IsNullOrEmpty(trimmedLine) || trimmedLine.StartsWith("#"))
+                    continue;
+
+                // Try to split by '=' first, then ':'
+                var separatorIndex = trimmedLine.IndexOf('=');
+                if (separatorIndex < 0)
+                    separatorIndex = trimmedLine.IndexOf(':');
                 
-                if (!string.IsNullOrEmpty(key))
+                if (separatorIndex > 0)
                 {
-                    labels[key] = value;
+                    var key = trimmedLine.Substring(0, separatorIndex).Trim();
+                    var value = trimmedLine.Substring(separatorIndex + 1).Trim();
+                    
+                    if (!string.IsNullOrEmpty(key))
+                    {
+                        labels[key] = value;
+                    }
                 }
             }
         }
@@ -289,9 +328,9 @@ internal static class FieldNameConfig
     public static readonly string IgnoreFieldName =
         Environment.GetEnvironmentVariable("SYNC__FIELD__IGNOREFIELD")?.Trim() ?? "ignore-field";
     public static readonly string SecretAnnotationsFieldName =
-        Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETANNOTATIONS")?.Trim() ?? "secret-annotations";
+        Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETANNOTATIONS")?.Trim() ?? "secret-annotation";
     public static readonly string SecretLabelsFieldName =
-        Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETLABELS")?.Trim() ?? "secret-labels";
+        Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETLABELS")?.Trim() ?? "secret-label";
 }
 
 public class LoginInfo

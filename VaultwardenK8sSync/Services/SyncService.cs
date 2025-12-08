@@ -1564,9 +1564,9 @@ public class SyncService : ISyncService
             "secret-key-username", // Legacy/alternative name
             Models.FieldNameConfig.IgnoreFieldName,
             Models.FieldNameConfig.SecretAnnotationsFieldName,
-            "secret-annotations", // Legacy/alternative name
+            "secret-annotation", // Legacy/alternative name
             Models.FieldNameConfig.SecretLabelsFieldName,
-            "secret-labels" // Legacy/alternative name
+            "secret-label" // Legacy/alternative name
         };
         
         return metadataFields.Any(meta => 
