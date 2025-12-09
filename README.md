@@ -52,7 +52,7 @@ In Vaultwarden, create a **Login**, **SSH Key** or **Secure Note** item with:
 
 **Optional custom fields:**
 - `secret-name`: Set the Kubernetes Secret name (default: sanitized item name)
-- `secret-key-password`: Key name for the password field (default: sanitized item name)
+- `secret-key-password` or `secret-key`: Key name for the password field (default: sanitized item name)
 - `secret-key-username`: Key name for the username field (default: `<name>-username`)
 - `secret-annotation`: Add custom annotations to the Secret metadata (see examples below)
 - `secret-label`: Add custom labels to the Secret metadata (see examples below)
