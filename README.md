@@ -171,7 +171,6 @@ Common settings you can override with `--set`:
 --set env.config.SYNC__DRYRUN="true"
 ```
 
-```
 
 See [`values.yaml`](charts/vaultwarden-kubernetes-secrets/values.yaml) for all options.
 
