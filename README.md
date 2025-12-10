@@ -142,9 +142,9 @@ metadata:
     example.com/owner: "platform-team"
     monitoring.enabled: "true"
   labels:
-    environment: production
-    argocd.argoproj.io/secret-type: repository
-    app: myapp
+    environment=production
+    argocd.argoproj.io/secret-type=repository
+    app=myapp
 data:
   # ... secret data ...
 ```
