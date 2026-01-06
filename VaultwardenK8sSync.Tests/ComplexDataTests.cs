@@ -399,6 +399,52 @@ F0bvGdXPRm7iKTBKpT9QmZV5O8Wy6JyLZJKwVGHmxFaG3D4qR8qZzD5W3bKJ5xP9
         result["Private-Key"].Should().Contain("END PRIVATE KEY");
     }
 
+    [Fact]
+    [Trait("Category", "MultiLine")]
+    public async Task SecureNote_WithTrailingNewline_ShouldBePreserved()
+    {
+        // Arrange
+        var noteContent = "content-with-trailing-newline\n";
+        var item = new VaultwardenItem
+        {
+            Id = "test-id",
+            Name = "Trailing Newline Note",
+            Type = 2,
+            SecureNote = new SecureNoteInfo { Type = 0 },
+            Notes = noteContent
+        };
+
+        // Act
+        var result = await ExtractSecretDataAsync(item);
+
+        // Assert
+        result.Should().ContainKey("Trailing-Newline-Note");
+        result["Trailing-Newline-Note"].Should().Be(noteContent);
+    }
+
+    [Fact]
+    [Trait("Category", "MultiLine")]
+    public async Task SecureNote_WithLeadingNewline_ShouldBePreserved()
+    {
+        // Arrange
+        var noteContent = "\ncontent-with-leading-newline";
+        var item = new VaultwardenItem
+        {
+            Id = "test-id",
+            Name = "Leading Newline Note",
+            Type = 2,
+            SecureNote = new SecureNoteInfo { Type = 0 },
+            Notes = noteContent
+        };
+
+        // Act
+        var result = await ExtractSecretDataAsync(item);
+
+        // Assert
+        result.Should().ContainKey("Leading-Newline-Note");
+        result["Leading-Newline-Note"].Should().Be(noteContent);
+    }
+
     #endregion
 
     #region Large Data Tests

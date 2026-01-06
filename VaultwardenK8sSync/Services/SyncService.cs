@@ -740,14 +740,8 @@ public class SyncService : ISyncService
         if (string.IsNullOrEmpty(notes))
             return string.Empty;
 
-        var normalized = notes.Replace("\r\n", "\n").Replace("\r", "\n");
-        
-        // Trim leading/trailing blank lines
-        var lines = normalized.Split('\n').ToList();
-        while (lines.Count > 0 && string.IsNullOrWhiteSpace(lines[0])) lines.RemoveAt(0);
-        while (lines.Count > 0 && string.IsNullOrWhiteSpace(lines[^1])) lines.RemoveAt(lines.Count - 1);
-
-        return string.Join("\n", lines);
+        // Just normalize line endings, do not trim whitespace as it might be significant for secrets like htpasswd
+        return notes.Replace("\r\n", "\n").Replace("\r", "\n");
     }
 
     private static string GetPasswordOrSshKey(Models.VaultwardenItem item)
