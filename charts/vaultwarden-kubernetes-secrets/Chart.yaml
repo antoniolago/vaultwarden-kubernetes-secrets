@@ -3,7 +3,7 @@ name: vaultwarden-kubernetes-secrets
 description: Synchronize Bitwarden/Vaultwarden items to Kubernetes Secrets
 version: 0.1.0
 appVersion: "latest"
-icon: https://github.com/antoniolago/vaultwarden-kubernetes-secrets/blob/main/dashboard/public/vks.png
+icon: https://github.com/antoniolago/vaultwarden-kubernetes-secrets/blob/main/dashboard/public/vks.png?raw=true
 home: https://github.com/antoniolago/vaultwarden-kubernetes-secrets
 sources:
   - https://github.com/antoniolago/vaultwarden-kubernetes-secrets
