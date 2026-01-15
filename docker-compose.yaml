@@ -3,11 +3,11 @@ version: "3.9"
 services:
   vaultwarden-kubernetes-secrets:
     build:
-      context: ./VaultwardenK8sSync
-      dockerfile: Dockerfile
+      context: ./
+      dockerfile: ./VaultwardenK8sSync/Dockerfile
     image: vaultwarden-kubernetes-secrets:local
     env_file:
-      - VaultwardenK8sSync/.env
+      - .env
     environment:
       KUBERNETES__INCLUSTER: "false"
       KUBERNETES__KUBECONFIGPATH: /kube/config
