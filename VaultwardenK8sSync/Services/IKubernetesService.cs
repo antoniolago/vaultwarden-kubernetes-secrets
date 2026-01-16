@@ -1,3 +1,4 @@
+using k8s.Models;
 using VaultwardenK8sSync.Models;
 
 namespace VaultwardenK8sSync.Services;
@@ -15,6 +16,14 @@ public interface IKubernetesService
     Task<bool> SecretExistsAsync(string namespaceName, string secretName);
     Task<Dictionary<string, string>?> GetSecretDataAsync(string namespaceName, string secretName);
     Task<Dictionary<string, string>?> GetSecretAnnotationsAsync(string namespaceName, string secretName);
+
+    /// <summary>
+    /// Gets the full V1Secret object from Kubernetes
+    /// </summary>
+    /// <param name="namespaceName">The namespace containing the secret</param>
+    /// <param name="secretName">The name of the secret</param>
+    /// <returns>The V1Secret object, or null if not found</returns>
+    Task<V1Secret?> GetSecretAsync(string namespaceName, string secretName);
     
     /// <summary>
     /// Exports a secret as properly formatted YAML with literal block style for multiline values

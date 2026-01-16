@@ -213,18 +213,25 @@ public class KubernetesService : IKubernetesService
                 }
             }
 
+            // Build annotations - include managed-keys annotation
+            var secretAnnotations = new Dictionary<string, string>();
+            if (annotations != null)
+            {
+                foreach (var kvp in annotations)
+                {
+                    secretAnnotations[kvp.Key] = kvp.Value;
+                }
+            }
+            // Track which keys are managed by Vaultwarden sync
+            secretAnnotations[Constants.Kubernetes.ManagedKeysAnnotationKey] = SerializeManagedKeysAnnotation(data.Keys);
+
             var metadata = new V1ObjectMeta
             {
                 Name = secretName,
                 NamespaceProperty = namespaceName,
-                Labels = labels
+                Labels = labels,
+                Annotations = secretAnnotations
             };
-
-            // Add annotations if provided
-            if (annotations != null && annotations.Any())
-            {
-                metadata.Annotations = new Dictionary<string, string>(annotations);
-            }
 
             var secret = new V1Secret
             {
@@ -236,7 +243,7 @@ public class KubernetesService : IKubernetesService
             };
 
             await _client.CoreV1.CreateNamespacedSecretAsync(secret, namespaceName);
-            _logger.LogInformation("Created secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
+            _logger.LogInformation("Created secret {SecretName} in namespace {Namespace} with {KeyCount} managed keys", secretName, namespaceName, data.Count);
             return OperationResult.Successful();
         }
         catch (k8s.Autorest.HttpOperationException httpEx)
@@ -289,6 +296,39 @@ public class KubernetesService : IKubernetesService
 
         try
         {
+            // Fetch the existing secret to merge keys
+            var existingSecret = await _client.CoreV1.ReadNamespacedSecretAsync(secretName, namespaceName);
+
+            // Get previously managed keys from annotation
+            string? previousManagedKeysJson = null;
+            existingSecret.Metadata?.Annotations?.TryGetValue(Constants.Kubernetes.ManagedKeysAnnotationKey, out previousManagedKeysJson);
+            var previousManagedKeys = ParseManagedKeysAnnotation(previousManagedKeysJson, _logger);
+
+            // Start with existing secret data
+            var mergedData = new Dictionary<string, byte[]>();
+            if (existingSecret.Data != null)
+            {
+                foreach (var kvp in existingSecret.Data)
+                {
+                    // Only keep keys that were NOT previously managed by us
+                    // (we'll add the new managed keys next)
+                    if (!previousManagedKeys.Contains(kvp.Key))
+                    {
+                        mergedData[kvp.Key] = kvp.Value;
+                    }
+                }
+            }
+
+            // Add the new Vaultwarden-synced keys
+            foreach (var kvp in data)
+            {
+                mergedData[kvp.Key] = System.Text.Encoding.UTF8.GetBytes(kvp.Value);
+            }
+
+            // Track the new managed keys
+            var newManagedKeys = data.Keys.ToList();
+            var managedKeysAnnotation = SerializeManagedKeysAnnotation(newManagedKeys);
+
             // Start with required management labels
             var labels = new Dictionary<string, string>
             {
@@ -308,37 +348,63 @@ public class KubernetesService : IKubernetesService
                 }
             }
 
+            // Preserve existing labels that aren't management labels
+            if (existingSecret.Metadata?.Labels != null)
+            {
+                foreach (var kvp in existingSecret.Metadata.Labels)
+                {
+                    if (!labels.ContainsKey(kvp.Key))
+                    {
+                        labels[kvp.Key] = kvp.Value;
+                    }
+                }
+            }
+
+            // Build annotations - start with existing, then merge provided, then add managed-keys
+            var mergedAnnotations = new Dictionary<string, string>();
+            if (existingSecret.Metadata?.Annotations != null)
+            {
+                foreach (var kvp in existingSecret.Metadata.Annotations)
+                {
+                    mergedAnnotations[kvp.Key] = kvp.Value;
+                }
+            }
+            if (annotations != null)
+            {
+                foreach (var kvp in annotations)
+                {
+                    mergedAnnotations[kvp.Key] = kvp.Value;
+                }
+            }
+            mergedAnnotations[Constants.Kubernetes.ManagedKeysAnnotationKey] = managedKeysAnnotation;
+
             var metadata = new V1ObjectMeta
             {
                 Name = secretName,
                 NamespaceProperty = namespaceName,
-                Labels = labels
+                Labels = labels,
+                Annotations = mergedAnnotations
             };
-
-            // Add annotations if provided
-            if (annotations != null && annotations.Any())
-            {
-                metadata.Annotations = new Dictionary<string, string>(annotations);
-            }
 
             var secret = new V1Secret
             {
                 ApiVersion = "v1",
                 Kind = "Secret",
                 Metadata = metadata,
-                Type = Constants.Kubernetes.SecretType,
-                Data = data.ToDictionary(kvp => kvp.Key, kvp => System.Text.Encoding.UTF8.GetBytes(kvp.Value))
+                Type = existingSecret.Type ?? Constants.Kubernetes.SecretType, // Preserve existing type (immutable field)
+                Data = mergedData
             };
 
             await _client.CoreV1.ReplaceNamespacedSecretAsync(secret, secretName, namespaceName);
-            _logger.LogInformation("Updated secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
+            _logger.LogInformation("Updated secret {SecretName} in namespace {Namespace} (merged {NewKeyCount} keys, preserved {ExternalKeyCount} external keys)",
+                secretName, namespaceName, newManagedKeys.Count, mergedData.Count - newManagedKeys.Count);
             return OperationResult.Successful();
         }
         catch (k8s.Autorest.HttpOperationException httpEx)
         {
             var status = httpEx.Response?.StatusCode;
             var errorMessage = ParseKubernetesErrorMessage(httpEx.Response?.Content);
-            
+
             if (status == System.Net.HttpStatusCode.NotFound)
             {
                 if (!string.IsNullOrEmpty(errorMessage))
@@ -529,6 +595,28 @@ public class KubernetesService : IKubernetesService
         }
     }
 
+    public async Task<V1Secret?> GetSecretAsync(string namespaceName, string secretName)
+    {
+        if (_client == null)
+        {
+            throw new InvalidOperationException("Kubernetes client not initialized. Call InitializeAsync first.");
+        }
+
+        try
+        {
+            return await _client.CoreV1.ReadNamespacedSecretAsync(secretName, namespaceName);
+        }
+        catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
+            return null;
+        }
+    }
+
     public async Task<string?> ExportSecretAsYamlAsync(string namespaceName, string secretName)
     {
         if (_client == null)
@@ -616,5 +704,33 @@ public class KubernetesService : IKubernetesService
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Parses the managed-keys annotation JSON into a list of key names
+    /// </summary>
+    internal static List<string> ParseManagedKeysAnnotation(string? annotationValue, ILogger? logger = null)
+    {
+        if (string.IsNullOrEmpty(annotationValue))
+            return new List<string>();
+
+        try
+        {
+            var keys = System.Text.Json.JsonSerializer.Deserialize<List<string>>(annotationValue);
+            return keys ?? new List<string>();
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            logger?.LogWarning(ex, "Failed to parse managed-keys annotation: {Value}. Treating as empty list.", annotationValue);
+            return new List<string>();
+        }
+    }
+
+    /// <summary>
+    /// Serializes a list of key names to JSON for the managed-keys annotation
+    /// </summary>
+    internal static string SerializeManagedKeysAnnotation(IEnumerable<string> keyNames)
+    {
+        return System.Text.Json.JsonSerializer.Serialize(keyNames.OrderBy(k => k).ToList());
     }
 } 
