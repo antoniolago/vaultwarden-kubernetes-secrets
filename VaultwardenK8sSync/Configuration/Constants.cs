@@ -17,6 +17,7 @@ public static class Constants
         public const string ManagedByValue = "vaultwarden-kubernetes-secrets";
         public const string SyncServiceValue = "vaultwarden-k8s-sync"; // Specific to sync service
         public const string HashAnnotationKey = "vaultwarden-kubernetes-secrets/content-hash";
+        public const string ManagedKeysAnnotationKey = "vaultwarden-kubernetes-secrets/managed-keys";
         public const string SecretType = "Opaque";
     }
     

@@ -6,11 +6,11 @@ using FluentAssertions;
 
 namespace VaultwardenK8sSync.Tests.Integration;
 
-public class ApiAuthenticationIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
+public class ApiAuthenticationIntegrationTests : IClassFixture<WebApplicationFactory<global::Program>>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly WebApplicationFactory<global::Program> _factory;
 
-    public ApiAuthenticationIntegrationTests(WebApplicationFactory<Program> factory)
+    public ApiAuthenticationIntegrationTests(WebApplicationFactory<global::Program> factory)
     {
         _factory = factory;
     }

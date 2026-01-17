@@ -151,6 +151,14 @@ public class SecretCacheTests : IDisposable
         _kubernetesServiceMock.Setup(x => x.GetManagedSecretNamesAsync("default"))
             .ReturnsAsync(new List<string> { "current-secret", "orphaned-secret" });
         
+        // NEW: Setup GetSecretsWithManagedKeysAsync to return both secrets
+        _kubernetesServiceMock.Setup(x => x.GetSecretsWithManagedKeysAsync("default"))
+            .ReturnsAsync(new List<string> { "current-secret", "orphaned-secret" });
+        
+        // NEW: Setup RemoveManagedKeysAsync for orphaned secret - return null means delete entire secret
+        _kubernetesServiceMock.Setup(x => x.RemoveManagedKeysAsync("default", "orphaned-secret"))
+            .ReturnsAsync((bool?)null);
+        
         // Setup current secret exists
         _kubernetesServiceMock.Setup(x => x.SecretExistsAsync("default", "current-secret"))
             .ReturnsAsync(false); // Will be created
@@ -164,7 +172,7 @@ public class SecretCacheTests : IDisposable
         // Act
         var syncResult = await _syncService.SyncAsync();
 
-        // Assert: Orphaned secret should be deleted
+        // Assert: Orphaned secret should be deleted via the new RemoveManagedKeysAsync flow
         _kubernetesServiceMock.Verify(x => x.DeleteSecretAsync("default", "orphaned-secret"), Times.Once);
         
         // Cache should be invalidated for orphaned secret (verified by behavior in subsequent calls)
