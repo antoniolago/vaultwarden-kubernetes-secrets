@@ -1,5 +1,8 @@
 using k8s.Models;
 using VaultwardenK8sSync.Models;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace VaultwardenK8sSync.Services;
 
@@ -16,6 +19,23 @@ public interface IKubernetesService
     Task<bool> SecretExistsAsync(string namespaceName, string secretName);
     Task<Dictionary<string, string>?> GetSecretDataAsync(string namespaceName, string secretName);
     Task<Dictionary<string, string>?> GetSecretAnnotationsAsync(string namespaceName, string secretName);
+
+    /// <summary>
+    /// Removes only the managed keys from a secret, preserving any external keys
+    /// Returns true if the secret was updated, false if no changes were needed
+    /// Returns null if the secret doesn't exist or has no managed keys
+    /// </summary>
+    Task<bool?> RemoveManagedKeysAsync(string namespaceName, string secretName);
+
+    /// <summary>
+    /// Checks if a secret has only managed keys (no external keys)
+    /// </summary>
+    Task<bool> HasOnlyManagedKeysAsync(string namespaceName, string secretName);
+
+    /// <summary>
+    /// Gets all secrets that have managed keys (either created by sync service or have managed-keys annotation)
+    /// </summary>
+    Task<List<string>> GetSecretsWithManagedKeysAsync(string namespaceName);
 
     /// <summary>
     /// Gets the full V1Secret object from Kubernetes

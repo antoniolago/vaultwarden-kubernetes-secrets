@@ -14,8 +14,35 @@ namespace VaultwardenK8sSync.Tests;
 /// Tests to ensure sync operations are idempotent - running multiple times produces consistent results
 /// This verifies the fix for concurrent sync issues.
 /// </summary>
-public class IdempotencyTests
+[Collection("SyncService Sequential")]
+public class IdempotencyTests : IDisposable
 {
+    public IdempotencyTests()
+    {
+        // Clean up any leftover sync lock file from previous tests
+        CleanupLockFile();
+    }
+
+    public void Dispose()
+    {
+        // Clean up lock file after each test
+        System.Threading.Thread.Sleep(100); // Give lock time to release
+        CleanupLockFile();
+    }
+
+    private static void CleanupLockFile()
+    {
+        var lockFilePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "vaultwarden-sync-operation.lock");
+        try
+        {
+            if (System.IO.File.Exists(lockFilePath))
+            {
+                System.IO.File.Delete(lockFilePath);
+            }
+        }
+        catch { }
+    }
+
     [Fact]
     public async Task SyncShouldProduceConsistentResults_WhenRun5TimesWithEmptyVault()
     {
