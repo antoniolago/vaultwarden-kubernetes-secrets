@@ -3,6 +3,10 @@ using k8s.Models;
 using Microsoft.Extensions.Logging;
 using VaultwardenK8sSync.Models;
 using VaultwardenK8sSync.Configuration;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace VaultwardenK8sSync.Services;
 
@@ -213,18 +217,25 @@ public class KubernetesService : IKubernetesService
                 }
             }
 
+            // Build annotations - include managed-keys annotation
+            var secretAnnotations = new Dictionary<string, string>();
+            if (annotations != null)
+            {
+                foreach (var kvp in annotations)
+                {
+                    secretAnnotations[kvp.Key] = kvp.Value;
+                }
+            }
+            // Track which keys are managed by Vaultwarden sync
+            secretAnnotations[Constants.Kubernetes.ManagedKeysAnnotationKey] = SerializeManagedKeysAnnotation(data.Keys);
+
             var metadata = new V1ObjectMeta
             {
                 Name = secretName,
                 NamespaceProperty = namespaceName,
-                Labels = labels
+                Labels = labels,
+                Annotations = secretAnnotations
             };
-
-            // Add annotations if provided
-            if (annotations != null && annotations.Any())
-            {
-                metadata.Annotations = new Dictionary<string, string>(annotations);
-            }
 
             var secret = new V1Secret
             {
@@ -236,7 +247,7 @@ public class KubernetesService : IKubernetesService
             };
 
             await _client.CoreV1.CreateNamespacedSecretAsync(secret, namespaceName);
-            _logger.LogInformation("Created secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
+            _logger.LogInformation("Created secret {SecretName} in namespace {Namespace} with {KeyCount} managed keys", secretName, namespaceName, data.Count);
             return OperationResult.Successful();
         }
         catch (k8s.Autorest.HttpOperationException httpEx)
@@ -289,6 +300,39 @@ public class KubernetesService : IKubernetesService
 
         try
         {
+            // Fetch the existing secret to merge keys
+            var existingSecret = await _client.CoreV1.ReadNamespacedSecretAsync(secretName, namespaceName);
+
+            // Get previously managed keys from annotation
+            string? previousManagedKeysJson = null;
+            existingSecret.Metadata?.Annotations?.TryGetValue(Constants.Kubernetes.ManagedKeysAnnotationKey, out previousManagedKeysJson);
+            var previousManagedKeys = ParseManagedKeysAnnotation(previousManagedKeysJson, _logger);
+
+            // Start with existing secret data
+            var mergedData = new Dictionary<string, byte[]>();
+            if (existingSecret.Data != null)
+            {
+                foreach (var kvp in existingSecret.Data)
+                {
+                    // Only keep keys that were NOT previously managed by us
+                    // (we'll add the new managed keys next)
+                    if (!previousManagedKeys.Contains(kvp.Key))
+                    {
+                        mergedData[kvp.Key] = kvp.Value;
+                    }
+                }
+            }
+
+            // Add the new Vaultwarden-synced keys
+            foreach (var kvp in data)
+            {
+                mergedData[kvp.Key] = System.Text.Encoding.UTF8.GetBytes(kvp.Value);
+            }
+
+            // Track the new managed keys
+            var newManagedKeys = data.Keys.ToList();
+            var managedKeysAnnotation = SerializeManagedKeysAnnotation(newManagedKeys);
+
             // Start with required management labels
             var labels = new Dictionary<string, string>
             {
@@ -308,37 +352,63 @@ public class KubernetesService : IKubernetesService
                 }
             }
 
+            // Preserve existing labels that aren't management labels
+            if (existingSecret.Metadata?.Labels != null)
+            {
+                foreach (var kvp in existingSecret.Metadata.Labels)
+                {
+                    if (!labels.ContainsKey(kvp.Key))
+                    {
+                        labels[kvp.Key] = kvp.Value;
+                    }
+                }
+            }
+
+            // Build annotations - start with existing, then merge provided, then add managed-keys
+            var mergedAnnotations = new Dictionary<string, string>();
+            if (existingSecret.Metadata?.Annotations != null)
+            {
+                foreach (var kvp in existingSecret.Metadata.Annotations)
+                {
+                    mergedAnnotations[kvp.Key] = kvp.Value;
+                }
+            }
+            if (annotations != null)
+            {
+                foreach (var kvp in annotations)
+                {
+                    mergedAnnotations[kvp.Key] = kvp.Value;
+                }
+            }
+            mergedAnnotations[Constants.Kubernetes.ManagedKeysAnnotationKey] = managedKeysAnnotation;
+
             var metadata = new V1ObjectMeta
             {
                 Name = secretName,
                 NamespaceProperty = namespaceName,
-                Labels = labels
+                Labels = labels,
+                Annotations = mergedAnnotations
             };
-
-            // Add annotations if provided
-            if (annotations != null && annotations.Any())
-            {
-                metadata.Annotations = new Dictionary<string, string>(annotations);
-            }
 
             var secret = new V1Secret
             {
                 ApiVersion = "v1",
                 Kind = "Secret",
                 Metadata = metadata,
-                Type = Constants.Kubernetes.SecretType,
-                Data = data.ToDictionary(kvp => kvp.Key, kvp => System.Text.Encoding.UTF8.GetBytes(kvp.Value))
+                Type = existingSecret.Type ?? Constants.Kubernetes.SecretType, // Preserve existing type (immutable field)
+                Data = mergedData
             };
 
             await _client.CoreV1.ReplaceNamespacedSecretAsync(secret, secretName, namespaceName);
-            _logger.LogInformation("Updated secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
+            _logger.LogInformation("Updated secret {SecretName} in namespace {Namespace} (merged {NewKeyCount} keys, preserved {ExternalKeyCount} external keys)",
+                secretName, namespaceName, newManagedKeys.Count, mergedData.Count - newManagedKeys.Count);
             return OperationResult.Successful();
         }
         catch (k8s.Autorest.HttpOperationException httpEx)
         {
             var status = httpEx.Response?.StatusCode;
             var errorMessage = ParseKubernetesErrorMessage(httpEx.Response?.Content);
-            
+
             if (status == System.Net.HttpStatusCode.NotFound)
             {
                 if (!string.IsNullOrEmpty(errorMessage))
@@ -529,6 +599,28 @@ public class KubernetesService : IKubernetesService
         }
     }
 
+    public async Task<V1Secret?> GetSecretAsync(string namespaceName, string secretName)
+    {
+        if (_client == null)
+        {
+            throw new InvalidOperationException("Kubernetes client not initialized. Call InitializeAsync first.");
+        }
+
+        try
+        {
+            return await _client.CoreV1.ReadNamespacedSecretAsync(secretName, namespaceName);
+        }
+        catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
+            return null;
+        }
+    }
+
     public async Task<string?> ExportSecretAsYamlAsync(string namespaceName, string secretName)
     {
         if (_client == null)
@@ -616,5 +708,263 @@ public class KubernetesService : IKubernetesService
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Parses the managed-keys annotation JSON into a list of key names
+    /// </summary>
+    internal static List<string> ParseManagedKeysAnnotation(string? annotationValue, ILogger? logger = null)
+    {
+        if (string.IsNullOrEmpty(annotationValue))
+            return new List<string>();
+
+        try
+        {
+            var keys = System.Text.Json.JsonSerializer.Deserialize<List<string>>(annotationValue);
+            return keys ?? new List<string>();
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            logger?.LogWarning(ex, "Failed to parse managed-keys annotation: {Value}. Treating as empty list.", annotationValue);
+            return new List<string>();
+        }
+    }
+
+    /// <summary>
+    /// Removes only the managed keys from a secret, preserving any external keys
+    /// Returns true if the secret was updated, false if no changes were needed
+    /// Returns null if the secret doesn't exist or has no managed keys
+    /// </summary>
+    public async Task<bool?> RemoveManagedKeysAsync(string namespaceName, string secretName)
+    {
+        if (_client == null)
+        {
+            throw new InvalidOperationException("Kubernetes client not initialized. Call InitializeAsync first.");
+        }
+
+        try
+        {
+            // Fetch the existing secret
+            var existingSecret = await _client.CoreV1.ReadNamespacedSecretAsync(secretName, namespaceName);
+            
+            // Get managed keys from annotation
+            string? managedKeysJson = null;
+            existingSecret.Metadata?.Annotations?.TryGetValue(Constants.Kubernetes.ManagedKeysAnnotationKey, out managedKeysJson);
+            var managedKeys = ParseManagedKeysAnnotation(managedKeysJson, _logger);
+            
+            if (!managedKeys.Any())
+            {
+                _logger.LogDebug("Secret {SecretName} in namespace {Namespace} has no managed keys to remove", secretName, namespaceName);
+                return null;
+            }
+
+            // Check if secret has only managed keys (no external keys)
+            var hasOnlyManagedKeys = existingSecret.Data?.All(kvp => managedKeys.Contains(kvp.Key)) == true;
+            
+            if (hasOnlyManagedKeys)
+            {
+                _logger.LogDebug("Secret {SecretName} in namespace {Namespace} has only managed keys, will delete entire secret", secretName, namespaceName);
+                return null; // Signal to caller that entire secret should be deleted
+            }
+
+            // Remove managed keys, preserve external keys
+            var updatedData = new Dictionary<string, byte[]>();
+            var keysRemoved = 0;
+            
+            if (existingSecret.Data != null)
+            {
+                foreach (var kvp in existingSecret.Data)
+                {
+                    if (!managedKeys.Contains(kvp.Key))
+                    {
+                        // Keep external keys
+                        updatedData[kvp.Key] = kvp.Value;
+                    }
+                    else
+                    {
+                        keysRemoved++;
+                    }
+                }
+            }
+
+            if (keysRemoved == 0)
+            {
+                _logger.LogDebug("No managed keys found in secret {SecretName} data", secretName);
+                return false;
+            }
+
+            // Remove the managed-keys annotation since we're removing all managed keys
+            var updatedAnnotations = new Dictionary<string, string>();
+            if (existingSecret.Metadata?.Annotations != null)
+            {
+                foreach (var kvp in existingSecret.Metadata.Annotations)
+                {
+                    if (kvp.Key != Constants.Kubernetes.ManagedKeysAnnotationKey)
+                    {
+                        updatedAnnotations[kvp.Key] = kvp.Value;
+                    }
+                }
+            }
+
+            // Preserve existing labels
+            var updatedLabels = new Dictionary<string, string>();
+            if (existingSecret.Metadata?.Labels != null)
+            {
+                foreach (var kvp in existingSecret.Metadata.Labels)
+                {
+                    // Remove management labels since we're no longer managing any keys
+                    if (kvp.Key != Constants.Kubernetes.ManagedByLabel && kvp.Key != Constants.Kubernetes.CreatedByLabel)
+                    {
+                        updatedLabels[kvp.Key] = kvp.Value;
+                    }
+                }
+            }
+
+            var metadata = new V1ObjectMeta
+            {
+                Name = secretName,
+                NamespaceProperty = namespaceName,
+                Labels = updatedLabels,
+                Annotations = updatedAnnotations
+            };
+
+            var updatedSecret = new V1Secret
+            {
+                ApiVersion = "v1",
+                Kind = "Secret",
+                Metadata = metadata,
+                Type = existingSecret.Type ?? Constants.Kubernetes.SecretType,
+                Data = updatedData
+            };
+
+            await _client.CoreV1.ReplaceNamespacedSecretAsync(updatedSecret, secretName, namespaceName);
+            _logger.LogInformation("Removed {KeysRemoved} managed keys from secret {SecretName} in namespace {Namespace}, preserving {ExternalKeysCount} external keys", 
+                secretName, namespaceName, keysRemoved, updatedData.Count);
+            return true;
+        }
+        catch (k8s.Autorest.HttpOperationException httpEx) when (httpEx.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            _logger.LogWarning("Cannot remove managed keys from secret {SecretName} - secret does not exist in namespace {Namespace}", secretName, namespaceName);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to remove managed keys from secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Checks if a secret has only managed keys (no external keys)
+    /// </summary>
+    public async Task<bool> HasOnlyManagedKeysAsync(string namespaceName, string secretName)
+    {
+        if (_client == null)
+        {
+            throw new InvalidOperationException("Kubernetes client not initialized. Call InitializeAsync first.");
+        }
+
+        try
+        {
+            var secret = await _client.CoreV1.ReadNamespacedSecretAsync(secretName, namespaceName);
+            
+            // Get managed keys from annotation
+            string? managedKeysJson = null;
+            secret.Metadata?.Annotations?.TryGetValue(Constants.Kubernetes.ManagedKeysAnnotationKey, out managedKeysJson);
+            var managedKeys = ParseManagedKeysAnnotation(managedKeysJson, _logger);
+            
+            if (!managedKeys.Any() || secret.Data == null)
+            {
+                return false;
+            }
+
+            // Check if all keys in the secret are managed keys
+            return secret.Data.All(kvp => managedKeys.Contains(kvp.Key));
+        }
+        catch (k8s.Autorest.HttpOperationException httpEx) when (httpEx.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to check if secret {SecretName} has only managed keys in namespace {Namespace}", secretName, namespaceName);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Gets all secrets that have managed keys (either created by sync service or have managed-keys annotation)
+    /// </summary>
+    public async Task<List<string>> GetSecretsWithManagedKeysAsync(string namespaceName)
+    {
+        if (_client == null)
+        {
+            throw new InvalidOperationException("Kubernetes client not initialized. Call InitializeAsync first.");
+        }
+
+        try
+        {
+            var secrets = await _client.CoreV1.ListNamespacedSecretAsync(namespaceName);
+            var secretsWithManagedKeys = new List<string>();
+            
+            foreach (var secret in secrets.Items)
+            {
+                var hasManagedKeys = false;
+                
+                // Check if created by sync service
+                if (secret.Metadata?.Labels != null)
+                {
+                    if (secret.Metadata.Labels.ContainsKey(Constants.Kubernetes.CreatedByLabel) &&
+                        secret.Metadata.Labels[Constants.Kubernetes.CreatedByLabel] == Constants.Kubernetes.SyncServiceValue)
+                    {
+                        hasManagedKeys = true;
+                    }
+                }
+                
+                // Check if has managed-keys annotation
+                if (!hasManagedKeys && secret.Metadata?.Annotations != null)
+                {
+                    if (secret.Metadata.Annotations.ContainsKey(Constants.Kubernetes.ManagedKeysAnnotationKey))
+                    {
+                        var managedKeysJson = secret.Metadata.Annotations[Constants.Kubernetes.ManagedKeysAnnotationKey];
+                        var managedKeys = ParseManagedKeysAnnotation(managedKeysJson, _logger);
+                        hasManagedKeys = managedKeys.Any();
+                    }
+                }
+                
+                if (hasManagedKeys)
+                {
+                    secretsWithManagedKeys.Add(secret.Metadata.Name);
+                }
+            }
+            
+            return secretsWithManagedKeys;
+        }
+        catch (k8s.Autorest.HttpOperationException httpEx) when (httpEx.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            var errorMessage = ParseKubernetesErrorMessage(httpEx.Response?.Content);
+            if (!string.IsNullOrEmpty(errorMessage))
+            {
+                _logger.LogWarning("Cannot list secrets with managed keys: {ErrorMessage}", errorMessage);
+            }
+            else
+            {
+                _logger.LogWarning("Cannot list secrets with managed keys - namespace {Namespace} does not exist", namespaceName);
+            }
+            return new List<string>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get secrets with managed keys in namespace {Namespace}", namespaceName);
+            return new List<string>();
+        }
+    }
+
+    /// <summary>
+    /// Serializes a list of key names to JSON for the managed-keys annotation
+    /// </summary>
+    internal static string SerializeManagedKeysAnnotation(IEnumerable<string> keyNames)
+    {
+        return System.Text.Json.JsonSerializer.Serialize(keyNames.OrderBy(k => k).ToList());
     }
 } 

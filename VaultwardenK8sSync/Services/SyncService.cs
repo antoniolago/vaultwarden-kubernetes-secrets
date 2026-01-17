@@ -903,12 +903,12 @@ public class SyncService : ISyncService
     {
         try
         {
-            // Only get secrets that have our management labels
-            var managedSecrets = await _kubernetesService.GetManagedSecretNamesAsync(namespaceName);
+            // Get all secrets that have managed keys (not just those created by sync service)
+            var secretsWithManagedKeys = await _kubernetesService.GetSecretsWithManagedKeysAsync(namespaceName);
             
-            if (!managedSecrets.Any())
+            if (!secretsWithManagedKeys.Any())
             {
-                _logger.LogDebug("No managed secrets found in namespace {Namespace}", namespaceName);
+                _logger.LogDebug("No secrets with managed keys found in namespace {Namespace}", namespaceName);
                 return null;
             }
 
@@ -921,7 +921,7 @@ public class SyncService : ISyncService
             }).ToHashSet();
 
             // Find orphaned secrets (exclude auth token secret from cleanup)
-            var orphanedSecrets = managedSecrets
+            var orphanedSecrets = secretsWithManagedKeys
                 .Where(s => !expectedSecrets.Contains(s))
                 .Where(s => s != "vaultwarden-kubernetes-secrets-token") // Exclude auth token secret
                 .ToList();
@@ -947,37 +947,66 @@ public class SyncService : ISyncService
                 {
                     if (_syncConfig.DryRun)
                     {
-                        _logger.LogDebug("[DRY RUN] Namespace {Namespace}: would delete orphaned secret {SecretName}", 
+                        _logger.LogDebug("[DRY RUN] Namespace {Namespace}: would clean up orphaned secret {SecretName}", 
                             namespaceName, orphanedSecret);
                         namespaceSummary.OrphansDeleted++; // Count as "would delete" for dry run
                     }
                     else
                     {
-                        var deleteSuccess = await _kubernetesService.DeleteSecretAsync(namespaceName, orphanedSecret);
-                        if (deleteSuccess)
+                        // Try to remove only managed keys first, preserving external keys
+                        var keyRemovalResult = await _kubernetesService.RemoveManagedKeysAsync(namespaceName, orphanedSecret);
+                        
+                        if (keyRemovalResult == true)
                         {
-                            _logger.LogDebug("Namespace {Namespace}: deleted orphaned secret {SecretName}", 
+                            // Successfully removed managed keys, secret preserved with external keys
+                            _logger.LogInformation("Namespace {Namespace}: removed managed keys from orphaned secret {SecretName}, preserving external keys", 
                                 namespaceName, orphanedSecret);
                             namespaceSummary.OrphansDeleted++;
                             
-                            // Update database status to Deleted
+                            // Update database status to indicate keys removed
                             await _dbLogger.UpsertSecretStateAsync(
                                 namespaceName,
                                 orphanedSecret,
                                 string.Empty, // VaultwardenItemId not known for orphaned secret
                                 orphanedSecret, // Use secret name as item name fallback
-                                SecretStatusConstants.Deleted,
-                                0, // No data keys for deleted secret
-                                "Secret removed - no longer configured in Vaultwarden"
+                                SecretStatusConstants.Active, // Still active but with external keys only
+                                0, // No managed keys remaining
+                                "Managed keys removed - external keys preserved"
                             );
-                            _logger.LogDebug("Updated database status to Deleted for {Namespace}/{SecretName}", 
+                        }
+                        else if (keyRemovalResult == null)
+                        {
+                            // Either secret has only managed keys or doesn't exist - delete entire secret
+                            var deleteSuccess = await _kubernetesService.DeleteSecretAsync(namespaceName, orphanedSecret);
+                            if (deleteSuccess)
+                            {
+                                _logger.LogInformation("Namespace {Namespace}: deleted orphaned secret {SecretName} (had only managed keys)", 
+                                    namespaceName, orphanedSecret);
+                                namespaceSummary.OrphansDeleted++;
+                                
+                                // Update database status to Deleted
+                                await _dbLogger.UpsertSecretStateAsync(
+                                    namespaceName,
+                                    orphanedSecret,
+                                    string.Empty, // VaultwardenItemId not known for orphaned secret
+                                    orphanedSecret, // Use secret name as item name fallback
+                                    SecretStatusConstants.Deleted,
+                                    0, // No data keys for deleted secret
+                                    "Secret removed - no longer configured in Vaultwarden"
+                                );
+                            }
+                        }
+                        else // keyRemovalResult == false
+                        {
+                            // No changes needed (no managed keys found)
+                            _logger.LogDebug("Namespace {Namespace}: no managed keys found in secret {SecretName}, no action needed", 
                                 namespaceName, orphanedSecret);
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to delete orphaned secret {SecretName} in namespace {Namespace}", 
+                    _logger.LogError(ex, "Failed to clean up orphaned secret {SecretName} in namespace {Namespace}", 
                         orphanedSecret, namespaceName);
                 }
             }

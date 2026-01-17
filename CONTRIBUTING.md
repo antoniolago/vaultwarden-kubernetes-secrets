@@ -7,7 +7,8 @@ Thank you for considering contributing! This project aims to make secret managem
 ## 🚀 Quick Start for Contributors
 
 ### Prerequisites
-- **.NET 9.0 SDK** ([Download](https://dotnet.microsoft.com/download/dotnet/9.0))
+
+- **.NET 10.0 SDK** ([Download](https://dotnet.microsoft.com/download/dotnet/9.0))
 - **Docker** (for testing container builds)
 - **Kubernetes cluster** (local or remote - minikube, kind, k3s, etc.)
 - **Vaultwarden instance** (or Bitwarden account for testing)
@@ -50,28 +51,36 @@ dotnet run sync
 We welcome all types of contributions:
 
 ### 🐛 Bug Reports
+
 Found a bug? Help us squash it!
+
 - Check [existing issues](https://github.com/antoniolago/vaultwarden-kubernetes-secrets/issues) first
 - Use the bug report template
 - Include logs, environment details, and steps to reproduce
 
 ### ✨ Feature Requests
+
 Have an idea? We'd love to hear it!
+
 - Check if it's already requested
 - Describe the use case and expected behavior
 - Explain why it would benefit other users
 
 ### 📝 Documentation
+
 Documentation is as important as code!
+
 - Fix typos or unclear instructions
 - Add examples and use cases
 - Improve README or inline code comments
 - Create tutorials or blog posts
 
 ### 🔧 Code Contributions
+
 Ready to code? Here's what we need:
 
 **High Priority:**
+
 - Performance improvements (especially CPU usage during sync)
 - Better error handling and recovery
 - Additional item type support
@@ -79,6 +88,7 @@ Ready to code? Here's what we need:
 - Security improvements
 
 **Good First Issues:**
+
 - Look for issues labeled [`good first issue`](https://github.com/antoniolago/vaultwarden-kubernetes-secrets/labels/good%20first%20issue)
 - These are well-scoped and beginner-friendly
 
@@ -102,17 +112,20 @@ git checkout -b fix/issue-description
 ### 2. Make Your Changes
 
 **Code Style:**
+
 - Follow existing C# conventions
 - Use meaningful variable and method names
 - Add XML documentation comments for public APIs
 - Keep methods focused and concise
 
 **Testing:**
+
 - Add unit tests for new functionality
 - Update existing tests if behavior changes
 - Ensure all tests pass: `dotnet test`
 
 **Commits:**
+
 - Write clear, descriptive commit messages
 - Use conventional commits format:
   ```
@@ -151,6 +164,7 @@ git push origin feature/your-feature-name
 ```
 
 Then open a PR on GitHub:
+
 - Use a clear, descriptive title
 - Fill out the PR template completely
 - Link related issues (e.g., "Fixes #123")
@@ -158,6 +172,7 @@ Then open a PR on GitHub:
 - Mark as draft if work-in-progress
 
 **What Happens Next:**
+
 - Automated tests run (build, unit tests, security checks)
 - A Docker image is built for your PR (tagged as `pr-XXX-XXXXXXXX`)
 - Maintainers review your code
@@ -215,21 +230,25 @@ Before submitting a PR, test these scenarios:
 ### What We Look For
 
 **Functionality:**
+
 - Does it solve the problem?
 - Are edge cases handled?
 - Is error handling robust?
 
 **Code Quality:**
+
 - Is it readable and maintainable?
 - Are there tests?
 - Is it well-documented?
 
 **Performance:**
+
 - Does it impact sync speed?
 - Are there unnecessary API calls?
 - Is memory usage reasonable?
 
 **Security:**
+
 - Are secrets handled safely?
 - Is input validated?
 - Are dependencies up-to-date?
@@ -281,16 +300,19 @@ vaultwarden-kubernetes-secrets/
 ### Key Components
 
 **SyncService** - Core sync logic
+
 - Fetches items from Vaultwarden
 - Transforms to Kubernetes secrets
 - Handles create/update/delete operations
 
 **KubernetesService** - K8s interactions
+
 - Secret CRUD operations
 - Namespace validation
 - Label-based filtering
 
 **VaultwardenService** - Vaultwarden integration
+
 - Authenticates via bw-cli
 - Fetches and filters items
 - Handles organization/collection scoping
@@ -323,6 +345,7 @@ We use **Spectre.Console** for beautiful terminal output:
 **Reporting Security Issues:**
 
 If you discover a security vulnerability:
+
 - **DO NOT** open a public issue
 - Email the maintainers directly (see README)
 - Provide details and steps to reproduce
@@ -333,12 +356,14 @@ If you discover a security vulnerability:
 ## 📚 Resources
 
 ### Learning Resources
+
 - [.NET Documentation](https://docs.microsoft.com/en-us/dotnet/)
 - [Kubernetes Client for .NET](https://github.com/kubernetes-client/csharp)
 - [Bitwarden CLI](https://bitwarden.com/help/cli/)
 - [Spectre.Console](https://spectreconsole.net/)
 
 ### Project Links
+
 - [Issue Tracker](https://github.com/antoniolago/vaultwarden-kubernetes-secrets/issues)
 - [Discussions](https://github.com/antoniolago/vaultwarden-kubernetes-secrets/discussions)
 - [Helm Chart](https://artifacthub.io/packages/search?repo=vaultwarden-kubernetes-secrets)
@@ -356,6 +381,7 @@ If you discover a security vulnerability:
 ### Response Times
 
 This is a community project maintained by volunteers:
+
 - We aim to respond to issues within a few days
 - PRs may take longer depending on complexity
 - Be patient and respectful
@@ -365,6 +391,7 @@ This is a community project maintained by volunteers:
 ## 🏆 Recognition
 
 Contributors are recognized in:
+
 - GitHub contributors page
 - Release notes for significant contributions
 - Project README (for major features)

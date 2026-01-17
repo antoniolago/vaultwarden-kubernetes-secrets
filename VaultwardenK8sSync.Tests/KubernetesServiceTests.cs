@@ -21,6 +21,140 @@ public class KubernetesServiceTests
         _service = new KubernetesService(_loggerMock.Object, _config);
     }
 
+    #region ParseManagedKeysAnnotation Tests
+
+    [Fact]
+    public void ParseManagedKeysAnnotation_WithValidJson_ShouldReturnKeysList()
+    {
+        // Arrange
+        var json = "[\"username\",\"password\",\"api-key\"]";
+
+        // Act
+        var result = KubernetesService.ParseManagedKeysAnnotation(json);
+
+        // Assert
+        result.Should().BeEquivalentTo(new[] { "username", "password", "api-key" });
+    }
+
+    [Fact]
+    public void ParseManagedKeysAnnotation_WithEmptyArray_ShouldReturnEmptyList()
+    {
+        // Arrange
+        var json = "[]";
+
+        // Act
+        var result = KubernetesService.ParseManagedKeysAnnotation(json);
+
+        // Assert
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ParseManagedKeysAnnotation_WithNull_ShouldReturnEmptyList()
+    {
+        // Act
+        var result = KubernetesService.ParseManagedKeysAnnotation(null);
+
+        // Assert
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ParseManagedKeysAnnotation_WithEmptyString_ShouldReturnEmptyList()
+    {
+        // Act
+        var result = KubernetesService.ParseManagedKeysAnnotation("");
+
+        // Assert
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ParseManagedKeysAnnotation_WithMalformedJson_ShouldReturnEmptyList()
+    {
+        // Arrange
+        var json = "not valid json";
+        var loggerMock = new Mock<ILogger>();
+
+        // Act
+        var result = KubernetesService.ParseManagedKeysAnnotation(json, loggerMock.Object);
+
+        // Assert
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ParseManagedKeysAnnotation_WithPartialJson_ShouldReturnEmptyList()
+    {
+        // Arrange
+        var json = "[\"username\", ";
+
+        // Act
+        var result = KubernetesService.ParseManagedKeysAnnotation(json);
+
+        // Assert
+        result.Should().BeEmpty();
+    }
+
+    #endregion
+
+    #region SerializeManagedKeysAnnotation Tests
+
+    [Fact]
+    public void SerializeManagedKeysAnnotation_WithKeys_ShouldReturnSortedJson()
+    {
+        // Arrange
+        var keys = new[] { "zebra", "apple", "mango" };
+
+        // Act
+        var result = KubernetesService.SerializeManagedKeysAnnotation(keys);
+
+        // Assert
+        result.Should().Be("[\"apple\",\"mango\",\"zebra\"]");
+    }
+
+    [Fact]
+    public void SerializeManagedKeysAnnotation_WithEmptyList_ShouldReturnEmptyArray()
+    {
+        // Arrange
+        var keys = new string[] { };
+
+        // Act
+        var result = KubernetesService.SerializeManagedKeysAnnotation(keys);
+
+        // Assert
+        result.Should().Be("[]");
+    }
+
+    [Fact]
+    public void SerializeManagedKeysAnnotation_WithSingleKey_ShouldReturnSingleElementArray()
+    {
+        // Arrange
+        var keys = new[] { "password" };
+
+        // Act
+        var result = KubernetesService.SerializeManagedKeysAnnotation(keys);
+
+        // Assert
+        result.Should().Be("[\"password\"]");
+    }
+
+    [Fact]
+    public void SerializeManagedKeysAnnotation_RoundTrip_ShouldPreserveKeys()
+    {
+        // Arrange
+        var originalKeys = new[] { "username", "password", "api-key" };
+
+        // Act
+        var json = KubernetesService.SerializeManagedKeysAnnotation(originalKeys);
+        var parsedKeys = KubernetesService.ParseManagedKeysAnnotation(json);
+
+        // Assert
+        parsedKeys.Should().BeEquivalentTo(originalKeys);
+    }
+
+    #endregion
+
     [Fact]
     public void Constructor_WithValidParameters_ShouldCreateInstance()
     {
