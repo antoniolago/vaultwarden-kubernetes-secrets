@@ -47,7 +47,7 @@ public class SyncService : ISyncService
         
         if (!await syncLock.TryAcquireAsync())
         {
-            _logger.LogWarning("⚠️  Sync already in progress (in another process or thread) - rejecting concurrent sync attempt");
+            _logger.LogWarning("Sync already in progress (in another process or thread) - rejecting concurrent sync attempt");
             return new SyncSummary
             {
                 SyncNumber = _syncCount,
@@ -60,22 +60,25 @@ public class SyncService : ISyncService
         
         var progress = progressReporter ?? new NullProgressReporter();
         var syncStartTime = DateTime.UtcNow;
-    
+
         var summary = new SyncSummary
         {
             StartTime = syncStartTime,
             SyncNumber = GetSyncCount()
         };
-        
+
+        // Begin sync-level logging scope for correlation
+        using var syncScope = LoggingScopes.BeginSyncScope(summary.SyncNumber);
+
         // Start database logging
         long syncLogId = 0;
-        
+
         try
         {
             progress.Start("Starting sync operation...");
             progress.SetPhase("Authenticating and fetching items");
-            
-            _logger.LogDebug("Starting reconciliation (sync #{SyncCount})", summary.SyncNumber);
+
+            _logger.LogInformation("Starting sync");
 
             // Get all items from Vaultwarden
             var items = await _vaultwardenService.GetItemsAsync();
@@ -351,15 +354,18 @@ public class SyncService : ISyncService
 
     private async Task<NamespaceSummary> SyncNamespaceAsync(string namespaceName, List<Models.VaultwardenItem> items, SyncSummary parentSummary, ISyncProgressReporter? progress = null, long syncLogId = 0)
     {
+        // Begin namespace-level logging scope
+        using var namespaceScope = LoggingScopes.BeginNamespaceScope(namespaceName);
+
         var namespaceSummary = new NamespaceSummary
         {
             Name = namespaceName,
             SourceItems = items.Count
         };
-        
+
         try
         {
-            _logger.LogDebug("Reconciling namespace {Namespace} with {Count} source items", namespaceName, items.Count);
+            _logger.LogDebug("Reconciling namespace with {Count} source items", items.Count);
 
             // Group items by secret name to handle multiple items pointing to the same secret
             var itemsBySecretName = GroupItemsBySecretName(items);
@@ -1128,15 +1134,18 @@ public class SyncService : ISyncService
 
     private async Task<SecretSummary> SyncSecretAsync(string namespaceName, string secretName, List<Models.VaultwardenItem> items, long syncLogId)
     {
+        // Begin secret-level logging scope (include first item's ID for correlation)
+        var primaryItemId = items.FirstOrDefault()?.Id;
+        using var secretScope = LoggingScopes.BeginSecretScope(secretName, primaryItemId);
+
         var secretSummary = new SecretSummary
         {
             Name = secretName,
             SourceItemCount = items.Count
         };
-        
-        _logger.LogInformation("SyncSecretAsync: Starting sync for secret {SecretName} in namespace {Namespace} from {Count} item(s)", 
-            secretName, namespaceName, items.Count);
-        
+
+        _logger.LogDebug("Starting sync from {Count} item(s)", items.Count);
+
         try
         {
             // Validate that namespace exists before attempting any operations
