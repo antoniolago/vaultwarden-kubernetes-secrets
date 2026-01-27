@@ -174,6 +174,33 @@ Common settings you can override with `--set`:
 
 See [`values.yaml`](charts/vaultwarden-kubernetes-secrets/values.yaml) for all options.
 
+### Logging Configuration
+
+The service uses Serilog for structured logging with environment-aware output:
+- **Production (Kubernetes)**: Compact JSON format for log aggregators (Loki, ELK, Datadog)
+- **Development**: Human-readable colored output with timestamps
+
+**Environment Variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LOG_LEVEL` | `Information` | Global default log level |
+| `LOG_LEVEL_SYNC` | (inherit) | SyncService log level |
+| `LOG_LEVEL_KUBERNETES` | (inherit) | KubernetesService log level |
+| `LOG_LEVEL_VAULTWARDEN` | (inherit) | VaultwardenService log level |
+| `LOG_LEVEL_DATABASE` | (inherit) | Database/Repository log level |
+| `LOG_LEVEL_WEBHOOK` | (inherit) | WebhookService log level |
+| `LOG_LEVEL_METRICS` | (inherit) | MetricsServer log level |
+| `LOG_LEVEL_MICROSOFT` | `Warning` | Microsoft namespace log level |
+
+**Valid log levels:** `Verbose`, `Debug`, `Information`, `Warning`, `Error`, `Fatal`
+
+**Example:** To enable debug logging only for the sync service:
+```bash
+--set env.config.LOG_LEVEL="Information"
+--set env.config.LOG_LEVEL_SYNC="Debug"
+```
+
 ---
 
 ## How It Works
@@ -199,6 +226,8 @@ See [`values.yaml`](charts/vaultwarden-kubernetes-secrets/values.yaml) for all o
 - **Custom annotations/labels**: Add Kubernetes metadata (annotations and labels) via custom fields
   - Multiple text fields with the same name (one `key=value` per field)
   - Automatically excluded from secret data
+- **Structured logging**: JSON logs in production for aggregators; colored output in development
+- **Component log levels**: Fine-grained control over logging verbosity per service
 
 ---
 
@@ -220,3 +249,11 @@ See [`values.yaml`](charts/vaultwarden-kubernetes-secrets/values.yaml) for all o
 - Ensure target namespaces exist in Kubernetes
 - Confirm the Vaultwarden user has access to the item (check Organization/Collection permissions)
 - Enable api and dashboard to visualize the sync status
+
+**Need more detailed logs?**
+- Enable debug logging for specific components:
+  ```bash
+  --set env.config.LOG_LEVEL_SYNC="Debug"
+  --set env.config.LOG_LEVEL_KUBERNETES="Debug"
+  ```
+- Logs include correlation IDs (`SyncId`, `Namespace`, `SecretName`) for tracing operations

@@ -419,5 +419,6 @@ db-analysis-output
 !LICENSE.md
 !DEVELOPMENT.md
 
-CLAUDE.md
-.claude/
+# Claude Code configuration (should be tracked)
+!CLAUDE.md
+!.claude/

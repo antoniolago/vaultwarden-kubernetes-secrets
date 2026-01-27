@@ -142,8 +142,10 @@ try
     {
         try
         {
+            using var loggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
+                builder.AddSerilog(Log.Logger, dispose: false));
             var kubernetesService = new KubernetesService(
-                new Microsoft.Extensions.Logging.LoggerFactory().CreateLogger<KubernetesService>(),
+                loggerFactory.CreateLogger<KubernetesService>(),
                 appSettings.Kubernetes
             );
 

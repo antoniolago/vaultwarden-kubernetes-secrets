@@ -24,10 +24,25 @@ public sealed class CompositeDisposable : IDisposable
         if (_disposed) return;
         _disposed = true;
 
+        List<Exception>? exceptions = null;
+
         // Dispose in reverse order (LIFO)
         for (var i = _disposables.Count - 1; i >= 0; i--)
         {
-            _disposables[i].Dispose();
+            try
+            {
+                _disposables[i].Dispose();
+            }
+            catch (Exception ex)
+            {
+                exceptions ??= new List<Exception>();
+                exceptions.Add(ex);
+            }
+        }
+
+        if (exceptions != null)
+        {
+            throw new AggregateException("One or more disposables threw exceptions during disposal.", exceptions);
         }
     }
 }
