@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <!-- Workaround for .NET 10 SDK MSB4184 bug with GetTargetFrameworkVersion for older TFMs -->
+    <EnableSdkContainerSupport>false</EnableSdkContainerSupport>
+    <IsPublishable>true</IsPublishable>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+</Project>
