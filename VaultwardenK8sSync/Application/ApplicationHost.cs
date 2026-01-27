@@ -462,7 +462,7 @@ public class ApplicationHost
             try
             {
                 await _metricsServer.StopAsync();
-                _metricsServer.Dispose();
+                await _metricsServer.DisposeAsync();
             }
             catch (Exception ex)
             {

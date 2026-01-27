@@ -43,7 +43,7 @@ public class SyncService : ISyncService
     public async Task<SyncSummary> SyncAsync(ISyncProgressReporter? progressReporter)
     {
         // Prevent concurrent syncs with global file-based lock (works across all processes)
-        using var syncLock = new GlobalSyncLock(_logger);
+        await using var syncLock = new GlobalSyncLock(_logger);
         
         if (!await syncLock.TryAcquireAsync())
         {
