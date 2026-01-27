@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import {
   Box,
   Typography,
@@ -109,25 +109,56 @@ export default function Dashboard() {
     queryKey: ['dashboard-overview'],
     queryFn: api.getDashboardOverview,
     refetchInterval: 30000,
+    staleTime: 30000,
   })
 
   const { data: allNamespaces } = useQuery({
     queryKey: ['namespaces'],
     queryFn: api.getNamespaces,
     refetchInterval: 60000,
+    staleTime: 60000,
   })
 
-  // Filter out namespaces that only have deleted secrets (no active or failed)
-  const namespaces = allNamespaces?.filter(ns => ns.activeSecrets > 0 || ns.failedSecrets > 0) || []
+  // Memoize filtered namespaces to avoid recalculating on every render
+  const namespaces = useMemo(
+    () => allNamespaces?.filter(ns => ns.activeSecrets > 0 || ns.failedSecrets > 0) || [],
+    [allNamespaces]
+  )
 
-  const handleShowSecrets = async (namespace: string, status: 'Active' | 'Failed', count?: number) => {
+  // Memoize computed values for stats cards
+  const activeNamespacesCount = useMemo(
+    () => namespaces.filter(ns => ns.activeSecrets > 0).length,
+    [namespaces]
+  )
+
+  const totalDataKeys = useMemo(
+    () => namespaces.reduce((sum, ns) => sum + ns.totalDataKeys, 0),
+    [namespaces]
+  )
+
+  const totalSecretsCount = useMemo(
+    () => namespaces.reduce((sum, ns) => sum + ns.secretCount, 0),
+    [namespaces]
+  )
+
+  const totalActiveSecrets = useMemo(
+    () => namespaces.reduce((sum, ns) => sum + ns.activeSecrets, 0),
+    [namespaces]
+  )
+
+  const totalFailedSecrets = useMemo(
+    () => namespaces.reduce((sum, ns) => sum + ns.failedSecrets, 0),
+    [namespaces]
+  )
+
+  const handleShowSecrets = useCallback(async (namespace: string, status: 'Active' | 'Failed', count?: number) => {
     if (count === 0) return
-    
+
     setLoadingSecrets(true)
     setModalNamespace(namespace)
     setModalTitle(`Secrets With Errors in ${namespace}`)
     setModalOpen(true)
-    
+
     try {
       const secrets = await api.getSecretsByNamespace(namespace)
       const filteredSecrets = secrets.filter(s => s.status === status)
@@ -138,14 +169,14 @@ export default function Dashboard() {
     } finally {
       setLoadingSecrets(false)
     }
-  }
+  }, [])
 
-  const handleShowAllSecrets = async (namespace: string) => {
+  const handleShowAllSecrets = useCallback(async (namespace: string) => {
     setLoadingSecrets(true)
     setModalNamespace(namespace)
     setModalTitle(`All Secrets in ${namespace}`)
     setModalOpen(true)
-    
+
     try {
       const secrets = await api.getSecretsByNamespace(namespace)
       setModalSecrets(secrets)
@@ -155,13 +186,13 @@ export default function Dashboard() {
     } finally {
       setLoadingSecrets(false)
     }
-  }
+  }, [])
 
-  const handleShowDataKeys = async (namespace: string) => {
+  const handleShowDataKeys = useCallback(async (namespace: string) => {
     setLoadingDataKeys(true)
     setModalNamespace(namespace)
     setDataKeysModalOpen(true)
-    
+
     try {
       const secrets = await api.getSecretsByNamespace(namespace)
       const keysPromises = secrets.map(async (secret) => {
@@ -187,7 +218,7 @@ export default function Dashboard() {
     } finally {
       setLoadingDataKeys(false)
     }
-  }
+  }, [])
 
   if (isLoading) {
     return (
@@ -227,29 +258,29 @@ export default function Dashboard() {
             emoji="🔐"
             color="success"
             helpText="Number of Kubernetes secrets successfully synced from Vaultwarden"
-            subtitle={`${namespaces?.filter(ns => ns.activeSecrets > 0).length || 0} namespaces w/ active secrets`}
+            subtitle={`${activeNamespacesCount} namespaces w/ active secrets`}
             testId="stat-active-secrets"
           />
         </Grid>
         <Grid xs={12} sm={6} lg={3}>
           <StatCard
             title="Total Data Keys"
-            value={namespaces?.reduce((sum, ns) => sum + ns.totalDataKeys, 0) || 0}
+            value={totalDataKeys}
             emoji="🔑"
             color="primary"
             helpText="Total number of key-value pairs stored across all secrets"
-            subtitle={`Across ${namespaces?.length || 0} namespaces`}
+            subtitle={`Across ${namespaces.length} namespaces`}
             testId="stat-total-keys"
           />
         </Grid>
         <Grid xs={12} sm={6} lg={3}>
           <StatCard
             title="Namespaces"
-            value={namespaces?.length || 0}
+            value={namespaces.length}
             emoji="📂"
             color="neutral"
             helpText="Number of Kubernetes namespaces with active or failed secrets"
-            subtitle={`Managing ${namespaces?.reduce((sum, ns) => sum + ns.secretCount, 0) || 0} total secrets`}
+            subtitle={`Managing ${totalSecretsCount} total secrets`}
             testId="stat-namespaces"
           />
         </Grid>
@@ -404,22 +435,22 @@ export default function Dashboard() {
                     </td>
                     <td>
                       <Typography fontWeight="bold" data-testid="total-secrets">
-                        {namespaces.reduce((sum, ns) => sum + ns.secretCount, 0)}
+                        {totalSecretsCount}
                       </Typography>
                     </td>
                     <td>
                       <Typography fontWeight="bold" color="success" data-testid="total-active">
-                        {namespaces.reduce((sum, ns) => sum + ns.activeSecrets, 0)}
+                        {totalActiveSecrets}
                       </Typography>
                     </td>
                     <td>
                       <Typography fontWeight="bold" color="warning" data-testid="total-failed">
-                        {namespaces.reduce((sum, ns) => sum + ns.failedSecrets, 0)}
+                        {totalFailedSecrets}
                       </Typography>
                     </td>
                     <td>
                       <Typography fontWeight="bold" data-testid="total-data-keys">
-                        {namespaces.reduce((sum, ns) => sum + ns.totalDataKeys, 0)}
+                        {totalDataKeys}
                       </Typography>
                     </td>
                     <td colSpan={2}>

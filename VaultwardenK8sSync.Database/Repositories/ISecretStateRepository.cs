@@ -9,5 +9,6 @@ public interface ISecretStateRepository
     Task<List<SecretState>> GetAllAsync();
     Task<List<SecretState>> GetByNamespaceAsync(string namespaceName);
     Task<List<SecretState>> GetActiveSecretsAsync();
+    Task<(int ActiveSecretsCount, int TotalNamespaces)> GetOverviewStatsAsync();
     Task DeleteAsync(long id);
 }

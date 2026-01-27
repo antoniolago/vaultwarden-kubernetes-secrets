@@ -750,17 +750,20 @@ public class KubernetesService : IKubernetesService
             // Get managed keys from annotation
             string? managedKeysJson = null;
             existingSecret.Metadata?.Annotations?.TryGetValue(Constants.Kubernetes.ManagedKeysAnnotationKey, out managedKeysJson);
-            var managedKeys = ParseManagedKeysAnnotation(managedKeysJson, _logger);
-            
-            if (!managedKeys.Any())
+            var managedKeysList = ParseManagedKeysAnnotation(managedKeysJson, _logger);
+
+            if (!managedKeysList.Any())
             {
                 _logger.LogDebug("Secret {SecretName} in namespace {Namespace} has no managed keys to remove", secretName, namespaceName);
                 return null;
             }
 
+            // Use HashSet for O(1) lookup instead of O(n) List.Contains
+            var managedKeys = new HashSet<string>(managedKeysList, StringComparer.OrdinalIgnoreCase);
+
             // Check if secret has only managed keys (no external keys)
             var hasOnlyManagedKeys = existingSecret.Data?.All(kvp => managedKeys.Contains(kvp.Key)) == true;
-            
+
             if (hasOnlyManagedKeys)
             {
                 _logger.LogDebug("Secret {SecretName} in namespace {Namespace} has only managed keys, will delete entire secret", secretName, namespaceName);
@@ -770,7 +773,7 @@ public class KubernetesService : IKubernetesService
             // Remove managed keys, preserve external keys
             var updatedData = new Dictionary<string, byte[]>();
             var keysRemoved = 0;
-            
+
             if (existingSecret.Data != null)
             {
                 foreach (var kvp in existingSecret.Data)
@@ -878,8 +881,11 @@ public class KubernetesService : IKubernetesService
                 return false;
             }
 
+            // Use HashSet for O(1) lookup instead of O(n) List.Contains
+            var managedKeysSet = new HashSet<string>(managedKeys, StringComparer.OrdinalIgnoreCase);
+
             // Check if all keys in the secret are managed keys
-            return secret.Data.All(kvp => managedKeys.Contains(kvp.Key));
+            return secret.Data.All(kvp => managedKeysSet.Contains(kvp.Key));
         }
         catch (k8s.Autorest.HttpOperationException httpEx) when (httpEx.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {

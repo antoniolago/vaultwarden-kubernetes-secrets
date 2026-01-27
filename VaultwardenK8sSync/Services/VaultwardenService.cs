@@ -474,27 +474,30 @@ public class VaultwardenService : IVaultwardenService
                 return new List<VaultwardenItem>();
             }
 
-            // Apply optional organization filter
+            // Apply optional filters - chain predicates to avoid intermediate allocations
             var resolvedOrgId = await ResolveOrganizationIdAsync();
+            var resolvedFolderId = await ResolveFolderIdAsync();
+            var resolvedCollectionId = await ResolveCollectionIdAsync(resolvedOrgId);
+
+            // Build chained query with single materialization at the end
+            var query = items.AsEnumerable();
+
             if (!string.IsNullOrWhiteSpace(resolvedOrgId))
             {
-                items = items.Where(i => string.Equals(i.OrganizationId, resolvedOrgId, StringComparison.OrdinalIgnoreCase)).ToList();
+                query = query.Where(i => string.Equals(i.OrganizationId, resolvedOrgId, StringComparison.OrdinalIgnoreCase));
             }
 
-            // Apply optional folder filter
-            var resolvedFolderId = await ResolveFolderIdAsync();
             if (!string.IsNullOrWhiteSpace(resolvedFolderId))
             {
-                items = items.Where(i => string.Equals(i.FolderId, resolvedFolderId, StringComparison.OrdinalIgnoreCase)).ToList();
+                query = query.Where(i => string.Equals(i.FolderId, resolvedFolderId, StringComparison.OrdinalIgnoreCase));
             }
 
-            // Apply optional collection filter
-            var resolvedCollectionId = await ResolveCollectionIdAsync(resolvedOrgId);
             if (!string.IsNullOrWhiteSpace(resolvedCollectionId))
             {
-                items = items.Where(i => i.CollectionIds != null && i.CollectionIds.Contains(resolvedCollectionId, StringComparer.OrdinalIgnoreCase)).ToList();
+                query = query.Where(i => i.CollectionIds != null && i.CollectionIds.Contains(resolvedCollectionId, StringComparer.OrdinalIgnoreCase));
             }
-            return items;
+
+            return query.ToList();
         }
         catch (Exception ex)
         {

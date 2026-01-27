@@ -1,0 +1,18 @@
+<Project>
+  <PropertyGroup>
+    <!--
+      Disable SDK container support to prevent MSB4184 errors when the .NET SDK
+      attempts to evaluate container-related targets for projects that don't use them.
+      This is needed for .NET 10 SDK compatibility with this solution.
+    -->
+    <EnableSdkContainerSupport>false</EnableSdkContainerSupport>
+    <IsPublishable>true</IsPublishable>
+  </PropertyGroup>
+
+  <!-- Publish optimization settings - only enabled for Release builds -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+</Project>
