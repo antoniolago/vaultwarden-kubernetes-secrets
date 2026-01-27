@@ -413,8 +413,11 @@ dashboard/test-results/.last-run.json
 test-results
 db-analysis-output
 
-*.md
+
 !README.md
 !CHANGELOG.md
 !LICENSE.md
 !DEVELOPMENT.md
+
+CLAUDE.md
+.claude/
