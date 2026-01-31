@@ -135,7 +135,7 @@ jobs:
              echo "version=${VERSION}" >> $GITHUB_OUTPUT
              echo "pr_tag=" >> $GITHUB_OUTPUT
              echo "is_release=true" >> $GITHUB_OUTPUT
-           elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+           elif [[ "${{ github.event_name }}" == "pull_request" || "${{ github.event_name }}" == "pull_request_target" ]]; then
              PR_NUMBER="${{ github.event.number }}"
              COMMIT_SHA="${GITHUB_SHA::8}"
              PR_TAG="pr-${PR_NUMBER}-${COMMIT_SHA}"
@@ -584,7 +584,7 @@ jobs:
   comment-pr:
     runs-on: ubuntu-latest
     needs: [package-helm]
-    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.repo.full_name == github.repository
+    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'pull_request_target')
     permissions:
       contents: read
       pull-requests: write
@@ -606,26 +606,36 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const commentBody = `## ✅ PR Build & Test Complete
-
-            **Docker Image:** \`ghcr.io/${context.repo.owner}/vaultwarden-kubernetes-secrets:${process.env.PR_TAG}\`
+            const prNumber = context.payload.pull_request.number;
+            const prTag = process.env.PR_TAG;
+            const owner = context.repo.owner;
+            const chartVersion = process.env.CHART_VERSION;
             
-            **Helm Chart:** ✅ Tested and validated in kind cluster
+            const commentBody = `## ✅ Build Complete for PR #${prNumber}
+
+            ### Published Container Images
+            - **Sync Worker:** \`ghcr.io/${owner}/vaultwarden-kubernetes-secrets:${prTag}\`
+            - **API:** \`ghcr.io/${owner}/vaultwarden-kubernetes-secrets-api:${prTag}\`
+            - **Dashboard:** \`ghcr.io/${owner}/vaultwarden-kubernetes-secrets-dashboard:${prTag}\`
+
+            ### Published Helm Chart
+            - **GHCR:** \`oci://ghcr.io/${owner}/charts/vaultwarden-kubernetes-secrets:${chartVersion}\`
+            - **Harbor:** \`oci://harbor.lag0.com.br/charts/vaultwarden-kubernetes-secrets:${chartVersion}\`
 
             ### Quick Test Commands
 
-            **Using Helm:**
+            **Using Helm (with PR images):**
             \`\`\`bash
-            helm upgrade -i vaultwarden-test oci://ghcr.io/${context.repo.owner}/charts/vaultwarden-kubernetes-secrets \\
-              --set image.tag=${process.env.PR_TAG} \\
+            helm upgrade -i vaultwarden-test oci://ghcr.io/${owner}/charts/vaultwarden-kubernetes-secrets \\
+              --version ${chartVersion} \\
+              --set image.repository=ghcr.io/${owner}/vaultwarden-kubernetes-secrets \\
+              --set image.tag=${prTag} \\
+              --set imageApi.repository=ghcr.io/${owner}/vaultwarden-kubernetes-secrets-api \\
+              --set imageApi.tag=${prTag} \\
+              --set imageDashboard.repository=ghcr.io/${owner}/vaultwarden-kubernetes-secrets-dashboard \\
+              --set imageDashboard.tag=${prTag} \\
               --set env.config.VAULTWARDEN__SERVERURL="https://your-server.com" \\
               --namespace vaultwarden-test --create-namespace
-            \`\`\`
-
-            **Using kubectl:**
-            \`\`\`bash
-            kubectl set image deployment/vaultwarden-kubernetes-secrets \\
-              vaultwarden-kubernetes-secrets=ghcr.io/${context.repo.owner}/vaultwarden-kubernetes-secrets:${process.env.PR_TAG}
             \`\`\`
 
             ---
@@ -634,13 +644,13 @@ jobs:
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number
+              issue_number: prNumber
             });
             
             // Check if we already commented on this PR
             const existingComment = comments.find(comment => 
               comment.user.type === 'Bot' && 
-              comment.body.includes('PR Build & Test Complete')
+              comment.body.includes('Build Complete for PR')
             );
             
             if (existingComment) {
@@ -656,11 +666,12 @@ jobs:
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.issue.number,
+                issue_number: prNumber,
                 body: commentBody
               });
             }
         env:
-          PR_TAG: ${{ steps.vars.outputs.pr_tag }}
+          PR_TAG: ${{ needs.prepare-versions.outputs.raw_tag }}
+          CHART_VERSION: ${{ needs.prepare-versions.outputs.version }}
 
       
