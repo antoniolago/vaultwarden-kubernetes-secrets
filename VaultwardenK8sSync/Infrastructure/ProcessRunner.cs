@@ -22,18 +22,22 @@ public class ProcessRunner : IProcessRunner
     {
         try
         {
-            process.Start();
-
-            // Write input if provided
-            // Small delay to ensure process is ready to read stdin (important for commands like 'bw unlock')
+            // For interactive commands like 'bw unlock', we need to write stdin immediately
+            // before the process starts blocking on input
             if (!string.IsNullOrEmpty(input))
             {
-                // Wait a small amount for the process to initialize and be ready to read stdin
-                // This is especially important for interactive commands like 'bw unlock'
-                await Task.Delay(50);
-                
+                // Set up stdin writer before starting process
+                process.StartInfo.Environment["BW_NOINTERACTION"] = "true";
+            }
+            
+            process.Start();
+
+            // Write input if provided - do this immediately after start
+            if (!string.IsNullOrEmpty(input))
+            {
                 try
                 {
+                    // Write immediately without delay - the process buffers stdin
                     await process.StandardInput.WriteLineAsync(input);
                     await process.StandardInput.FlushAsync();
                     process.StandardInput.Close();

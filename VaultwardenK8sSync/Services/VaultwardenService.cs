@@ -233,13 +233,26 @@ public class VaultwardenService : IVaultwardenService
                 return false;
             }
 
-            var process = _processFactory.CreateBwProcess("unlock --raw");
+            // Use printf to pipe password without trailing newline, with BW_NOINTERACTION
+            var escapedPassword = _config.MasterPassword.Replace("'", "'\\''");
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "/bin/sh",
+                    Arguments = $"-c \"printf '%s\\n' '{escapedPassword}' | BW_NOINTERACTION=true bw unlock --raw\"",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                }
+            };
             ApplyCommonEnv(process.StartInfo);
+            process.StartInfo.Environment["BW_NOINTERACTION"] = "true";
 
             var result = await _processRunner.RunAsync(
                 process, 
-                Constants.Timeouts.DefaultCommandTimeoutSeconds, 
-                _config.MasterPassword);
+                Constants.Timeouts.DefaultCommandTimeoutSeconds);
 
             if (result.Success)
             {
