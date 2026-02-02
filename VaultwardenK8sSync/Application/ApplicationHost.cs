@@ -143,11 +143,10 @@ public class ApplicationHost
     {
         // Add configuration
         services.AddAppConfiguration();
-        
-        // Get logging settings for configuration
-        var tempSettings = AppSettings.FromEnvironment();
-        services.AddCustomLogging(tempSettings.Logging);
-        
+
+        // Use pre-configured Serilog (configured in Program.cs)
+        services.AddSerilogLogging();
+
         // Add infrastructure services
         services.AddScoped<IProcessFactory, ProcessFactory>();
         services.AddScoped<IProcessRunner, ProcessRunner>();
@@ -194,8 +193,7 @@ public class ApplicationHost
         }
         catch (Exception ex)
         {
-            // Log full stack trace to aid debugging even if logger is not available
-            Console.WriteLine($"Fatal error: {ex}");
+            _logger.LogCritical(ex, "Fatal error during application execution");
             return 1;
         }
         finally
@@ -238,10 +236,12 @@ public class ApplicationHost
         _logger.LogWarning("Monitor resource consumption and adjust sync intervals accordingly");
 
         _logger.LogDebug(
-            "Log levels -> Default: {Default}, Microsoft: {Ms}, Microsoft.Hosting.Lifetime: {MsLifetime}",
+            "Log levels -> Default: {Default}, Microsoft: {Ms}, Sync: {Sync}, Kubernetes: {K8s}, Vaultwarden: {Vw}",
             _appSettings.Logging.DefaultLevel,
             _appSettings.Logging.MicrosoftLevel,
-            _appSettings.Logging.MicrosoftHostingLifetimeLevel);
+            _appSettings.Logging.SyncLevel ?? "inherit",
+            _appSettings.Logging.KubernetesLevel ?? "inherit",
+            _appSettings.Logging.VaultwardenLevel ?? "inherit");
 
         // Log presence (not values) of critical env vars
         _logger.LogDebug(
@@ -462,7 +462,7 @@ public class ApplicationHost
             try
             {
                 await _metricsServer.StopAsync();
-                _metricsServer.Dispose();
+                await _metricsServer.DisposeAsync();
             }
             catch (Exception ex)
             {

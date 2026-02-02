@@ -68,6 +68,21 @@ public class SecretStateRepository : ISecretStateRepository
             .ToListAsync();
     }
 
+    public async Task<(int ActiveSecretsCount, int TotalNamespaces)> GetOverviewStatsAsync()
+    {
+        // Single query to get both active secrets count and total namespaces
+        var stats = await _context.SecretStates
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                ActiveSecretsCount = g.Count(s => s.Status == "Active"),
+                TotalNamespaces = g.Select(s => s.Namespace).Distinct().Count()
+            })
+            .FirstOrDefaultAsync();
+
+        return (stats?.ActiveSecretsCount ?? 0, stats?.TotalNamespaces ?? 0);
+    }
+
     public async Task DeleteAsync(long id)
     {
         var entity = await _context.SecretStates.FindAsync(id);

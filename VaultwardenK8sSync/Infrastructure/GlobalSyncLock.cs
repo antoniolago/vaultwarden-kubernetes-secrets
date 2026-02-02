@@ -10,15 +10,16 @@ namespace VaultwardenK8sSync.Infrastructure;
 /// Global file-based lock to ensure only ONE sync operation runs at a time across ALL processes.
 /// This prevents:
 /// - Multiple sync service processes
-/// - Manual "dotnet run sync" while continuous sync is running  
+/// - Manual "dotnet run sync" while continuous sync is running
 /// - API-triggered syncs while continuous sync is running
 /// </summary>
-public class GlobalSyncLock : IDisposable
+public class GlobalSyncLock : IDisposable, IAsyncDisposable
 {
     private readonly string _lockFilePath;
     private FileStream? _lockFileStream;
     private readonly ILogger? _logger;
     private readonly int _timeoutMs;
+    private bool _disposed;
 
     public GlobalSyncLock(ILogger? logger = null, int timeoutMs = 5000)
     {
@@ -88,6 +89,9 @@ public class GlobalSyncLock : IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
+
         if (_lockFileStream != null)
         {
             try
@@ -95,14 +99,38 @@ public class GlobalSyncLock : IDisposable
                 _lockFileStream.Dispose();
                 _lockFileStream = null;
                 _logger?.LogDebug("🔓 Released sync operation lock: {LockFile}", _lockFilePath);
-                
-                // Give OS time to release the file lock
-                Thread.Sleep(10);
             }
             catch (Exception ex)
             {
                 _logger?.LogWarning(ex, "Error disposing sync lock");
             }
         }
+
+        GC.SuppressFinalize(this);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed) return;
+        _disposed = true;
+
+        if (_lockFileStream != null)
+        {
+            try
+            {
+                await _lockFileStream.DisposeAsync();
+                _lockFileStream = null;
+                _logger?.LogDebug("🔓 Released sync operation lock: {LockFile}", _lockFilePath);
+
+                // Give OS time to release the file lock (async-friendly)
+                await Task.Delay(10);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Error disposing sync lock");
+            }
+        }
+
+        GC.SuppressFinalize(this);
     }
 }

@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(superpowers:writing-plans)",
+      "Skill(superpowers:writing-plans:*)",
+      "Skill(superpowers:subagent-driven-development)",
+      "Skill(superpowers:subagent-driven-development:*)",
+      "mcp__exa__web_search_exa",
+      "mcp__exa__crawling_exa",
+      "Bash(git show:*)",
+      "Bash(git checkout:*)",
+      "mcp__Ref__ref_read_url",
+      "Bash(dotnet test:*)",
+      "Bash(git log:*)",
+      "Bash(bw:*)",
+      "Bash(ildasm:*)",
+      "Bash(dotnet tool list:*)",
+      "Bash(dotnet nuget search:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(bun run build)",
+      "Bash(git rm:*)"
+    ]
+  }
+}

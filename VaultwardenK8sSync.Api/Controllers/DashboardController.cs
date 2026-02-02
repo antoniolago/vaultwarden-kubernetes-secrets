@@ -40,7 +40,8 @@ public class DashboardController : ControllerBase
         {
             var stats = await _syncLogRepository.GetStatisticsAsync();
             var activeSecrets = await _secretStateRepository.GetActiveSecretsAsync();
-            var allSecrets = await _secretStateRepository.GetAllAsync();
+            // Use single query for overview stats instead of fetching all secrets
+            var (activeSecretsCount, totalNamespaces) = await _secretStateRepository.GetOverviewStatsAsync();
             var recentLogs = await _syncLogRepository.GetRecentAsync(10);
 
             // Group secrets by namespace
@@ -56,16 +57,13 @@ public class DashboardController : ControllerBase
             var failedSyncs = (int)stats["failedSyncs"];
             var successRate = totalSyncs > 0 ? (double)successfulSyncs / totalSyncs * 100 : 0;
 
-            // Get unique namespaces count
-            var totalNamespaces = allSecrets.Select(s => s.Namespace).Distinct().Count();
-
             return Ok(new
             {
                 // Flat structure matching frontend interface
                 totalSyncs,
                 successfulSyncs,
                 failedSyncs,
-                activeSecrets = activeSecrets.Count,
+                activeSecrets = activeSecretsCount,
                 totalNamespaces,
                 lastSyncTime = stats["lastSyncTime"],
                 averageSyncDuration = (double)stats["averageDuration"],

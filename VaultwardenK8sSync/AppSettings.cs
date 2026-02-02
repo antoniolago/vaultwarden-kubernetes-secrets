@@ -45,9 +45,14 @@ public class AppSettings
             },
             Logging = new LoggingSettings
             {
-                DefaultLevel = Environment.GetEnvironmentVariable("LOGGING__LOGLEVEL__DEFAULT") ?? "Information",
-                MicrosoftLevel = Environment.GetEnvironmentVariable("LOGGING__LOGLEVEL__MICROSOFT") ?? "Warning",
-                MicrosoftHostingLifetimeLevel = Environment.GetEnvironmentVariable("LOGGING__LOGLEVEL__MICROSOFT__HOSTING__LIFETIME") ?? "Information"
+                DefaultLevel = Environment.GetEnvironmentVariable("LOG_LEVEL") ?? "Information",
+                SyncLevel = Environment.GetEnvironmentVariable("LOG_LEVEL_SYNC"),
+                KubernetesLevel = Environment.GetEnvironmentVariable("LOG_LEVEL_KUBERNETES"),
+                VaultwardenLevel = Environment.GetEnvironmentVariable("LOG_LEVEL_VAULTWARDEN"),
+                DatabaseLevel = Environment.GetEnvironmentVariable("LOG_LEVEL_DATABASE"),
+                WebhookLevel = Environment.GetEnvironmentVariable("LOG_LEVEL_WEBHOOK"),
+                MetricsLevel = Environment.GetEnvironmentVariable("LOG_LEVEL_METRICS"),
+                MicrosoftLevel = Environment.GetEnvironmentVariable("LOG_LEVEL_MICROSOFT") ?? "Warning"
             },
             Metrics = new MetricsSettings
             {
@@ -122,9 +127,29 @@ public class SyncSettings
 
 public class LoggingSettings
 {
+    /// <summary>Global default log level</summary>
     public string DefaultLevel { get; set; } = "Information";
+
+    /// <summary>Log level for SyncService (inherits global if null)</summary>
+    public string? SyncLevel { get; set; }
+
+    /// <summary>Log level for KubernetesService (inherits global if null)</summary>
+    public string? KubernetesLevel { get; set; }
+
+    /// <summary>Log level for VaultwardenService (inherits global if null)</summary>
+    public string? VaultwardenLevel { get; set; }
+
+    /// <summary>Log level for DatabaseLoggerService and Repositories (inherits global if null)</summary>
+    public string? DatabaseLevel { get; set; }
+
+    /// <summary>Log level for WebhookService (inherits global if null)</summary>
+    public string? WebhookLevel { get; set; }
+
+    /// <summary>Log level for MetricsServer and MetricsService (inherits global if null)</summary>
+    public string? MetricsLevel { get; set; }
+
+    /// <summary>Log level for Microsoft namespaces</summary>
     public string MicrosoftLevel { get; set; } = "Warning";
-    public string MicrosoftHostingLifetimeLevel { get; set; } = "Information";
 }
 
 public class MetricsSettings

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Serilog;
 using VaultwardenK8sSync;
 using VaultwardenK8sSync.Database;
 using VaultwardenK8sSync.Database.Repositories;
@@ -11,367 +12,398 @@ using System.Diagnostics;
 using System.Threading.RateLimiting;
 using Prometheus;
 
-var builder = WebApplication.CreateBuilder(args);
+// Configure Serilog early for bootstrap logging
+var loggingSettings = AppSettings.FromEnvironment().Logging;
+VaultwardenK8sSync.Configuration.ConfigurationExtensions.ConfigureSerilog(loggingSettings);
 
-// Add services to the container
-builder.Services.AddControllers()
-    .AddJsonOptions(options =>
-    {
-        // Ensure DateTime values are serialized with UTC timezone indicator ('Z')
-        // This fixes the "Last Sync" column timezone display issue in the dashboard
-        options.JsonSerializerOptions.Converters.Add(new UtcDateTimeConverter());
-        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
-        // Set DateTime format to include timezone
-        options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
-    });
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c =>
+try
 {
-    c.SwaggerDoc("v1", new() { 
-        Title = "Vaultwarden K8s Sync API", 
-        Version = "v1",
-        Description = "API for monitoring and managing Vaultwarden to Kubernetes secret synchronization"
-    });
-});
+    var builder = WebApplication.CreateBuilder(args);
 
-// Configure database
-var dbPath = builder.Configuration.GetValue<string>("DatabasePath") ?? "/data/sync.db";
+    // Use Serilog for request logging
+    builder.Host.UseSerilog();
 
-// Ensure database directory exists
-var dbDirectory = Path.GetDirectoryName(dbPath);
-if (!string.IsNullOrEmpty(dbDirectory) && !Directory.Exists(dbDirectory))
-{
-    Directory.CreateDirectory(dbDirectory);
-}
-
-var connectionString = $"Data Source={dbPath};Cache=Shared;Mode=ReadWriteCreate;Pooling=True";
-builder.Services.AddDbContext<SyncDbContext>(options =>
-    options.UseSqlite(connectionString, sqliteOptions =>
-    {
-        sqliteOptions.CommandTimeout(30);
-    }));
-
-// Register repositories
-builder.Services.AddScoped<ISyncLogRepository, SyncLogRepository>();
-builder.Services.AddScoped<ISecretStateRepository, SecretStateRepository>();
-builder.Services.AddScoped<IVaultwardenItemRepository, VaultwardenItemRepository>();
-
-// Add HTTP client with resilience policies
-builder.Services.AddHttpClient("VaultwardenClient")
-    .AddPolicyHandler(ResiliencePolicies.GetRetryPolicy())
-    .AddPolicyHandler(ResiliencePolicies.GetCircuitBreakerPolicy())
-    .AddPolicyHandler(ResiliencePolicies.GetTimeoutPolicy());
-
-// Add Vaultwarden and Kubernetes services
-var appSettings = AppSettings.FromEnvironment();
-builder.Services.Configure<AppSettings>(options =>
-{
-    options.Vaultwarden = appSettings.Vaultwarden;
-    options.Kubernetes = appSettings.Kubernetes;
-    options.Sync = appSettings.Sync;
-    options.Logging = appSettings.Logging;
-    options.Metrics = appSettings.Metrics;
-    options.Webhook = appSettings.Webhook;
-});
-builder.Services.AddSingleton(appSettings.Vaultwarden);
-builder.Services.AddSingleton(appSettings.Kubernetes);
-// Make these singleton to work with VaultwardenService singleton
-builder.Services.AddSingleton<IProcessFactory, ProcessFactory>();
-builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
-// Make VaultwardenService singleton to preserve authentication state across requests
-builder.Services.AddSingleton<IVaultwardenService, VaultwardenService>();
-// Make KubernetesService singleton to preserve client connection across requests
-builder.Services.AddSingleton<IKubernetesService, KubernetesService>();
-
-// Add CORS
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowDashboard", policy =>
-    {
-        var dashboardUrl = builder.Configuration.GetValue<string>("DashboardUrl") ?? "http://localhost:3000";
-        
-        if (builder.Environment.IsDevelopment())
+    // Add services to the container
+    builder.Services.AddControllers()
+        .AddJsonOptions(options =>
         {
-            // Allow any origin in development for easier testing
-            policy.AllowAnyOrigin()
-                .AllowAnyHeader()
-                .AllowAnyMethod();
-        }
-        else
-        {
-            // Strict CORS in production
-            policy.WithOrigins(dashboardUrl)
-                .AllowAnyHeader()
-                .AllowAnyMethod()
-                .AllowCredentials();
-        }
-    });
-});
-
-// Add WebSocket support
-var webSocketOptions = new WebSocketOptions
-{
-    KeepAliveInterval = TimeSpan.FromMinutes(2)
-};
-builder.Services.AddSingleton(webSocketOptions);
-
-// Add authentication
-// Read from configuration first (supports test overrides), then fall back to environment variable
-var authToken = builder.Configuration.GetValue<string>("AuthToken") 
-    ?? Environment.GetEnvironmentVariable("AUTH_TOKEN") 
-    ?? "";
-var loginlessMode = builder.Configuration.GetValue<bool>("LoginlessMode", false);
-
-// Only try to load from Kubernetes secret if:
-// 1. No token configured in environment or configuration
-// 2. Not in loginless mode
-// 3. Not in test environment (check if AuthToken key exists in configuration)
-var authTokenExplicitlySet = builder.Configuration.GetSection("AuthToken").Exists();
-if (string.IsNullOrEmpty(authToken) && !loginlessMode && !authTokenExplicitlySet)
-{
-    try
+            // Ensure DateTime values are serialized with UTC timezone indicator ('Z')
+            // This fixes the "Last Sync" column timezone display issue in the dashboard
+            options.JsonSerializerOptions.Converters.Add(new UtcDateTimeConverter());
+            options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+            // Set DateTime format to include timezone
+            options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        });
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddSwaggerGen(c =>
     {
-        var kubernetesService = new KubernetesService(
-            new Microsoft.Extensions.Logging.LoggerFactory().CreateLogger<KubernetesService>(),
-            appSettings.Kubernetes
-        );
-        
-        if (await kubernetesService.InitializeAsync())
+        c.SwaggerDoc("v1", new()
         {
-            var secretNamespace = Environment.GetEnvironmentVariable("APP_NAMESPACE") 
-                ?? "vaultwarden-kubernetes-secrets";
-            var secretName = "vaultwarden-kubernetes-secrets-token";
-            
-            if (await kubernetesService.SecretExistsAsync(secretNamespace, secretName))
+            Title = "Vaultwarden K8s Sync API",
+            Version = "v1",
+            Description = "API for monitoring and managing Vaultwarden to Kubernetes secret synchronization"
+        });
+    });
+
+    // Configure database
+    var dbPath = builder.Configuration.GetValue<string>("DatabasePath") ?? "/data/sync.db";
+
+    // Ensure database directory exists
+    var dbDirectory = Path.GetDirectoryName(dbPath);
+    if (!string.IsNullOrEmpty(dbDirectory) && !Directory.Exists(dbDirectory))
+    {
+        Directory.CreateDirectory(dbDirectory);
+    }
+
+    var connectionString = $"Data Source={dbPath};Cache=Shared;Mode=ReadWriteCreate;Pooling=True";
+    builder.Services.AddDbContext<SyncDbContext>(options =>
+        options.UseSqlite(connectionString, sqliteOptions =>
+        {
+            sqliteOptions.CommandTimeout(30);
+        }));
+
+    // Register repositories
+    builder.Services.AddScoped<ISyncLogRepository, SyncLogRepository>();
+    builder.Services.AddScoped<ISecretStateRepository, SecretStateRepository>();
+    builder.Services.AddScoped<IVaultwardenItemRepository, VaultwardenItemRepository>();
+
+    // Add HTTP client with resilience policies
+    builder.Services.AddHttpClient("VaultwardenClient")
+        .AddPolicyHandler(ResiliencePolicies.GetRetryPolicy())
+        .AddPolicyHandler(ResiliencePolicies.GetCircuitBreakerPolicy())
+        .AddPolicyHandler(ResiliencePolicies.GetTimeoutPolicy());
+
+    // Add Vaultwarden and Kubernetes services
+    var appSettings = AppSettings.FromEnvironment();
+    builder.Services.Configure<AppSettings>(options =>
+    {
+        options.Vaultwarden = appSettings.Vaultwarden;
+        options.Kubernetes = appSettings.Kubernetes;
+        options.Sync = appSettings.Sync;
+        options.Logging = appSettings.Logging;
+        options.Metrics = appSettings.Metrics;
+        options.Webhook = appSettings.Webhook;
+    });
+    builder.Services.AddSingleton(appSettings.Vaultwarden);
+    builder.Services.AddSingleton(appSettings.Kubernetes);
+    // Make these singleton to work with VaultwardenService singleton
+    builder.Services.AddSingleton<IProcessFactory, ProcessFactory>();
+    builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
+    // Make VaultwardenService singleton to preserve authentication state across requests
+    builder.Services.AddSingleton<IVaultwardenService, VaultwardenService>();
+    // Make KubernetesService singleton to preserve client connection across requests
+    builder.Services.AddSingleton<IKubernetesService, KubernetesService>();
+
+    // Add CORS
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy("AllowDashboard", policy =>
+        {
+            var dashboardUrl = builder.Configuration.GetValue<string>("DashboardUrl") ?? "http://localhost:3000";
+
+            if (builder.Environment.IsDevelopment())
             {
-                var secretData = await kubernetesService.GetSecretDataAsync(secretNamespace, secretName);
-                if (secretData != null && secretData.ContainsKey("token"))
+                // Allow any origin in development for easier testing
+                policy.AllowAnyOrigin()
+                    .AllowAnyHeader()
+                    .AllowAnyMethod();
+            }
+            else
+            {
+                // Strict CORS in production
+                policy.WithOrigins(dashboardUrl)
+                    .AllowAnyHeader()
+                    .AllowAnyMethod()
+                    .AllowCredentials();
+            }
+        });
+    });
+
+    // Add WebSocket support
+    var webSocketOptions = new WebSocketOptions
+    {
+        KeepAliveInterval = TimeSpan.FromMinutes(2)
+    };
+    builder.Services.AddSingleton(webSocketOptions);
+
+    // Add authentication
+    // Read from configuration first (supports test overrides), then fall back to environment variable
+    var authToken = builder.Configuration.GetValue<string>("AuthToken")
+        ?? Environment.GetEnvironmentVariable("AUTH_TOKEN")
+        ?? "";
+    var loginlessMode = builder.Configuration.GetValue<bool>("LoginlessMode", false);
+
+    // Only try to load from Kubernetes secret if:
+    // 1. No token configured in environment or configuration
+    // 2. Not in loginless mode
+    // 3. Not in test environment (check if AuthToken key exists in configuration)
+    var authTokenExplicitlySet = builder.Configuration.GetSection("AuthToken").Exists();
+    if (string.IsNullOrEmpty(authToken) && !loginlessMode && !authTokenExplicitlySet)
+    {
+        try
+        {
+            using var loggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
+                builder.AddSerilog(Log.Logger, dispose: false));
+            var kubernetesService = new KubernetesService(
+                loggerFactory.CreateLogger<KubernetesService>(),
+                appSettings.Kubernetes
+            );
+
+            if (await kubernetesService.InitializeAsync())
+            {
+                var secretNamespace = Environment.GetEnvironmentVariable("APP_NAMESPACE")
+                    ?? "vaultwarden-kubernetes-secrets";
+                var secretName = "vaultwarden-kubernetes-secrets-token";
+
+                if (await kubernetesService.SecretExistsAsync(secretNamespace, secretName))
                 {
-                    authToken = secretData["token"];
-                    Console.WriteLine($"✅ Loaded auth token from Kubernetes secret {secretName} in namespace {secretNamespace}");
+                    var secretData = await kubernetesService.GetSecretDataAsync(secretNamespace, secretName);
+                    if (secretData != null && secretData.ContainsKey("token"))
+                    {
+                        authToken = secretData["token"];
+                        Log.Information("Loaded auth token from Kubernetes secret {SecretName} in namespace {Namespace}",
+                            secretName, secretNamespace);
+                    }
                 }
             }
         }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Could not load auth token from Kubernetes");
+        }
     }
-    catch (Exception ex)
+
+    builder.Services.AddSingleton(new AuthenticationConfig
     {
-        Console.WriteLine($"⚠️  Could not load auth token from Kubernetes: {ex.Message}");
+        Token = authToken,
+        LoginlessMode = loginlessMode
+    });
+    builder.Services.AddScoped<TokenAuthenticationMiddleware>();
+
+    // Log authentication mode on startup
+    if (loginlessMode)
+    {
+        Log.Warning("LOGINLESS_MODE is enabled - API authentication is DISABLED");
     }
-}
-
-builder.Services.AddSingleton(new AuthenticationConfig 
-{ 
-    Token = authToken,
-    LoginlessMode = loginlessMode
-});
-builder.Services.AddScoped<TokenAuthenticationMiddleware>();
-
-// Log authentication mode on startup
-if (loginlessMode)
-{
-    Console.WriteLine("⚠️  LOGINLESS_MODE is enabled - API authentication is DISABLED");
-}
-else if (string.IsNullOrEmpty(authToken))
-{
-    Console.WriteLine("⚠️  No AuthToken configured - API authentication is DISABLED");
-}
-else
-{
-    Console.WriteLine("🔒 API authentication is enabled");
-}
-
-// Health checks
-builder.Services.AddHealthChecks()
-    .AddDbContextCheck<SyncDbContext>();
-
-// Rate limiting
-builder.Services.AddRateLimiter(options =>
-{
-    // Global rate limiter with authentication-aware logic
-    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+    else if (string.IsNullOrEmpty(authToken))
     {
-        // Get IP address for rate limiting partition
-        var ipAddress = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        
-        // Stricter limits for authentication endpoints (5 req/min)
-        // More relaxed for other endpoints (100 req/min)
-        var isAuthEndpoint = context.Request.Path.StartsWithSegments("/api") && 
-                            !context.Request.Path.StartsWithSegments("/health");
-        
-        return RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: $"{ipAddress}:{isAuthEndpoint}",
-            factory: _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = isAuthEndpoint ? 20 : 100,  // Stricter for API endpoints
-                Window = TimeSpan.FromMinutes(1),
-                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                QueueLimit = isAuthEndpoint ? 0 : 10  // No queueing for API endpoints
-            });
+        Log.Warning("No AuthToken configured - API authentication is DISABLED");
+    }
+    else
+    {
+        Log.Information("API authentication is enabled");
+    }
+
+    // Health checks
+    builder.Services.AddHealthChecks()
+        .AddDbContextCheck<SyncDbContext>();
+
+    // Rate limiting
+    builder.Services.AddRateLimiter(options =>
+    {
+        // Global rate limiter with authentication-aware logic
+        options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+        {
+            // Get IP address for rate limiting partition
+            var ipAddress = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+            // Stricter limits for authentication endpoints (5 req/min)
+            // More relaxed for other endpoints (100 req/min)
+            var isAuthEndpoint = context.Request.Path.StartsWithSegments("/api") &&
+                                !context.Request.Path.StartsWithSegments("/health");
+
+            return RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: $"{ipAddress}:{isAuthEndpoint}",
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = isAuthEndpoint ? 20 : 100,  // Stricter for API endpoints
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                    QueueLimit = isAuthEndpoint ? 0 : 10  // No queueing for API endpoints
+                });
+        });
+
+        options.OnRejected = async (context, token) =>
+        {
+            context.HttpContext.Response.StatusCode = 429;
+            await context.HttpContext.Response.WriteAsync("Rate limit exceeded. Please try again later.", token);
+        };
     });
 
-    options.OnRejected = async (context, token) =>
-    {
-        context.HttpContext.Response.StatusCode = 429;
-        await context.HttpContext.Response.WriteAsync("⚠️ Rate limit exceeded. Please try again later.", token);
-    };
-});
+    var app = builder.Build();
 
-var app = builder.Build();
+    // Ensure database is created and migrated
+    using (var scope = app.Services.CreateScope())
+    {
+        var db = scope.ServiceProvider.GetRequiredService<SyncDbContext>();
+        await db.Database.EnsureCreatedAsync();
 
-// Ensure database is created and migrated
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<SyncDbContext>();
-    await db.Database.EnsureCreatedAsync();
-    
-    // Clean up orphaned InProgress sync logs from crashed/killed sync service
-    try
-    {
-        var orphanedLogs = db.SyncLogs.Where(s => s.Status == "InProgress").ToList();
-        if (orphanedLogs.Any())
-        {
-            Console.WriteLine($"🧹 Cleaning up {orphanedLogs.Count} orphaned InProgress sync logs...");
-            foreach (var log in orphanedLogs)
-            {
-                log.Status = "Failed";
-                log.EndTime = DateTime.UtcNow;
-                log.ErrorMessage = "Sync was interrupted (service stopped/crashed before completion)";
-                log.DurationSeconds = log.EndTime.HasValue 
-                    ? (log.EndTime.Value - log.StartTime).TotalSeconds 
-                    : 0;
-            }
-            await db.SaveChangesAsync();
-            Console.WriteLine($"✅ Cleaned up {orphanedLogs.Count} orphaned sync logs");
-        }
-    }
-    catch (Exception cleanupEx)
-    {
-        Console.WriteLine($"⚠️  Warning: Could not clean up orphaned sync logs: {cleanupEx.Message}");
-    }
-    
-    // Migrate schema: Create VaultwardenItems table if it doesn't exist
-    try
-    {
-        var connection = db.Database.GetDbConnection();
-        await connection.OpenAsync();
-        
-        // Check if VaultwardenItems table exists
-        using (var checkCmd = connection.CreateCommand())
-        {
-            checkCmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='VaultwardenItems';";
-            var tableExists = await checkCmd.ExecuteScalarAsync();
-            
-            if (tableExists == null)
-            {
-                Console.WriteLine("⚙️  Creating VaultwardenItems table...");
-                using var createCmd = connection.CreateCommand();
-                createCmd.CommandText = @"
-                    CREATE TABLE VaultwardenItems (
-                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        ItemId TEXT NOT NULL UNIQUE,
-                        Name TEXT NOT NULL,
-                        FolderId TEXT,
-                        OrganizationId TEXT,
-                        OrganizationName TEXT,
-                        Owner TEXT,
-                        FieldCount INTEGER NOT NULL DEFAULT 0,
-                        FieldNamesJson TEXT,
-                        Notes TEXT,
-                        LastFetched TEXT NOT NULL,
-                        HasNamespacesField INTEGER NOT NULL DEFAULT 0,
-                        NamespacesJson TEXT
-                    );
-                    CREATE UNIQUE INDEX IX_VaultwardenItems_ItemId ON VaultwardenItems (ItemId);
-                    CREATE INDEX IX_VaultwardenItems_LastFetched ON VaultwardenItems (LastFetched);
-                    CREATE INDEX IX_VaultwardenItems_HasNamespacesField ON VaultwardenItems (HasNamespacesField);
-                ";
-                await createCmd.ExecuteNonQueryAsync();
-                Console.WriteLine("✅ VaultwardenItems table created");
-            }
-        }
-        
-        // Migrate SyncLogs table: Add sync configuration columns if they don't exist
+        // Clean up orphaned InProgress sync logs from crashed/killed sync service
         try
         {
-            using var checkSyncConfigCmd = connection.CreateCommand();
-            checkSyncConfigCmd.CommandText = "PRAGMA table_info(SyncLogs);";
-            var reader = await checkSyncConfigCmd.ExecuteReaderAsync();
-            var columns = new List<string>();
-            while (await reader.ReadAsync())
+            var orphanedLogs = db.SyncLogs.Where(s => s.Status == "InProgress").ToList();
+            if (orphanedLogs.Any())
             {
-                columns.Add(reader.GetString(1)); // Column name is at index 1
-            }
-            await reader.CloseAsync();
-            
-            if (!columns.Contains("SyncIntervalSeconds"))
-            {
-                Console.WriteLine("⚙️  Adding SyncIntervalSeconds column to SyncLogs...");
-                using var addIntervalCmd = connection.CreateCommand();
-                addIntervalCmd.CommandText = "ALTER TABLE SyncLogs ADD COLUMN SyncIntervalSeconds INTEGER NOT NULL DEFAULT 0;";
-                await addIntervalCmd.ExecuteNonQueryAsync();
-                Console.WriteLine("✅ SyncIntervalSeconds column added");
-            }
-            
-            if (!columns.Contains("ContinuousSync"))
-            {
-                Console.WriteLine("⚙️  Adding ContinuousSync column to SyncLogs...");
-                using var addContinuousCmd = connection.CreateCommand();
-                addContinuousCmd.CommandText = "ALTER TABLE SyncLogs ADD COLUMN ContinuousSync INTEGER NOT NULL DEFAULT 0;";
-                await addContinuousCmd.ExecuteNonQueryAsync();
-                Console.WriteLine("✅ ContinuousSync column added");
+                Log.Information("Cleaning up {Count} orphaned InProgress sync logs", orphanedLogs.Count);
+                foreach (var log in orphanedLogs)
+                {
+                    log.Status = "Failed";
+                    log.EndTime = DateTime.UtcNow;
+                    log.ErrorMessage = "Sync was interrupted (service stopped/crashed before completion)";
+                    log.DurationSeconds = log.EndTime.HasValue
+                        ? (log.EndTime.Value - log.StartTime).TotalSeconds
+                        : 0;
+                }
+                await db.SaveChangesAsync();
+                Log.Information("Cleaned up {Count} orphaned sync logs", orphanedLogs.Count);
             }
         }
-        catch (Exception migEx)
+        catch (Exception cleanupEx)
         {
-            Console.WriteLine($"⚠️  Warning: Could not add sync config columns: {migEx.Message}");
+            Log.Warning(cleanupEx, "Could not clean up orphaned sync logs");
         }
-        
-        await connection.CloseAsync();
+
+        // Migrate schema: Create VaultwardenItems table if it doesn't exist
+        try
+        {
+            var connection = db.Database.GetDbConnection();
+            await connection.OpenAsync();
+
+            // Check if VaultwardenItems table exists
+            using (var checkCmd = connection.CreateCommand())
+            {
+                checkCmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='VaultwardenItems';";
+                var tableExists = await checkCmd.ExecuteScalarAsync();
+
+                if (tableExists == null)
+                {
+                    Log.Information("Creating VaultwardenItems table");
+                    using var createCmd = connection.CreateCommand();
+                    createCmd.CommandText = @"
+                        CREATE TABLE VaultwardenItems (
+                            Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            ItemId TEXT NOT NULL UNIQUE,
+                            Name TEXT NOT NULL,
+                            FolderId TEXT,
+                            OrganizationId TEXT,
+                            OrganizationName TEXT,
+                            Owner TEXT,
+                            FieldCount INTEGER NOT NULL DEFAULT 0,
+                            FieldNamesJson TEXT,
+                            Notes TEXT,
+                            LastFetched TEXT NOT NULL,
+                            HasNamespacesField INTEGER NOT NULL DEFAULT 0,
+                            NamespacesJson TEXT
+                        );
+                        CREATE UNIQUE INDEX IX_VaultwardenItems_ItemId ON VaultwardenItems (ItemId);
+                        CREATE INDEX IX_VaultwardenItems_LastFetched ON VaultwardenItems (LastFetched);
+                        CREATE INDEX IX_VaultwardenItems_HasNamespacesField ON VaultwardenItems (HasNamespacesField);
+                    ";
+                    await createCmd.ExecuteNonQueryAsync();
+                    Log.Information("VaultwardenItems table created");
+                }
+            }
+
+            // Migrate SyncLogs table: Add sync configuration columns if they don't exist
+            try
+            {
+                using var checkSyncConfigCmd = connection.CreateCommand();
+                checkSyncConfigCmd.CommandText = "PRAGMA table_info(SyncLogs);";
+                var reader = await checkSyncConfigCmd.ExecuteReaderAsync();
+                var columns = new List<string>();
+                while (await reader.ReadAsync())
+                {
+                    columns.Add(reader.GetString(1)); // Column name is at index 1
+                }
+                await reader.CloseAsync();
+
+                if (!columns.Contains("SyncIntervalSeconds"))
+                {
+                    Log.Information("Adding SyncIntervalSeconds column to SyncLogs");
+                    using var addIntervalCmd = connection.CreateCommand();
+                    addIntervalCmd.CommandText = "ALTER TABLE SyncLogs ADD COLUMN SyncIntervalSeconds INTEGER NOT NULL DEFAULT 0;";
+                    await addIntervalCmd.ExecuteNonQueryAsync();
+                    Log.Information("SyncIntervalSeconds column added");
+                }
+
+                if (!columns.Contains("ContinuousSync"))
+                {
+                    Log.Information("Adding ContinuousSync column to SyncLogs");
+                    using var addContinuousCmd = connection.CreateCommand();
+                    addContinuousCmd.CommandText = "ALTER TABLE SyncLogs ADD COLUMN ContinuousSync INTEGER NOT NULL DEFAULT 0;";
+                    await addContinuousCmd.ExecuteNonQueryAsync();
+                    Log.Information("ContinuousSync column added");
+                }
+            }
+            catch (Exception migEx)
+            {
+                Log.Warning(migEx, "Could not add sync config columns");
+            }
+
+            await connection.CloseAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Could not migrate database schema");
+        }
     }
-    catch (Exception ex)
+
+    // Configure the HTTP request pipeline
+    if (app.Environment.IsDevelopment())
     {
-        Console.WriteLine($"⚠️  Warning: Could not migrate database schema: {ex.Message}");
+        app.UseSwagger();
+        app.UseSwaggerUI();
     }
-}
 
-// Configure the HTTP request pipeline
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+    // Add Serilog request logging
+    app.UseSerilogRequestLogging();
 
-app.UseCors("AllowDashboard");
+    app.UseCors("AllowDashboard");
 
-// Enable WebSockets
-app.UseWebSockets();
+    // Enable WebSockets
+    app.UseWebSockets();
 
-// Rate limiting
-app.UseRateLimiter();
+    // Rate limiting
+    app.UseRateLimiter();
 
-app.UseMiddleware<TokenAuthenticationMiddleware>();
-app.UseAuthorization();
+    app.UseMiddleware<TokenAuthenticationMiddleware>();
+    app.UseAuthorization();
 
-// Prometheus metrics endpoint
-app.MapMetrics();
+    // Prometheus metrics endpoint
+    app.MapMetrics();
 
-app.MapControllers();
-app.MapHealthChecks("/health");
+    app.MapControllers();
+    app.MapHealthChecks("/health");
 
-// Resource monitoring endpoint (async to avoid blocking)
-app.MapGet("/api/system/resources", async () =>
-{
-    var process = Process.GetCurrentProcess();
-    var cpuUsage = await GetCpuUsageAsync(process);
-    
-    return Results.Ok(new
+    // Resource monitoring endpoint (async to avoid blocking)
+    app.MapGet("/api/system/resources", async () =>
     {
-        cpuUsagePercent = cpuUsage,
-        memoryMB = process.WorkingSet64 / 1024.0 / 1024.0,
-        threadCount = process.Threads.Count,
-        timestamp = DateTime.UtcNow
+        var process = Process.GetCurrentProcess();
+        var cpuUsage = await GetCpuUsageAsync(process);
+
+        return Results.Ok(new
+        {
+            cpuUsagePercent = cpuUsage,
+            memoryMB = process.WorkingSet64 / 1024.0 / 1024.0,
+            threadCount = process.Threads.Count,
+            timestamp = DateTime.UtcNow
+        });
     });
-});
+
+    Log.Information("Starting Vaultwarden K8s Sync API");
+    app.Run();
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Application terminated unexpectedly");
+    return 1;
+}
+finally
+{
+    await Log.CloseAndFlushAsync();
+}
+
+return 0;
 
 static async Task<double> GetCpuUsageAsync(Process process)
 {
@@ -385,8 +417,6 @@ static async Task<double> GetCpuUsageAsync(Process process)
     var cpuUsageTotal = cpuUsedMs / (Environment.ProcessorCount * totalMsPassed);
     return cpuUsageTotal * 100;
 }
-
-app.Run();
 
 // Make Program class accessible for integration tests
 public partial class Program { }

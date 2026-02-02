@@ -12,7 +12,7 @@ using VaultwardenK8sSync.Services;
 
 namespace VaultwardenK8sSync.Infrastructure;
 
-public class MetricsServer : IDisposable
+public class MetricsServer : IDisposable, IAsyncDisposable
 {
     private readonly WebApplication _app;
     private readonly ILogger<MetricsServer> _logger;
@@ -248,6 +248,15 @@ public class MetricsServer : IDisposable
 
     public void Dispose()
     {
-        _app?.DisposeAsync().AsTask().Wait();
+        DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_app != null)
+        {
+            await _app.DisposeAsync();
+        }
+        GC.SuppressFinalize(this);
     }
 }
