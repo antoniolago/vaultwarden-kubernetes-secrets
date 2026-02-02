@@ -147,6 +147,10 @@ public class ApplicationHost
         // Use pre-configured Serilog (configured in Program.cs)
         services.AddSerilogLogging();
 
+        // Add infrastructure services
+        services.AddScoped<IProcessFactory, ProcessFactory>();
+        services.AddScoped<IProcessRunner, ProcessRunner>();
+        
         // Register application services
         services.AddSingleton<IMetricsService, MetricsService>();
         services.AddSingleton<IValkeySyncOutputPublisher, ValkeySyncOutputPublisher>();
