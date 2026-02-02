@@ -125,9 +125,14 @@ public class SyncService : ISyncService
             // Group items by namespace (supporting multiple namespaces per item)
             var itemsByNamespace = new Dictionary<string, List<Models.VaultwardenItem>>();
             
+            var itemsWithNamespaces = 0;
             foreach (var item in items)
             {
                 var namespaces = item.ExtractNamespaces();
+                if (namespaces.Any())
+                {
+                    itemsWithNamespaces++;
+                }
                 foreach (var namespaceName in namespaces)
                 {
                     if (!itemsByNamespace.ContainsKey(namespaceName))
@@ -139,8 +144,8 @@ public class SyncService : ISyncService
             }
 
             summary.TotalNamespaces = itemsByNamespace.Count;
-            _logger.LogDebug("Found {Count} items with namespace tags across {NamespaceCount} namespaces", 
-                itemsByNamespace.Values.Sum(x => x.Count), itemsByNamespace.Count);
+            _logger.LogInformation("Found {ItemsWithNamespaces}/{TotalItems} items with namespace tags across {NamespaceCount} namespaces", 
+                itemsWithNamespaces, items.Count, itemsByNamespace.Count);
 
             // Calculate total secrets for progress tracking
             var totalSecrets = 0;

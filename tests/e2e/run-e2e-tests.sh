@@ -39,7 +39,6 @@ command -v dotnet >/dev/null 2>&1 || { log_error "dotnet is required"; exit 1; }
 command -v kind >/dev/null 2>&1 || { log_error "kind is required"; exit 1; }
 command -v kubectl >/dev/null 2>&1 || { log_error "kubectl is required"; exit 1; }
 command -v helm >/dev/null 2>&1 || { log_error "helm is required"; exit 1; }
-command -v bw >/dev/null 2>&1 || { log_error "bw (Bitwarden CLI) is required"; exit 1; }
 log_success "All prerequisites found"
 
 # Build the E2E test project

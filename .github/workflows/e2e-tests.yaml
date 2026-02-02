@@ -45,13 +45,7 @@ jobs:
         with:
           version: 'latest'
       
-      - name: Install Bitwarden CLI
-        run: |
-          curl -L "https://github.com/bitwarden/clients/releases/download/cli-v2024.2.0/bw-linux-2024.2.0.zip" -o bw.zip
-          unzip bw.zip
-          chmod +x bw
-          sudo mv bw /usr/local/bin/
-      
+            
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

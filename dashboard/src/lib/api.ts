@@ -245,9 +245,37 @@ export const api = {
     lastScanTime: string
   }> => fetchWithAuth('/discovery'),
 
-  // Test connection
+  // Get auth info - check if authentication is required
+  getAuthInfo: async (): Promise<{ authRequired: boolean; loginlessMode: boolean }> => {
+    try {
+      const response = await fetch(`${API_URL}/dashboard/auth-info`)
+      if (response.ok) {
+        return response.json()
+      }
+      return { authRequired: true, loginlessMode: false }
+    } catch {
+      return { authRequired: true, loginlessMode: false }
+    }
+  },
+
+  // Test connection with token
   testConnection: async (token: string): Promise<boolean> => {
     try {
+      // First check if auth is required
+      const authInfo = await api.getAuthInfo()
+      
+      // If auth is not required (no token configured), reject any login attempt
+      // This forces the user to configure a token on the server first
+      if (!authInfo.authRequired && !authInfo.loginlessMode) {
+        return false
+      }
+      
+      // If loginless mode, accept any token
+      if (authInfo.loginlessMode) {
+        return true
+      }
+      
+      // Auth is required - validate the token
       const response = await fetch(`${API_URL}/dashboard/overview`, {
         headers: {
           'Authorization': `Bearer ${token}`,

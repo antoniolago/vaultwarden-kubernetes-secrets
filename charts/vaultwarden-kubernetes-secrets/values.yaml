@@ -157,7 +157,7 @@ env:
     LOGGING__LOGLEVEL__MICROSOFT__HOSTING__LIFETIME: "Information"
   secrets:
     # For security, I suggest creating an account just for this purpose
-    # WARNING: Organization API keys are not supported by bw-cli!
+    # WARNING: Organization API keys are not supported by VW API
     BW_CLIENTID:
       secretName: "vaultwarden-kubernetes-secrets"
       secretKey: "BW_CLIENTID"

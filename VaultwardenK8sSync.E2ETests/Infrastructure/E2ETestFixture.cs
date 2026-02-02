@@ -622,7 +622,8 @@ nodes:
                 Type = ItemType.Login,
                 Username = "testuser",
                 Password = "testpassword123",
-                Uris = new[] { "https://example.com" }
+                Uris = new[] { "https://example.com" },
+                CustomFields = new() { ["namespaces"] = TestNamespace1 }
             },
             // 2. Custom secret name
             new()
@@ -631,7 +632,7 @@ nodes:
                 Type = ItemType.Login,
                 Username = "appuser",
                 Password = "apppassword456",
-                CustomFields = new() { ["secret-name"] = "custom-app-secret" }
+                CustomFields = new() { ["secret-name"] = "custom-app-secret", ["namespaces"] = TestNamespace1 }
             },
             // 3. Multi-namespace
             new()
@@ -652,7 +653,8 @@ nodes:
                 CustomFields = new()
                 {
                     ["secret-key-username"] = "db_user",
-                    ["secret-key-password"] = "db_password"
+                    ["secret-key-password"] = "db_password",
+                    ["namespaces"] = TestNamespace1
                 }
             },
             // 5. Extra custom fields
@@ -666,7 +668,8 @@ nodes:
                 {
                     ["api_key"] = "sk-abc123xyz",
                     ["api_endpoint"] = "https://api.example.com",
-                    ["environment"] = "production"
+                    ["environment"] = "production",
+                    ["namespaces"] = TestNamespace1
                 }
             },
             // 6. Annotations and labels
@@ -678,9 +681,9 @@ nodes:
                 Password = "annotatedpass222",
                 CustomFields = new()
                 {
-                    ["secret-annotation-description"] = "Test secret with annotations",
-                    ["secret-label-team"] = "platform",
-                    ["secret-label-environment"] = "test"
+                    ["secret-annotation"] = "description=Test secret with annotations",
+                    ["secret-label"] = "team=platform\nenvironment=test",
+                    ["namespaces"] = TestNamespace1
                 }
             },
             // 7. Secure note
@@ -689,7 +692,7 @@ nodes:
                 Name = "test-secure-note",
                 Type = ItemType.SecureNote,
                 Notes = "This is a secure note content.\nWith multiple lines.",
-                CustomFields = new() { ["config_data"] = "{\"key\": \"value\"}" }
+                CustomFields = new() { ["config_data"] = "{\"key\": \"value\"}", ["namespaces"] = TestNamespace1 }
             },
             // 8. Merge test items
             new()
@@ -702,7 +705,8 @@ nodes:
                 {
                     ["secret-name"] = "merged-secret",
                     ["secret-key-username"] = "first_user",
-                    ["secret-key-password"] = "first_pass"
+                    ["secret-key-password"] = "first_pass",
+                    ["namespaces"] = TestNamespace1
                 }
             },
             new()
@@ -715,7 +719,8 @@ nodes:
                 {
                     ["secret-name"] = "merged-secret",
                     ["secret-key-username"] = "second_user",
-                    ["secret-key-password"] = "second_pass"
+                    ["secret-key-password"] = "second_pass",
+                    ["namespaces"] = TestNamespace1
                 }
             },
             // 9. Hidden field
@@ -725,15 +730,16 @@ nodes:
                 Type = ItemType.Login,
                 Username = "hiddenuser",
                 Password = "hiddenpass333",
-                CustomFields = new() { ["hidden_api_token"] = "hidden-token-value" }
+                CustomFields = new() { ["hidden_api_token"] = "hidden-token-value", ["namespaces"] = TestNamespace1 }
             },
-            // 10. Orphan test
+            // 10. Orphan test (no namespace - used for orphan cleanup testing)
             new()
             {
                 Name = "orphan-test-item",
                 Type = ItemType.Login,
                 Username = "orphanuser",
-                Password = "orphanpass444"
+                Password = "orphanpass444",
+                CustomFields = new() { ["namespaces"] = TestNamespace1 }
             }
         };
     }

@@ -205,7 +205,7 @@ The service uses Serilog for structured logging with environment-aware output:
 
 ## How It Works
 
-1. The service uses bw-cli to log into Vaultwarden using your credentials
+1. The service authenticates to the VW API using your credentials
 2. Fetches items (optionally filtered by Organization/Collection/Folder)
 3. For each item with a `namespaces` custom field:
    - Creates/updates a Kubernetes Secret in each specified namespace

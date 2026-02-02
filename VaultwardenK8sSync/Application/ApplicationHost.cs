@@ -147,15 +147,11 @@ public class ApplicationHost
         // Use pre-configured Serilog (configured in Program.cs)
         services.AddSerilogLogging();
 
-        // Add infrastructure services
-        services.AddScoped<IProcessFactory, ProcessFactory>();
-        services.AddScoped<IProcessRunner, ProcessRunner>();
-        
         // Register application services
         services.AddSingleton<IMetricsService, MetricsService>();
         services.AddSingleton<IValkeySyncOutputPublisher, ValkeySyncOutputPublisher>();
         // VaultwardenService must be Singleton to maintain authentication state across continuous sync runs
-        services.AddSingleton<IVaultwardenService, VaultwardenService>();
+        services.AddSingleton<IVaultwardenService, VaultwardenApiService>();
         services.AddSingleton<IKubernetesService, KubernetesService>();
         services.AddSingleton<ISyncService, SyncService>();
         services.AddSingleton<IWebhookService, WebhookService>();
@@ -232,7 +228,6 @@ public class ApplicationHost
     private void LogStartupInformation()
     {
         // Production readiness warning
-        _logger.LogWarning("WARNING: This application is not production-ready and may have significant CPU usage");
         _logger.LogWarning("Monitor resource consumption and adjust sync intervals accordingly");
 
         _logger.LogDebug(

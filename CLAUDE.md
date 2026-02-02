@@ -26,7 +26,6 @@ The main sync service follows a layered architecture:
 - **Policies/** - Resilience policies (Polly)
 
 Key architectural patterns:
-- Uses bw-cli (Bitwarden CLI) as an external process to interact with Vaultwarden
 - Enforces single-instance operation via ProcessLock to prevent concurrent syncs
 - Uses GlobalSyncLock for coordination between API and sync service via Redis/Valkey
 - VwConnector package handles Bitwarden CLI interactions
@@ -173,8 +172,6 @@ dotnet test --filter "FullyQualifiedName~VaultwardenK8sSync.Tests.SomeTestClass"
 ## Important Implementation Details
 
 1. **Single Instance Enforcement**: The sync service uses a ProcessLock to ensure only one instance runs at a time. This is critical to prevent race conditions.
-
-2. **bw-cli Integration**: The service spawns bw-cli as an external process. All Bitwarden operations go through VwConnector which manages process lifecycle.
 
 3. **Secret Naming**: Vaultwarden item names are sanitized to comply with Kubernetes DNS subdomain requirements (lowercase alphanumeric plus dashes).
 

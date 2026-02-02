@@ -86,11 +86,8 @@ try
     });
     builder.Services.AddSingleton(appSettings.Vaultwarden);
     builder.Services.AddSingleton(appSettings.Kubernetes);
-    // Make these singleton to work with VaultwardenService singleton
-    builder.Services.AddSingleton<IProcessFactory, ProcessFactory>();
-    builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
-    // Make VaultwardenService singleton to preserve authentication state across requests
-    builder.Services.AddSingleton<IVaultwardenService, VaultwardenService>();
+    // Make VaultwardenApiService singleton to preserve authentication state across requests
+    builder.Services.AddSingleton<IVaultwardenService, VaultwardenApiService>();
     // Make KubernetesService singleton to preserve client connection across requests
     builder.Services.AddSingleton<IKubernetesService, KubernetesService>();
 
