@@ -13,9 +13,9 @@ namespace VaultwardenK8sSync.Services;
 /// Vaultwarden service using direct API calls instead of bw CLI.
 /// Handles authentication, vault sync, and item decryption directly.
 /// </summary>
-public class VaultwardenApiService : IVaultwardenService
+public class VaultwardenService : IVaultwardenService
 {
-    private readonly ILogger<VaultwardenApiService> _logger;
+    private readonly ILogger<VaultwardenService> _logger;
     private readonly VaultwardenSettings _config;
     private readonly HttpClient _httpClient;
     private bool _isAuthenticated = false;
@@ -26,8 +26,8 @@ public class VaultwardenApiService : IVaultwardenService
     private int _consecutiveEmptyResults = 0;
     private DateTime _lastSuccessfulFetch = DateTime.MinValue;
 
-    public VaultwardenApiService(
-        ILogger<VaultwardenApiService> logger,
+    public VaultwardenService(
+        ILogger<VaultwardenService> logger,
         VaultwardenSettings config,
         IHttpClientFactory? httpClientFactory = null)
     {

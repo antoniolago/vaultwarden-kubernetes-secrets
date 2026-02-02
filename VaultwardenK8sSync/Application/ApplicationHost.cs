@@ -155,7 +155,7 @@ public class ApplicationHost
         services.AddSingleton<IMetricsService, MetricsService>();
         services.AddSingleton<IValkeySyncOutputPublisher, ValkeySyncOutputPublisher>();
         // VaultwardenService must be Singleton to maintain authentication state across continuous sync runs
-        services.AddSingleton<IVaultwardenService, VaultwardenApiService>();
+        services.AddSingleton<IVaultwardenService, VaultwardenService>();
         services.AddSingleton<IKubernetesService, KubernetesService>();
         services.AddSingleton<ISyncService, SyncService>();
         services.AddSingleton<IWebhookService, WebhookService>();
