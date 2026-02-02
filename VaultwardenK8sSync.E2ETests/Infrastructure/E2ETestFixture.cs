@@ -565,9 +565,22 @@ nodes:
         await AnsiConsole.Status()
             .StartAsync("Deploying operator...", async ctx =>
             {
-                // Build Docker image
-                ctx.Status("Building operator Docker image...");
-                await RunCommand("docker", $"build -f {_projectRoot}/VaultwardenK8sSync/Dockerfile -t vaultwarden-kubernetes-secrets:e2e-test {_projectRoot}");
+                // Build Docker image (skip if already exists - for CI with pre-built images)
+                ctx.Status("Checking for pre-built operator image...");
+                var imageExists = false;
+                try
+                {
+                    await RunCommand("docker", "image inspect vaultwarden-kubernetes-secrets:e2e-test", throwOnError: false);
+                    imageExists = true;
+                    AnsiConsole.MarkupLine("[green]✓ Using pre-built operator image[/]");
+                }
+                catch { /* Image doesn't exist, will build */ }
+                
+                if (!imageExists)
+                {
+                    ctx.Status("Building operator Docker image...");
+                    await RunCommand("docker", $"build -f {_projectRoot}/VaultwardenK8sSync/Dockerfile -t vaultwarden-kubernetes-secrets:e2e-test {_projectRoot}");
+                }
                 
                 // Load into kind
                 ctx.Status("Loading image into Kind...");

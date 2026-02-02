@@ -26,9 +26,8 @@ docs/
 # GitHub
 .github/
 
-# Kubernetes manifests
+# Kubernetes manifests (charts/ needed for E2E tests)
 kubernetes/
-charts/
 deploy/
 
 # Node modules (for dashboard)

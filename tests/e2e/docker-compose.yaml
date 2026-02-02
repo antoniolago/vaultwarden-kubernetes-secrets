@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  e2e-tests:
+    build:
+      context: ../../
+      dockerfile: tests/e2e/Dockerfile
+    image: vaultwarden-kubernetes-secrets-e2e:local
+    privileged: true
+    environment:
+      - E2E_CLUSTER_NAME=${E2E_CLUSTER_NAME:-vks-e2e}
+      - E2E_KEEP_CLUSTER=${E2E_KEEP_CLUSTER:-false}
+      - E2E_VERBOSE=${E2E_VERBOSE:-false}
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - e2e-results:/workspace/VaultwardenK8sSync.E2ETests/TestResults
+    networks:
+      - e2e-network
+
+networks:
+  e2e-network:
+    driver: bridge
+
+volumes:
+  e2e-results:
