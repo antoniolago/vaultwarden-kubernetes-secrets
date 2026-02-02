@@ -544,7 +544,7 @@ public class VaultwardenApiService : IVaultwardenService
             if (fieldsProp.ValueKind == JsonValueKind.Array)
             {
                 var fieldCount = fieldsProp.GetArrayLength();
-                _logger.LogInformation("Item {Name} has {FieldCount} fields", item.Name, fieldCount);
+                _logger.LogDebug("Item {Name} has {FieldCount} fields", item.Name, fieldCount);
                 item.Fields = new List<FieldInfo>();
                 foreach (var field in fieldsProp.EnumerateArray())
                 {
@@ -559,7 +559,7 @@ public class VaultwardenApiService : IVaultwardenService
                     if (field.TryGetProperty("type", out var ftProp) || field.TryGetProperty("Type", out ftProp))
                         vwField.Type = ftProp.GetInt32();
 
-                    _logger.LogInformation("Parsed field: name='{Name}', value='{Value}'", vwField.Name, vwField.Value?.Substring(0, Math.Min(20, vwField.Value?.Length ?? 0)));
+                    _logger.LogDebug("Parsed field: name='{Name}', value='{Value}'", vwField.Name, vwField.Value?.Substring(0, Math.Min(20, vwField.Value?.Length ?? 0)));
                     item.Fields.Add(vwField);
                 }
             }
