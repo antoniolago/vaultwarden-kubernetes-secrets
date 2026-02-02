@@ -58,7 +58,7 @@ public class SyncSummaryFormatterTests
         result.Should().Contain("Changes detected: Yes");
         result.Should().Contain("default");
         result.Should().Contain("CREATED:"); // Namespace shows in CREATED because it has Created > 0
-        result.Should().Contain("[C:3, U:2, S:1]"); // Stats show all counts
+        result.Should().Contain("(3 created, 2 updated, 1 up-to-date)"); // Stats show all counts
     }
 
     [Fact]
@@ -189,7 +189,7 @@ public class SyncSummaryFormatterTests
         // Assert
         result.Should().Contain("❌ FAILED");
         result.Should().Contain("production");
-        result.Should().Contain("F:2");
+        result.Should().Contain("2 failed");
         result.Should().Contain("perm"); // Truncated in horizontal layout
     }
 
@@ -294,19 +294,19 @@ public class SyncSummaryFormatterTests
         // Assert
         result.Should().Contain("🆕 CREATED");
         result.Should().Contain("prod-new");
-        result.Should().Contain("C:5");
+        result.Should().Contain("5 created");
         
         result.Should().Contain("🔄 UPDATED");
         result.Should().Contain("prod-existing");
-        result.Should().Contain("U:3");
+        result.Should().Contain("3 updated");
         
         result.Should().Contain("✅ UP-TO-DATE");
         result.Should().Contain("staging");
-        result.Should().Contain("S:10");
+        result.Should().Contain("10 up-to-date");
         
         result.Should().Contain("❌ FAILED");
         result.Should().Contain("qa");
-        result.Should().Contain("F:2");
+        result.Should().Contain("2 failed");
         result.Should().Contain("Authentication error");
         
         result.Should().Contain("⚠️  NOT FOUND");
@@ -341,7 +341,7 @@ public class SyncSummaryFormatterTests
 
         // Assert
         result.Should().Contain("...");
-        result.Should().NotContain("maximum length allowed for display");
+        result.Should().NotContain("in the summary"); // This part is truncated off
     }
 
     [Fact]
@@ -376,7 +376,7 @@ public class SyncSummaryFormatterTests
         result.Should().Contain("Error 1: First error");
         result.Should().Contain("Error 2: Second error");
         result.Should().Contain("Error 3: Third error");
-        result.Should().NotContain("Error 4: Fourth error"); // Only first 3 shown
-        result.Should().Contain("and 1 more error(s)"); // Should indicate there are more
+        result.Should().Contain("Error 4: Fourth error"); // Now shows up to 5 errors
+        // No "more errors" message since we only have 4 errors and limit is 5
     }
 }

@@ -1,98 +1,82 @@
-using System.Diagnostics;
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using Konscious.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using VaultwardenK8sSync.Models;
-using VaultwardenK8sSync.Infrastructure;
 using VaultwardenK8sSync.Configuration;
 
 namespace VaultwardenK8sSync.Services;
 
+/// <summary>
+/// Vaultwarden service using direct API calls instead of bw CLI.
+/// Handles authentication, vault sync, and item decryption directly.
+/// </summary>
 public class VaultwardenService : IVaultwardenService
 {
     private readonly ILogger<VaultwardenService> _logger;
     private readonly VaultwardenSettings _config;
-    private readonly IProcessFactory _processFactory;
-    private readonly IProcessRunner _processRunner;
+    private readonly HttpClient _httpClient;
     private bool _isAuthenticated = false;
-    private string? _sessionToken;
+    private string? _accessToken;
+    private byte[]? _encryptionKey;
+    private byte[]? _macKey;
+    private readonly Dictionary<string, (byte[] encKey, byte[] macKey)> _orgKeys = new();
     private int _consecutiveEmptyResults = 0;
     private DateTime _lastSuccessfulFetch = DateTime.MinValue;
 
     public VaultwardenService(
         ILogger<VaultwardenService> logger,
         VaultwardenSettings config,
-        IProcessFactory processFactory,
-        IProcessRunner processRunner)
+        IHttpClientFactory? httpClientFactory = null)
     {
         _logger = logger;
         _config = config;
-        _processFactory = processFactory;
-        _processRunner = processRunner;
         
-        // Clean and initialize data directory on startup
-        InitializeDataDirectory();
-    }
-    
-    private void InitializeDataDirectory()
-    {
-        try
+        // Create HttpClient with SSL certificate validation disabled for self-signed certs
+        var handler = new HttpClientHandler
         {
-            if (!string.IsNullOrWhiteSpace(_config.DataDirectory))
-            {
-                // If directory exists, clean it to avoid stale state conflicts
-                if (Directory.Exists(_config.DataDirectory))
-                {
-                    _logger.LogDebug("Cleaning existing bw data directory: {DataDir}", _config.DataDirectory);
-                    Directory.Delete(_config.DataDirectory, recursive: true);
-                }
-                
-                // Create fresh directory
-                Directory.CreateDirectory(_config.DataDirectory);
-                _logger.LogDebug("Initialized clean bw data directory: {DataDir}", _config.DataDirectory);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to initialize bw data directory - continuing with existing state");
-        }
+            ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
+        };
+        _httpClient = httpClientFactory?.CreateClient("Vaultwarden") ?? new HttpClient(handler);
+        _httpClient.Timeout = TimeSpan.FromSeconds(60);
     }
 
     public async Task<bool> AuthenticateAsync()
     {
         try
         {
-            // Set the server URL first (logout first if needed for server change)
-            if (!string.IsNullOrEmpty(_config.ServerUrl))
+            if (string.IsNullOrEmpty(_config.ServerUrl))
             {
-                if (!IsValidServerUrl(_config.ServerUrl))
-                {
-                    _logger.LogError("Invalid ServerUrl format: {ServerUrl}", _config.ServerUrl);
-                    return false;
-                }
-                var setServerResult = await SetServerUrlAsync();
-                if (!setServerResult)
-                {
-                    await LogoutAsync();
-                    await Task.Delay(Constants.Delays.PostCommandDelayMs);
-                    setServerResult = await SetServerUrlAsync();
-                    if (!setServerResult)
-                    {
-                        _logger.LogError("Failed to set server URL: {ServerUrl}", _config.ServerUrl);
-                        return false;
-                    }
-                }
-                await Task.Delay(Constants.Delays.PostCommandDelayMs);
-            }
-
-            var ok = await AuthenticateWithApiKeyAsync();
-            
-            if (ok && string.IsNullOrWhiteSpace(_sessionToken))
-            {
-                _logger.LogError("Authentication completed but no session token available");
+                _logger.LogError("ServerUrl is not configured");
                 return false;
             }
-            
-            return ok;
+
+            if (!IsValidServerUrl(_config.ServerUrl))
+            {
+                _logger.LogError("Invalid ServerUrl format: {ServerUrl}", _config.ServerUrl);
+                return false;
+            }
+
+            // Step 1: Login with API key to get access token
+            var loginSuccess = await LoginWithApiKeyAsync();
+            if (!loginSuccess)
+            {
+                _logger.LogError("API key login failed");
+                return false;
+            }
+
+            // Step 2: Get encryption keys by "unlocking" with master password
+            var unlockSuccess = await UnlockVaultAsync();
+            if (!unlockSuccess)
+            {
+                _logger.LogError("Vault unlock (key derivation) failed");
+                return false;
+            }
+
+            _isAuthenticated = true;
+            return true;
         }
         catch (Exception ex)
         {
@@ -101,30 +85,7 @@ public class VaultwardenService : IVaultwardenService
         }
     }
 
-    private async Task<bool> SetServerUrlAsync()
-    {
-        try
-        {
-            var process = _processFactory.CreateBwProcess($"config server {_config.ServerUrl}");
-            ApplyCommonEnv(process.StartInfo);
-            var result = await _processRunner.RunAsync(process, Constants.Timeouts.DefaultCommandTimeoutSeconds);
-            
-            if (!result.Success)
-            {
-                _logger.LogError("Failed to set server URL. ExitCode: {ExitCode}, Error: {Error}, Output: {Output}", 
-                    result.ExitCode, result.Error ?? "(empty)", result.Output ?? "(empty)");
-            }
-            
-            return result.Success;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Exception while setting server URL: {Message}", ex.Message);
-            return false;
-        }
-    }
-
-    private async Task<bool> AuthenticateWithApiKeyAsync()
+    private async Task<bool> LoginWithApiKeyAsync()
     {
         if (string.IsNullOrEmpty(_config.ClientId) || string.IsNullOrEmpty(_config.ClientSecret))
         {
@@ -132,229 +93,285 @@ public class VaultwardenService : IVaultwardenService
             return false;
         }
 
-        var process = _processFactory.CreateBwProcess("login --apikey --raw");
-        ApplyCommonEnv(process.StartInfo);
-
-        var result = await _processRunner.RunAsync(process, Constants.Timeouts.DefaultCommandTimeoutSeconds);
-
-        // Check if already logged in - if so, logout and retry
-        if (!result.Success && result.Error?.Contains("You are already logged in") == true)
-        {
-            await LogoutAsync();
-            await Task.Delay(Constants.Delays.PostCommandDelayMs);
-            return await AuthenticateWithApiKeyAsync();
-        }
-        
-        // Check for "Expected user never made active" error - bw CLI race condition
-        if (!result.Success && result.Error?.Contains("Expected user never made active") == true)
-        {
-            await Task.Delay(2000);
-            await LogoutAsync();
-            await Task.Delay(Constants.Delays.PostCommandDelayMs);
-            return await AuthenticateWithApiKeyAsync();
-        }
-
-        if (!result.Success)
-        {
-            _logger.LogError("API key login failed. ExitCode: {ExitCode}, Error: {Error}, Output: {Output}", 
-                result.ExitCode, result.Error ?? "(empty)", result.Output ?? "(empty)");
-            _isAuthenticated = false;
-            return false;
-        }
-
-        // Give the CLI time to stabilize after login
-        await Task.Delay(Constants.Delays.PostUnlockDelayMs + 1000);
-
-        // Check vault status and unlock if needed
-        var unlockSuccess = await TestVaultAccessAsync();
-        
-        _isAuthenticated = unlockSuccess;
-        return unlockSuccess;
-    }
-
-    // Password login removed
-
-    private async Task<bool> TestVaultAccessAsync()
-    {
         try
         {
-            var process = _processFactory.CreateBwProcess($"status --raw{GetSessionArgs()}");
-            ApplyCommonEnv(process.StartInfo);
-            var result = await _processRunner.RunAsync(process, Constants.Timeouts.DefaultCommandTimeoutSeconds);
-
-            if (result.Success && !string.IsNullOrEmpty(result.Output))
+            var tokenUrl = $"{_config.ServerUrl}/identity/connect/token";
+            var isOrgApiKey = _config.ClientId.StartsWith("organization.", StringComparison.OrdinalIgnoreCase);
+            
+            var formParams = new Dictionary<string, string>
             {
-                try
-                {
-                    var statusJson = System.Text.Json.JsonDocument.Parse(result.Output.Trim());
-                    if (statusJson.RootElement.TryGetProperty("status", out var statusProperty))
-                    {
-                        var vaultStatus = statusProperty.GetString()?.ToLowerInvariant() ?? "unknown";
-                        if (vaultStatus == "unlocked")
-                        {
-                            // Extract session token if available
-                            if (statusJson.RootElement.TryGetProperty("token", out var tokenProperty))
-                            {
-                                var token = tokenProperty.GetString();
-                                if (!string.IsNullOrEmpty(token))
-                                {
-                                    _sessionToken = token;
-                                    Environment.SetEnvironmentVariable("BW_SESSION", token);
-                                    Environment.SetEnvironmentVariable("BW_SESSION", token, EnvironmentVariableTarget.Process);
-                                }
-                            }
-                            return true;
-                        }
-                    }
-                }
-                catch
-                {
-                    // If parsing fails, assume locked and try unlock
-                }
+                ["grant_type"] = "client_credentials",
+                ["scope"] = isOrgApiKey ? "api.organization" : "api",
+                ["client_id"] = _config.ClientId,
+                ["client_secret"] = _config.ClientSecret
+            };
+            
+            // User API keys need device info, organization API keys don't
+            if (!isOrgApiKey)
+            {
+                formParams["deviceType"] = "6";
+                formParams["deviceIdentifier"] = Guid.NewGuid().ToString();
+                formParams["deviceName"] = "vaultwarden-k8s-sync";
+            }
+            
+            var content = new FormUrlEncodedContent(formParams);
+
+            var response = await _httpClient.PostAsync(tokenUrl, content);
+            var responseBody = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("API key login failed: {StatusCode} - {Response}", 
+                    response.StatusCode, responseBody);
+                return false;
             }
 
-            // Vault is locked or status check failed - attempt unlock
-            return await UnlockVaultAsync();
+            var tokenResponse = JsonSerializer.Deserialize<JsonElement>(responseBody);
+            _accessToken = tokenResponse.GetProperty("access_token").GetString();
+
+            if (string.IsNullOrEmpty(_accessToken))
+            {
+                _logger.LogError("No access token in response");
+                return false;
+            }
+
+            _httpClient.DefaultRequestHeaders.Authorization = 
+                new AuthenticationHeaderValue("Bearer", _accessToken);
+
+            _logger.LogInformation("API key login successful");
+            return true;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to check vault status. Error: {Error}", ex.Message);
-            return await UnlockVaultAsync();
+            _logger.LogError(ex, "API key login exception: {Message}", ex.Message);
+            return false;
         }
     }
 
     private async Task<bool> UnlockVaultAsync()
     {
+        if (string.IsNullOrWhiteSpace(_config.MasterPassword))
+        {
+            _logger.LogError("Master password is not configured");
+            return false;
+        }
+
         try
         {
-            if (string.IsNullOrWhiteSpace(_config.MasterPassword))
+            // Get user profile to get the encrypted symmetric key
+            var profileUrl = $"{_config.ServerUrl}/api/accounts/profile";
+            var response = await _httpClient.GetAsync(profileUrl);
+            var responseBody = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("Master password is not configured");
+                _logger.LogError("Failed to get profile: {StatusCode} - {Response}", 
+                    response.StatusCode, responseBody);
                 return false;
             }
 
-            var process = _processFactory.CreateBwProcess("unlock --raw");
-            ApplyCommonEnv(process.StartInfo);
+            var profile = JsonSerializer.Deserialize<JsonElement>(responseBody);
+            
+            // Get email and encrypted key - handle different casing
+            string? email = null;
+            string? encryptedKey = null;
+            int kdfIterations = 600000;
 
-            var result = await _processRunner.RunAsync(
-                process, 
-                Constants.Timeouts.DefaultCommandTimeoutSeconds, 
-                _config.MasterPassword);
+            if (profile.TryGetProperty("email", out var emailProp))
+                email = emailProp.GetString();
+            else if (profile.TryGetProperty("Email", out emailProp))
+                email = emailProp.GetString();
 
-            if (result.Success)
+            if (profile.TryGetProperty("key", out var keyProp))
+                encryptedKey = keyProp.GetString();
+            else if (profile.TryGetProperty("Key", out keyProp))
+                encryptedKey = keyProp.GetString();
+
+            if (profile.TryGetProperty("kdfIterations", out var kdfProp))
+                kdfIterations = kdfProp.GetInt32();
+            else if (profile.TryGetProperty("KdfIterations", out kdfProp))
+                kdfIterations = kdfProp.GetInt32();
+
+            // Get KDF type (0 = PBKDF2, 1 = Argon2id)
+            int kdfType = 0;
+            if (profile.TryGetProperty("kdf", out var kdfTypeProp))
+                kdfType = kdfTypeProp.GetInt32();
+            else if (profile.TryGetProperty("Kdf", out kdfTypeProp))
+                kdfType = kdfTypeProp.GetInt32();
+
+            // Get Argon2 parameters if needed
+            int? argonMemory = null, argonParallelism = null;
+            if (kdfType == 1)
             {
-                var token = result.Output?.Trim();
-                if (!string.IsNullOrEmpty(token))
+                if (profile.TryGetProperty("kdfMemory", out var memProp) || profile.TryGetProperty("KdfMemory", out memProp))
+                    argonMemory = memProp.GetInt32();
+                if (profile.TryGetProperty("kdfParallelism", out var parProp) || profile.TryGetProperty("KdfParallelism", out parProp))
+                    argonParallelism = parProp.GetInt32();
+            }
+
+            // Get encrypted private key for org key decryption
+            string? encryptedPrivateKey = null;
+            if (profile.TryGetProperty("privateKey", out var privKeyProp) || profile.TryGetProperty("PrivateKey", out privKeyProp))
+                encryptedPrivateKey = privKeyProp.ValueKind != JsonValueKind.Null ? privKeyProp.GetString() : null;
+
+            _logger.LogInformation("Profile KDF settings: type={KdfType}, iterations={Iterations}, hasPrivateKey={HasPrivKey}",
+                kdfType, kdfIterations, !string.IsNullOrEmpty(encryptedPrivateKey));
+
+            if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(encryptedKey))
+            {
+                _logger.LogError("Profile missing email or key. Response: {Response}", responseBody);
+                return false;
+            }
+
+            _logger.LogDebug("KDF: type={KdfType}, iterations={Iterations}", kdfType, kdfIterations);
+
+            // Derive master key from password
+            byte[] masterKey;
+            if (kdfType == 1)
+            {
+                // Argon2id
+                if (argonMemory == null || argonParallelism == null)
                 {
-                    _sessionToken = token;
-                    Environment.SetEnvironmentVariable("BW_SESSION", token);
-                    Environment.SetEnvironmentVariable("BW_SESSION", token, EnvironmentVariableTarget.Process);
-                    return true;
-                }
-                else
-                {
-                    _logger.LogError("Unlock succeeded but no session token returned. ExitCode: {ExitCode}, Output: {Output}, Error: {Error}", 
-                        result.ExitCode, result.Output ?? "(empty)", result.Error ?? "(empty)");
+                    _logger.LogError("Argon2id KDF requires memory and parallelism parameters");
                     return false;
                 }
+                masterKey = DeriveKeyArgon2id(_config.MasterPassword, email.ToLowerInvariant(), kdfIterations, argonMemory.Value, argonParallelism.Value);
             }
             else
             {
-                _logger.LogError("Vault unlock failed. ExitCode: {ExitCode}, Error: {Error}, Output: {Output}", 
-                    result.ExitCode, result.Error ?? "(empty)", result.Output ?? "(empty)");
+                // PBKDF2-SHA256 - try without HKDF first (older accounts), then with HKDF (newer accounts)
+                masterKey = DeriveKeyPbkdf2(_config.MasterPassword, email.ToLowerInvariant(), kdfIterations);
+            }
+
+            // Decrypt the symmetric key - try multiple approaches
+            byte[]? symKey = null;
+            string keyMethod = "none";
+            
+            if (kdfType == 0) // PBKDF2
+            {
+                // Try 1: Plain PBKDF2 without HKDF (legacy accounts, E2E tests)
+                symKey = DecryptSymmetricKey(encryptedKey, masterKey);
+                if (symKey != null && symKey.Length >= 64)
+                {
+                    keyMethod = "PBKDF2-plain";
+                }
+                else
+                {
+                    // Try 2: HKDF-stretched keys with MAC verification (modern accounts)
+                    var stretchedEncKey = HkdfStretch(masterKey, "enc", 32);
+                    var stretchedMacKey = HkdfStretch(masterKey, "mac", 32);
+                    symKey = DecryptSymmetricKey(encryptedKey, stretchedEncKey, stretchedMacKey);
+                    if (symKey != null && symKey.Length >= 64)
+                    {
+                        keyMethod = "PBKDF2-HKDF";
+                    }
+                    else
+                    {
+                        // Try 3: HKDF enc key only, no MAC verification
+                        symKey = DecryptSymmetricKey(encryptedKey, stretchedEncKey);
+                        if (symKey != null && symKey.Length >= 64)
+                            keyMethod = "PBKDF2-HKDF-noMAC";
+                    }
+                }
+            }
+            else // Argon2id
+            {
+                // Argon2id already includes HKDF in DeriveKeyArgon2id, but need mac key too
+                var macKey = HkdfStretch(masterKey, "mac", 32);
+                symKey = DecryptSymmetricKey(encryptedKey, masterKey, macKey);
+                if (symKey != null && symKey.Length >= 64)
+                    keyMethod = "Argon2id-HKDF";
+                else
+                {
+                    symKey = DecryptSymmetricKey(encryptedKey, masterKey);
+                    if (symKey != null && symKey.Length >= 64)
+                        keyMethod = "Argon2id-noMAC";
+                }
+            }
+            
+            _logger.LogInformation("Key derivation: KDF={KdfType}, iterations={Iterations}, method={Method}", 
+                kdfType, kdfIterations, keyMethod);
+            
+            if (symKey == null || symKey.Length < 64)
+            {
+                _logger.LogError("Failed to decrypt symmetric key (got {Length} bytes)", symKey?.Length ?? 0);
                 return false;
             }
+
+            _logger.LogDebug("Symmetric key decrypted: {Length} bytes", symKey.Length);
+
+            _encryptionKey = symKey[..32];
+            _macKey = symKey[32..64];
+
+            // Decrypt user's private key and organization keys from profile
+            await DecryptOrgKeysFromProfile(profile, encryptedPrivateKey);
+
+            _logger.LogInformation("Vault unlocked successfully (enc key first 4 hex: {EncHex}, org keys: {OrgCount})", 
+                Convert.ToHexString(_encryptionKey[..4]), _orgKeys.Count);
+            return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Exception during vault unlock: {Message}", ex.Message);
+            _logger.LogError(ex, "Vault unlock exception: {Message}", ex.Message);
             return false;
         }
     }
 
-
     public async Task<List<VaultwardenItem>> GetItemsAsync()
     {
-        // If not authenticated, try to authenticate first
         if (!_isAuthenticated)
         {
             _logger.LogWarning("Not authenticated - attempting authentication before fetching items...");
             var authSuccess = await AuthenticateAsync();
-            
             if (!authSuccess)
             {
                 throw new InvalidOperationException("Failed to authenticate with Vaultwarden");
             }
         }
 
-        // Try to get items
         var items = await GetItemsInternalAsync();
-        
-        // If we got items, reset failure counter and record success
+
         if (items.Count > 0)
         {
             _consecutiveEmptyResults = 0;
             _lastSuccessfulFetch = DateTime.UtcNow;
             return items;
         }
-        
+
         _consecutiveEmptyResults++;
         _logger.LogWarning("No items retrieved (consecutive: {Count})", _consecutiveEmptyResults);
-        
-        // If we previously had items but now get empty, session likely expired - re-auth immediately
+
         var hadPreviousSuccess = _lastSuccessfulFetch != DateTime.MinValue;
         var timeSinceSuccess = DateTime.UtcNow - _lastSuccessfulFetch;
         var shouldReAuth = hadPreviousSuccess || _consecutiveEmptyResults >= 3 || timeSinceSuccess.TotalMinutes > 5;
-        
+
         if (shouldReAuth)
         {
-            _logger.LogWarning("Session may have expired (empty results: {Count}, time since success: {Minutes}min, had previous success: {HadSuccess}). Attempting re-authentication...", 
-                _consecutiveEmptyResults, timeSinceSuccess.TotalMinutes, hadPreviousSuccess);
-            
+            _logger.LogWarning("Session may have expired. Attempting re-authentication...");
+            _isAuthenticated = false;
             var reAuthSuccess = await AuthenticateAsync();
-            
+
             if (reAuthSuccess)
             {
                 _logger.LogInformation("Re-authentication successful, retrying item fetch...");
-                _consecutiveEmptyResults = 0; // Reset counter after re-auth
+                _consecutiveEmptyResults = 0;
                 items = await GetItemsInternalAsync();
-                
+
                 if (items.Count > 0)
                 {
                     _lastSuccessfulFetch = DateTime.UtcNow;
                 }
-                else
-                {
-                    // If we had items before and still get 0 after successful re-auth, something is wrong
-                    if (hadPreviousSuccess)
-                    {
-                        _logger.LogError("Re-authentication succeeded but still no items found - this is abnormal after having {LastFetch}. Possible CLI issue.", _lastSuccessfulFetch);
-                        throw new InvalidOperationException(
-                            $"Re-authentication succeeded but vault returned 0 items after having items at {_lastSuccessfulFetch:o}. " +
-                            "This indicates a persistent CLI session or vault access issue.");
-                    }
-                    
-                    _logger.LogWarning("Re-authentication succeeded but no items found - vault may be legitimately empty (first run)");
-                }
             }
             else
             {
-                _logger.LogError("Re-authentication failed after detecting session expiration");
-                
-                // If we previously had items and re-auth fails, throw to trigger retry
+                _logger.LogError("Re-authentication failed");
                 if (hadPreviousSuccess)
                 {
-                    throw new InvalidOperationException(
-                        $"Session expired (had {_lastSuccessfulFetch:o}) and re-authentication failed. " +
-                        "Throwing to trigger resilience policies.");
+                    throw new InvalidOperationException("Session expired and re-authentication failed");
                 }
             }
         }
-        else
-        {
-            _logger.LogInformation("Not re-authenticating yet - this appears to be the first sync and vault may be legitimately empty");
-        }
-        
+
         return items;
     }
 
@@ -362,139 +379,74 @@ public class VaultwardenService : IVaultwardenService
     {
         try
         {
-            // Validate session before fetching
-            if (string.IsNullOrWhiteSpace(_sessionToken))
+            // First sync to get latest data
+            await SyncVaultAsync();
+
+            // Fetch all ciphers
+            var ciphersUrl = $"{_config.ServerUrl}/api/ciphers";
+            var response = await _httpClient.GetAsync(ciphersUrl);
+            var responseBody = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("No session token available - cannot fetch items");
+                _logger.LogError("Failed to fetch ciphers: {StatusCode} - {Response}", 
+                    response.StatusCode, responseBody);
                 return new List<VaultwardenItem>();
             }
 
-            // Sync vault to get latest changes from server
-            var syncSuccess = await SyncVaultAsync();
-            if (!syncSuccess)
+            var ciphersResponse = JsonSerializer.Deserialize<JsonElement>(responseBody);
+            var items = new List<VaultwardenItem>();
+
+            // Handle both array and object with "data" property
+            JsonElement ciphersArray;
+            if (ciphersResponse.ValueKind == JsonValueKind.Array)
             {
-                _logger.LogWarning("Vault sync failed - attempting to list items anyway");
+                ciphersArray = ciphersResponse;
+            }
+            else if (ciphersResponse.TryGetProperty("data", out var dataProp) || 
+                     ciphersResponse.TryGetProperty("Data", out dataProp))
+            {
+                ciphersArray = dataProp;
+            }
+            else
+            {
+                _logger.LogWarning("Unexpected ciphers response format");
+                return new List<VaultwardenItem>();
             }
 
-            var arguments = $"list items --raw{GetSessionArgs()}{GetOrganizationArgs()}{GetFolderArgs()}{GetCollectionArgs()}";
-            
-            var process = new Process
+            foreach (var cipher in ciphersArray.EnumerateArray())
             {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "bw",
-                    Arguments = arguments,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-            ApplyCommonEnv(process.StartInfo);
-
-            process.Start();
-            
-            // Read output and error streams asynchronously BEFORE waiting for exit
-            // This prevents deadlock if the process fills the output buffer
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-
-            // Wait for all tasks (output reading + process exit) with timeout
-            var exitTask = process.WaitForExitAsync();
-            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(120)); // Increased timeout
-            
-            // Wait for either all tasks to complete OR timeout
-            var allTasks = Task.WhenAll(outputTask, errorTask, exitTask);
-            var completedTask = await Task.WhenAny(allTasks, timeoutTask);
-
-            string output;
-            string error;
-            
-            if (completedTask == timeoutTask)
-            {
-                _logger.LogError("bw list items timed out after 120 seconds");
-                
-                // Try to read partial output before killing
-                var partialOutput = outputTask.IsCompleted ? await outputTask : "(output not available)";
-                var partialError = errorTask.IsCompleted ? await errorTask : "(error not available)";
-                _logger.LogError("Partial stdout: {Stdout}", !string.IsNullOrEmpty(partialOutput) ? partialOutput.Substring(0, Math.Min(500, partialOutput.Length)) : "(empty)");
-                _logger.LogError("Partial stderr: {Stderr}", !string.IsNullOrEmpty(partialError) ? partialError.Substring(0, Math.Min(500, partialError.Length)) : "(empty)");
-                
-                var gcMemoryAfter = GC.GetTotalMemory(false);
-                _logger.LogError("Memory at timeout: {MemoryMB} MB", gcMemoryAfter / 1024 / 1024);
                 try
                 {
-                    _logger.LogWarning("Attempting to kill hung bw process...");
-                    process.Kill(entireProcessTree: true);
+                    var item = ParseAndDecryptCipher(cipher);
+                    if (item != null)
+                    {
+                        items.Add(item);
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to kill bw process");
+                    _logger.LogWarning(ex, "Failed to parse cipher");
                 }
-                return new List<VaultwardenItem>();
             }
 
-            // All tasks completed successfully
-            await exitTask;
-            output = await outputTask;
-            error = await errorTask;
-
-            if (process.ExitCode != 0)
-            {
-                _logger.LogError("Failed to retrieve items (exit {Code}). stderr: {Stderr} | stdout: {Stdout}",
-                    process.ExitCode, error, output);
-                return new List<VaultwardenItem>();
-            }
-
-            if (string.IsNullOrWhiteSpace(output))
-            {
-                _logger.LogWarning("bw list items returned empty output (exit 0 but no data)");
-                _logger.LogWarning("Session token was: {HasToken} (len: {Len})", 
-                    !string.IsNullOrWhiteSpace(_sessionToken),
-                    _sessionToken?.Length ?? 0);
-                _logger.LogWarning("stderr: {Stderr}", error ?? "(empty)");
-                
-                // This should not happen - exit 0 with empty output suggests session issue
-                // Mark as not authenticated to trigger re-auth on next call
-                _isAuthenticated = false;
-                return new List<VaultwardenItem>();
-            }
-
-            List<VaultwardenItem> items;
-            try
-            {
-                items = JsonSerializer.Deserialize<List<VaultwardenItem>>(output, new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                }) ?? new List<VaultwardenItem>();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to parse JSON response from bw list items. Output was: {Output}", output);
-                return new List<VaultwardenItem>();
-            }
-
-            // Apply optional filters - chain predicates to avoid intermediate allocations
-            var resolvedOrgId = await ResolveOrganizationIdAsync();
-            var resolvedFolderId = await ResolveFolderIdAsync();
-            var resolvedCollectionId = await ResolveCollectionIdAsync(resolvedOrgId);
-
-            // Build chained query with single materialization at the end
+            // Apply filters
             var query = items.AsEnumerable();
 
-            if (!string.IsNullOrWhiteSpace(resolvedOrgId))
+            if (!string.IsNullOrWhiteSpace(_config.OrganizationId))
             {
-                query = query.Where(i => string.Equals(i.OrganizationId, resolvedOrgId, StringComparison.OrdinalIgnoreCase));
+                query = query.Where(i => string.Equals(i.OrganizationId, _config.OrganizationId, StringComparison.OrdinalIgnoreCase));
             }
 
-            if (!string.IsNullOrWhiteSpace(resolvedFolderId))
+            if (!string.IsNullOrWhiteSpace(_config.FolderId))
             {
-                query = query.Where(i => string.Equals(i.FolderId, resolvedFolderId, StringComparison.OrdinalIgnoreCase));
+                query = query.Where(i => string.Equals(i.FolderId, _config.FolderId, StringComparison.OrdinalIgnoreCase));
             }
 
-            if (!string.IsNullOrWhiteSpace(resolvedCollectionId))
+            if (!string.IsNullOrWhiteSpace(_config.CollectionId))
             {
-                query = query.Where(i => i.CollectionIds != null && i.CollectionIds.Contains(resolvedCollectionId, StringComparer.OrdinalIgnoreCase));
+                query = query.Where(i => i.CollectionIds != null && 
+                    i.CollectionIds.Contains(_config.CollectionId, StringComparer.OrdinalIgnoreCase));
             }
 
             return query.ToList();
@@ -506,295 +458,138 @@ public class VaultwardenService : IVaultwardenService
         }
     }
 
-    private string GetOrganizationArgs()
+    private VaultwardenItem? ParseAndDecryptCipher(JsonElement cipher)
     {
-        if (string.IsNullOrWhiteSpace(_config.OrganizationId))
-            return string.Empty;
-        return $" --organizationid {_config.OrganizationId}";
-    }
+        var item = new VaultwardenItem();
 
-    private string GetFolderArgs()
-    {
-        if (string.IsNullOrWhiteSpace(_config.FolderId))
-            return string.Empty;
-        return $" --folderid {_config.FolderId}";
-    }
+        // Get basic properties
+        if (cipher.TryGetProperty("id", out var idProp) || cipher.TryGetProperty("Id", out idProp))
+            item.Id = idProp.GetString() ?? "";
 
-    private string GetCollectionArgs()
-    {
-        if (string.IsNullOrWhiteSpace(_config.CollectionId))
-            return string.Empty;
-        return $" --collectionid {_config.CollectionId}";
-    }
+        if (cipher.TryGetProperty("organizationId", out var orgProp) || cipher.TryGetProperty("OrganizationId", out orgProp))
+            item.OrganizationId = orgProp.ValueKind != JsonValueKind.Null ? orgProp.GetString() : null;
 
-    private async Task<string?> ResolveOrganizationIdAsync()
-    {
-        if (!string.IsNullOrWhiteSpace(_config.OrganizationId))
-        {
-            return _config.OrganizationId;
-        }
-        if (string.IsNullOrWhiteSpace(_config.OrganizationName))
-        {
-            return null;
-        }
+        if (cipher.TryGetProperty("folderId", out var folderProp) || cipher.TryGetProperty("FolderId", out folderProp))
+            item.FolderId = folderProp.ValueKind != JsonValueKind.Null ? folderProp.GetString() : null;
 
-        try
-        {
-            var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "bw",
-                    Arguments = $"list organizations --raw{GetSessionArgs()}",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-            ApplyCommonEnv(process.StartInfo);
+        if (cipher.TryGetProperty("type", out var typeProp) || cipher.TryGetProperty("Type", out typeProp))
+            item.Type = typeProp.GetInt32();
 
-            process.Start();
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync();
-
-            if (process.ExitCode != 0)
-            {
-                var error = await errorTask;
-                _logger.LogWarning("Failed to list organizations: {Error}", error);
-                return null;
-            }
-
-            var output = await outputTask;
-            var organizations = JsonSerializer.Deserialize<List<OrganizationInfo>>(output, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            }) ?? new List<OrganizationInfo>();
-
-            var org = organizations.FirstOrDefault(o => string.Equals(o.Name, _config.OrganizationName, StringComparison.OrdinalIgnoreCase));
-            if (org != null)
-            {
-                return org.Id;
-            }
-
-            _logger.LogWarning("Organization with name '{OrgName}' not found.", _config.OrganizationName);
-            return null;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error resolving organization by name");
-            return null;
-        }
-    }
-
-    public async Task<Dictionary<string, string>> GetOrganizationsMapAsync()
-    {
-        var orgMap = new Dictionary<string, string>();
+        // Decrypt name (use org key if item belongs to org)
+        var orgId = item.OrganizationId;
+        var hasOrgKey = !string.IsNullOrEmpty(orgId) && _orgKeys.ContainsKey(orgId);
+        if (!string.IsNullOrEmpty(orgId) && !hasOrgKey)
+            _logger.LogWarning("Item {Id}: orgId={OrgId} but NO matching org key!", item.Id, orgId);
         
-        try
+        if (cipher.TryGetProperty("name", out var nameProp) || cipher.TryGetProperty("Name", out nameProp))
+            item.Name = DecryptString(nameProp.GetString(), orgId) ?? string.Empty;
+
+        // Decrypt notes
+        if (cipher.TryGetProperty("notes", out var notesProp) || cipher.TryGetProperty("Notes", out notesProp))
+            item.Notes = (notesProp.ValueKind != JsonValueKind.Null ? DecryptString(notesProp.GetString(), orgId) : null) ?? string.Empty;
+
+        // Get collection IDs
+        if (cipher.TryGetProperty("collectionIds", out var collProp) || cipher.TryGetProperty("CollectionIds", out collProp))
         {
-            var process = new Process
+            if (collProp.ValueKind == JsonValueKind.Array)
             {
-                StartInfo = new ProcessStartInfo
+                item.CollectionIds = collProp.EnumerateArray()
+                    .Select(c => c.GetString() ?? "")
+                    .Where(s => !string.IsNullOrEmpty(s))
+                    .ToList();
+            }
+        }
+
+        // Parse login data (type 1)
+        if (item.Type == 1)
+        {
+            if (cipher.TryGetProperty("login", out var loginProp) || cipher.TryGetProperty("Login", out loginProp))
+            {
+                item.Login = new LoginInfo();
+
+                if (loginProp.TryGetProperty("username", out var userProp) || loginProp.TryGetProperty("Username", out userProp))
+                    item.Login.Username = (userProp.ValueKind != JsonValueKind.Null ? DecryptString(userProp.GetString(), orgId) : null) ?? string.Empty;
+
+                if (loginProp.TryGetProperty("password", out var passProp) || loginProp.TryGetProperty("Password", out passProp))
+                    item.Login.Password = (passProp.ValueKind != JsonValueKind.Null ? DecryptString(passProp.GetString(), orgId) : null) ?? string.Empty;
+
+                if (loginProp.TryGetProperty("totp", out var totpProp) || loginProp.TryGetProperty("Totp", out totpProp))
+                    item.Login.Totp = totpProp.ValueKind != JsonValueKind.Null ? DecryptString(totpProp.GetString(), orgId) : null;
+
+                // Parse URIs
+                if (loginProp.TryGetProperty("uris", out var urisProp) || loginProp.TryGetProperty("Uris", out urisProp))
                 {
-                    FileName = "bw",
-                    Arguments = $"list organizations --raw{GetSessionArgs()}",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
+                    if (urisProp.ValueKind == JsonValueKind.Array)
+                    {
+                        item.Login.Uris = new List<UriInfo>();
+                        foreach (var uri in urisProp.EnumerateArray())
+                        {
+                            if (uri.TryGetProperty("uri", out var uriVal) || uri.TryGetProperty("Uri", out uriVal))
+                            {
+                                var decryptedUri = DecryptString(uriVal.GetString(), orgId);
+                                if (!string.IsNullOrEmpty(decryptedUri))
+                                {
+                                    item.Login.Uris.Add(new UriInfo { Uri = decryptedUri });
+                                }
+                            }
+                        }
+                    }
                 }
-            };
-            ApplyCommonEnv(process.StartInfo);
-
-            process.Start();
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync();
-
-            if (process.ExitCode != 0)
-            {
-                var error = await errorTask;
-                _logger.LogWarning("Failed to list organizations: {Error}", error);
-                return orgMap;
             }
-
-            var output = await outputTask;
-            var organizations = JsonSerializer.Deserialize<List<OrganizationInfo>>(output, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            }) ?? new List<OrganizationInfo>();
-
-            foreach (var org in organizations)
-            {
-                orgMap[org.Id] = org.Name;
-            }
-            
-            _logger.LogInformation("Fetched {Count} organizations", orgMap.Count);
         }
-        catch (Exception ex)
+
+        // Parse fields
+        if (cipher.TryGetProperty("fields", out var fieldsProp) || cipher.TryGetProperty("Fields", out fieldsProp))
         {
-            _logger.LogWarning(ex, "Error fetching organizations map");
+            if (fieldsProp.ValueKind == JsonValueKind.Array)
+            {
+                var fieldCount = fieldsProp.GetArrayLength();
+                _logger.LogDebug("Item {Name} has {FieldCount} fields", item.Name, fieldCount);
+                item.Fields = new List<FieldInfo>();
+                foreach (var field in fieldsProp.EnumerateArray())
+                {
+                    var vwField = new FieldInfo();
+
+                    if (field.TryGetProperty("name", out var fnProp) || field.TryGetProperty("Name", out fnProp))
+                        vwField.Name = (fnProp.ValueKind != JsonValueKind.Null ? DecryptString(fnProp.GetString(), orgId) : null) ?? string.Empty;
+
+                    if (field.TryGetProperty("value", out var fvProp) || field.TryGetProperty("Value", out fvProp))
+                        vwField.Value = (fvProp.ValueKind != JsonValueKind.Null ? DecryptString(fvProp.GetString(), orgId) : null) ?? string.Empty;
+
+                    if (field.TryGetProperty("type", out var ftProp) || field.TryGetProperty("Type", out ftProp))
+                        vwField.Type = ftProp.GetInt32();
+
+                    _logger.LogDebug("Parsed field: name='{Name}', value='{Value}'", vwField.Name, vwField.Value?.Substring(0, Math.Min(20, vwField.Value?.Length ?? 0)));
+                    item.Fields.Add(vwField);
+                }
+            }
         }
-        
-        return orgMap;
+
+        return item;
     }
 
-    public async Task<string?> GetCurrentUserEmailAsync()
+    private async Task<bool> SyncVaultAsync()
     {
         try
         {
-            var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "bw",
-                    Arguments = "status",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-            ApplyCommonEnv(process.StartInfo);
+            var syncUrl = $"{_config.ServerUrl}/api/sync";
+            var response = await _httpClient.GetAsync(syncUrl);
 
-            process.Start();
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            await process.WaitForExitAsync();
-
-            if (process.ExitCode == 0)
+            if (!response.IsSuccessStatusCode)
             {
-                var output = await outputTask;
-                var status = JsonSerializer.Deserialize<JsonElement>(output);
-                
-                if (status.TryGetProperty("userEmail", out var emailElement))
-                {
-                    return emailElement.GetString();
-                }
+                var error = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("Sync failed: {StatusCode} - {Error}", response.StatusCode, error);
+                return false;
             }
+
+            _logger.LogDebug("Vault synced successfully");
+            return true;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error fetching current user email");
+            _logger.LogWarning(ex, "Sync failed with exception");
+            return false;
         }
-        
-        return null;
-    }
-
-    private async Task<string?> ResolveFolderIdAsync()
-    {
-        if (!string.IsNullOrWhiteSpace(_config.FolderId))
-            return _config.FolderId;
-        if (string.IsNullOrWhiteSpace(_config.FolderName))
-            return null;
-
-        try
-        {
-            var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "bw",
-                    Arguments = $"list folders --raw{GetSessionArgs()}",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-            ApplyCommonEnv(process.StartInfo);
-
-            process.Start();
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync();
-
-            if (process.ExitCode != 0)
-            {
-                var error = await errorTask;
-                _logger.LogWarning("Failed to list folders: {Error}", error);
-                return null;
-            }
-
-            var output = await outputTask;
-            var folders = JsonSerializer.Deserialize<List<FolderInfo>>(output, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-                          ?? new List<FolderInfo>();
-            var folder = folders.FirstOrDefault(f => string.Equals(f.Name, _config.FolderName, StringComparison.OrdinalIgnoreCase));
-            return folder?.Id;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error resolving folder by name");
-            return null;
-        }
-    }
-
-    private async Task<string?> ResolveCollectionIdAsync(string? orgId)
-    {
-        if (!string.IsNullOrWhiteSpace(_config.CollectionId))
-            return _config.CollectionId;
-        if (string.IsNullOrWhiteSpace(_config.CollectionName))
-            return null;
-
-        try
-        {
-            var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "bw",
-                    Arguments = $"list collections --raw{GetSessionArgs()}",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-            ApplyCommonEnv(process.StartInfo);
-
-            process.Start();
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync();
-
-            if (process.ExitCode != 0)
-            {
-                var error = await errorTask;
-                _logger.LogWarning("Failed to list collections: {Error}", error);
-                return null;
-            }
-
-            var output = await outputTask;
-            var collections = JsonSerializer.Deserialize<List<CollectionInfo>>(output, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-                               ?? new List<CollectionInfo>();
-            // If orgId is known, prefer matching collections from that org
-            var candidates = !string.IsNullOrWhiteSpace(orgId)
-                ? collections.Where(c => string.Equals(c.OrganizationId, orgId, StringComparison.OrdinalIgnoreCase))
-                : collections;
-            var col = candidates.FirstOrDefault(c => string.Equals(c.Name, _config.CollectionName, StringComparison.OrdinalIgnoreCase));
-            return col?.Id;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error resolving collection by name");
-            return null;
-        }
-    }
-
-    // OrganizationInfo is now defined in IVaultwardenService.cs
-
-    private class FolderInfo
-    {
-        public string Id { get; set; } = string.Empty;
-        public string Name { get; set; } = string.Empty;
-    }
-
-    private class CollectionInfo
-    {
-        public string Id { get; set; } = string.Empty;
-        public string Name { get; set; } = string.Empty;
-        public string? OrganizationId { get; set; }
     }
 
     public async Task<VaultwardenItem?> GetItemAsync(string id)
@@ -806,120 +601,30 @@ public class VaultwardenService : IVaultwardenService
 
         try
         {
-            var process = new Process
+            var url = $"{_config.ServerUrl}/api/ciphers/{id}";
+            var response = await _httpClient.GetAsync(url);
+            var responseBody = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
             {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "bw",
-                    Arguments = $"get item {id} --raw{GetSessionArgs()}",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-            ApplyCommonEnv(process.StartInfo);
-
-            process.Start();
-
-            // Read output and error streams asynchronously with timeout
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-            var exitTask = process.WaitForExitAsync();
-
-            // Wait for process to exit with timeout
-            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
-            var completedTask = await Task.WhenAny(exitTask, timeoutTask);
-
-            if (completedTask == timeoutTask)
-            {
-                _logger.LogError("Process timed out after 30 seconds for item {Id}", id);
-                try { process.Kill(); } catch { }
+                _logger.LogError("Failed to get item {Id}: {StatusCode}", id, response.StatusCode);
                 return null;
             }
 
-            await exitTask; // Ensure we get the actual exit code
-
-            var output = await outputTask;
-            var error = await errorTask;
-
-            if (process.ExitCode != 0)
-            {
-                _logger.LogError("Failed to retrieve item {Id}: {Error}", id, error);
-                return null;
-            }
-
-            return JsonSerializer.Deserialize<VaultwardenItem>(output, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+            var cipher = JsonSerializer.Deserialize<JsonElement>(responseBody);
+            return ParseAndDecryptCipher(cipher);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to retrieve item {Id}", id);
+            _logger.LogError(ex, "Failed to get item {Id}", id);
             return null;
         }
     }
 
     public async Task<string> GetItemPasswordAsync(string id)
     {
-        if (!_isAuthenticated)
-        {
-            throw new InvalidOperationException("Not authenticated. Call AuthenticateAsync first.");
-        }
-
-        try
-        {
-            var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "bw",
-                    Arguments = $"get password {id} --raw{GetSessionArgs()}",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-            ApplyCommonEnv(process.StartInfo);
-
-            process.Start();
-
-            // Read output and error streams asynchronously with timeout
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-            var exitTask = process.WaitForExitAsync();
-
-            // Wait for process to exit with timeout
-            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
-            var completedTask = await Task.WhenAny(exitTask, timeoutTask);
-
-            if (completedTask == timeoutTask)
-            {
-                _logger.LogError("bw get password timed out after 30 seconds for item {Id}", id);
-                try { process.Kill(); } catch { }
-                return string.Empty;
-            }
-
-            await exitTask; // Ensure we get the actual exit code
-
-            var output = await outputTask;
-            var error = await errorTask;
-
-            if (process.ExitCode != 0)
-            {
-                _logger.LogError("Failed to retrieve password for item {Id}: {Error}", id, error);
-                return string.Empty;
-            }
-
-            return output.Trim();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to retrieve password for item {Id}", id);
-            return string.Empty;
-        }
+        var item = await GetItemAsync(id);
+        return item?.Login?.Password ?? string.Empty;
     }
 
     public Task<bool> IsAuthenticatedAsync()
@@ -927,203 +632,390 @@ public class VaultwardenService : IVaultwardenService
         return Task.FromResult(_isAuthenticated);
     }
 
-    public async Task LogoutAsync()
+    public Task LogoutAsync()
     {
+        _isAuthenticated = false;
+        _accessToken = null;
+        _encryptionKey = null;
+        _macKey = null;
+        _httpClient.DefaultRequestHeaders.Authorization = null;
+        return Task.CompletedTask;
+    }
+
+    public async Task<Dictionary<string, string>> GetOrganizationsMapAsync()
+    {
+        var orgMap = new Dictionary<string, string>();
+
         try
         {
-            var process = new Process
+            var url = $"{_config.ServerUrl}/api/sync";
+            var response = await _httpClient.GetAsync(url);
+
+            if (!response.IsSuccessStatusCode)
             {
-                StartInfo = new ProcessStartInfo
+                return orgMap;
+            }
+
+            var responseBody = await response.Content.ReadAsStringAsync();
+            var syncData = JsonSerializer.Deserialize<JsonElement>(responseBody);
+
+            if (syncData.TryGetProperty("profile", out var profile) || syncData.TryGetProperty("Profile", out profile))
+            {
+                if (profile.TryGetProperty("organizations", out var orgs) || profile.TryGetProperty("Organizations", out orgs))
                 {
-                    FileName = "bw",
-                    Arguments = "logout",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
+                    foreach (var org in orgs.EnumerateArray())
+                    {
+                        string? id = null, name = null;
+                        if (org.TryGetProperty("id", out var idProp) || org.TryGetProperty("Id", out idProp))
+                            id = idProp.GetString();
+                        if (org.TryGetProperty("name", out var nameProp) || org.TryGetProperty("Name", out nameProp))
+                            name = nameProp.GetString();
+
+                        if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(name))
+                        {
+                            orgMap[id] = name;
+                        }
+                    }
                 }
-            };
-            ApplyCommonEnv(process.StartInfo);
-
-            process.Start();
-
-            // Read output and error streams asynchronously with timeout
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-            var exitTask = process.WaitForExitAsync();
-
-            // Wait for process to exit with timeout
-            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
-            var completedTask = await Task.WhenAny(exitTask, timeoutTask);
-
-            if (completedTask == timeoutTask)
-            {
-                _logger.LogWarning("bw logout timed out after 30 seconds");
-                try { process.Kill(); } catch { }
             }
-            else
-            {
-                await exitTask; // Ensure we get the actual exit code
-                var output = await outputTask;
-                var error = await errorTask;
-
-                // if (process.ExitCode != 0)
-                // {
-                //     _logger.LogWarning("bw logout returned non-zero exit code {Code}: {Error}", process.ExitCode, error);
-                // }
-            }
-
-            _isAuthenticated = false;
-            _sessionToken = null;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to logout from Vaultwarden");
-            _isAuthenticated = false;
-            _sessionToken = null;
+            _logger.LogWarning(ex, "Error fetching organizations map");
         }
+
+        return orgMap;
     }
 
-    private async Task<bool> SyncVaultAsync()
+    public async Task<string?> GetCurrentUserEmailAsync()
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(_sessionToken))
+            var url = $"{_config.ServerUrl}/api/accounts/profile";
+            var response = await _httpClient.GetAsync(url);
+
+            if (response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("Cannot sync vault - no session token available");
-                return false;
+                var body = await response.Content.ReadAsStringAsync();
+                var profile = JsonSerializer.Deserialize<JsonElement>(body);
+
+                if (profile.TryGetProperty("email", out var emailProp) || profile.TryGetProperty("Email", out emailProp))
+                {
+                    return emailProp.GetString();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error fetching current user email");
+        }
+
+        return null;
+    }
+
+    #region Cryptography
+
+    private static byte[] DeriveKeyPbkdf2(string password, string salt, int iterations)
+    {
+        // PBKDF2-SHA256 to get master key (no HKDF - for older accounts)
+        return Rfc2898DeriveBytes.Pbkdf2(
+            Encoding.UTF8.GetBytes(password),
+            Encoding.UTF8.GetBytes(salt),
+            iterations,
+            HashAlgorithmName.SHA256,
+            32);
+    }
+
+    private static byte[] DeriveKeyArgon2id(string password, string salt, int iterations, int memoryKb, int parallelism)
+    {
+        var argon2 = new Argon2id(Encoding.UTF8.GetBytes(password))
+        {
+            Salt = Encoding.UTF8.GetBytes(salt),
+            DegreeOfParallelism = parallelism,
+            MemorySize = memoryKb * 1024, // Convert KB to bytes
+            Iterations = iterations
+        };
+        var masterKey = argon2.GetBytes(32);
+        
+        // Step 2: HKDF-Expand to get stretched key
+        var stretchedKey = HkdfStretch(masterKey, "enc", 32);
+        return stretchedKey;
+    }
+
+    private static byte[] HkdfStretch(byte[] key, string info, int outputLength)
+    {
+        // HKDF-Expand (RFC 5869) - Bitwarden uses Expand directly on master key
+        // .NET's HKDF.Expand expects a PRK, but we can use DeriveKey which handles this
+        var infoBytes = Encoding.UTF8.GetBytes(info);
+        
+        // Manual HKDF-Expand implementation to match Bitwarden exactly
+        using var hmac = new HMACSHA256(key);
+        var hashLen = 32; // SHA256 output
+        var n = (int)Math.Ceiling((double)outputLength / hashLen);
+        var output = new byte[outputLength];
+        var previousBlock = Array.Empty<byte>();
+        
+        for (int i = 1; i <= n; i++)
+        {
+            var input = new byte[previousBlock.Length + infoBytes.Length + 1];
+            previousBlock.CopyTo(input, 0);
+            infoBytes.CopyTo(input, previousBlock.Length);
+            input[^1] = (byte)i;
+            
+            previousBlock = hmac.ComputeHash(input);
+            var copyLen = Math.Min(hashLen, outputLength - (i - 1) * hashLen);
+            Array.Copy(previousBlock, 0, output, (i - 1) * hashLen, copyLen);
+        }
+        
+        return output;
+    }
+
+    private Task DecryptOrgKeysFromProfile(JsonElement profile, string? encryptedPrivateKey)
+    {
+        _orgKeys.Clear();
+        
+        if (!profile.TryGetProperty("organizations", out var orgs) && 
+            !profile.TryGetProperty("Organizations", out orgs))
+        {
+            return Task.CompletedTask;
+        }
+
+        // Decrypt user's RSA private key first (needed for org key decryption)
+        RSA? rsaPrivateKey = null;
+        if (!string.IsNullOrEmpty(encryptedPrivateKey))
+        {
+            var privateKeyBytes = DecryptToBytes(encryptedPrivateKey);
+            if (privateKeyBytes != null)
+            {
+                try
+                {
+                    rsaPrivateKey = RSA.Create();
+                    rsaPrivateKey.ImportPkcs8PrivateKey(privateKeyBytes, out _);
+                    _logger.LogDebug("Decrypted user's RSA private key");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Failed to import RSA private key: {Message}", ex.Message);
+                    rsaPrivateKey = null;
+                }
+            }
+        }
+
+        foreach (var org in orgs.EnumerateArray())
+        {
+            string? orgId = null, encryptedKey = null;
+            
+            if (org.TryGetProperty("id", out var idProp) || org.TryGetProperty("Id", out idProp))
+                orgId = idProp.GetString();
+            if (org.TryGetProperty("key", out var keyProp) || org.TryGetProperty("Key", out keyProp))
+                encryptedKey = keyProp.ValueKind != JsonValueKind.Null ? keyProp.GetString() : null;
+
+            if (string.IsNullOrEmpty(orgId) || string.IsNullOrEmpty(encryptedKey))
+                continue;
+
+            // Org keys are RSA-encrypted (type 4) or AES-encrypted (type 2)
+            byte[]? decryptedOrgKey = null;
+            
+            if (encryptedKey.StartsWith("4.") && rsaPrivateKey != null)
+            {
+                // RSA-OAEP encrypted org key
+                decryptedOrgKey = DecryptRsaOaep(encryptedKey, rsaPrivateKey);
+            }
+            else if (encryptedKey.StartsWith("2."))
+            {
+                // AES encrypted (fallback)
+                decryptedOrgKey = DecryptToBytes(encryptedKey);
             }
 
-            var process = new Process
+            if (decryptedOrgKey != null && decryptedOrgKey.Length >= 64)
             {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "bw",
-                    Arguments = $"sync --raw{GetSessionArgs()}",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-            ApplyCommonEnv(process.StartInfo);
-
-            process.Start();
-
-            // Read output and error streams asynchronously with timeout
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-            var exitTask = process.WaitForExitAsync();
-
-            // Wait for process to exit with timeout
-            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(60));
-            var completedTask = await Task.WhenAny(exitTask, timeoutTask);
-
-            if (completedTask == timeoutTask)
-            {
-                _logger.LogWarning("bw sync timed out after 60 seconds");
-                try { process.Kill(); } catch { }
-                return false;
-            }
-
-            await exitTask; // Ensure we get the actual exit code
-
-            var output = await outputTask;
-            var error = await errorTask;
-
-            if (process.ExitCode != 0)
-            {
-                _logger.LogWarning("bw sync returned non-zero exit code {ExitCode}: {Error}", process.ExitCode, error);
-                
-                // Check for authentication-related errors that would invalidate the session
-                if (error != null && (error.Contains("not logged in") || error.Contains("locked") || 
-                    error.Contains("session") || error.Contains("authentication")))
-                {
-                    _logger.LogWarning("Detected authentication issue in bw sync - session may have been invalidated");
-                    _isAuthenticated = false;
-                    _sessionToken = null;
-                    return false;
-                }
-                
-                return false;
+                _orgKeys[orgId] = (decryptedOrgKey[..32], decryptedOrgKey[32..64]);
+                _logger.LogInformation("Decrypted org key for {OrgId}: {Len} bytes, first4hex={First4}", 
+                    orgId, decryptedOrgKey.Length, Convert.ToHexString(decryptedOrgKey[..4]));
             }
             else
             {
-                _logger.LogInformation("Vault synced successfully with server");
+                _logger.LogWarning("Failed to decrypt org key for {OrgId} (type: {Type}, gotLen: {Len})", 
+                    orgId, encryptedKey.Length > 2 ? encryptedKey[..2] : "?", decryptedOrgKey?.Length ?? 0);
+            }
+        }
+
+        rsaPrivateKey?.Dispose();
+        return Task.CompletedTask;
+    }
+
+    private byte[]? DecryptRsaOaep(string encrypted, RSA rsaKey)
+    {
+        try
+        {
+            // Format: 4.{base64-encrypted-data}
+            if (!encrypted.StartsWith("4."))
+                return null;
+
+            var encryptedData = Convert.FromBase64String(encrypted[2..]);
+            return rsaKey.Decrypt(encryptedData, RSAEncryptionPadding.OaepSHA1);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("RSA decryption failed: {Message}", ex.Message);
+            return null;
+        }
+    }
+
+    private byte[]? DecryptToBytes(string? encrypted)
+    {
+        if (string.IsNullOrEmpty(encrypted) || _encryptionKey == null)
+            return null;
+
+        try
+        {
+            if (!encrypted.StartsWith("2."))
+                return null;
+
+            var parts = encrypted[2..].Split('|');
+            if (parts.Length < 2)
+                return null;
+
+            var iv = Convert.FromBase64String(parts[0]);
+            var data = Convert.FromBase64String(parts[1]);
+
+            using var aes = Aes.Create();
+            aes.Key = _encryptionKey;
+            aes.IV = iv;
+            aes.Mode = CipherMode.CBC;
+            aes.Padding = PaddingMode.PKCS7;
+
+            using var decryptor = aes.CreateDecryptor();
+            return decryptor.TransformFinalBlock(data, 0, data.Length);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private byte[]? DecryptSymmetricKey(string encryptedKey, byte[] encKey, byte[]? macKey = null)
+    {
+        try
+        {
+            // Format: 2.{iv}|{data}|{mac} (AES-256-CBC with optional HMAC)
+            var parts = encryptedKey.Split('.');
+            if (parts.Length != 2 || parts[0] != "2")
+            {
+                _logger.LogError("Invalid key format: expected '2.xxx', got prefix '{Prefix}'", parts.Length > 0 ? parts[0] : "empty");
+                return null;
             }
             
-            return true;
+            var dataParts = parts[1].Split('|');
+            
+            if (dataParts.Length < 2)
+            {
+                _logger.LogError("Invalid key data format: expected at least 2 parts separated by |, got {Count}", dataParts.Length);
+                return null;
+            }
+            
+            var iv = Convert.FromBase64String(dataParts[0]);
+            var data = Convert.FromBase64String(dataParts[1]);
+            byte[]? mac = dataParts.Length > 2 ? Convert.FromBase64String(dataParts[2]) : null;
+
+            // Verify MAC if present and macKey provided
+            if (mac != null && macKey != null)
+            {
+                using var hmac = new HMACSHA256(macKey);
+                var macData = new byte[iv.Length + data.Length];
+                iv.CopyTo(macData, 0);
+                data.CopyTo(macData, iv.Length);
+                var computedMac = hmac.ComputeHash(macData);
+                
+                if (!computedMac.SequenceEqual(mac))
+                {
+                    _logger.LogDebug("MAC verification failed - wrong key");
+                    return null;
+                }
+            }
+
+            using var aes = Aes.Create();
+            aes.Key = encKey;
+            aes.IV = iv;
+            aes.Mode = CipherMode.CBC;
+            aes.Padding = PaddingMode.PKCS7;
+
+            using var decryptor = aes.CreateDecryptor();
+            return decryptor.TransformFinalBlock(data, 0, data.Length);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "bw sync failed with exception (continuing)");
-            return false;
+            _logger.LogDebug("DecryptSymmetricKey failed: {Message}", ex.Message);
+            return null;
         }
     }
 
-    /// <summary>
-    /// Validates ServerUrl to prevent command injection attacks.
-    /// Only allows HTTPS URLs without dangerous shell metacharacters.
-    /// </summary>
+    private string? DecryptString(string? encrypted, string? orgId = null)
+    {
+        // Get appropriate encryption key (org key if item belongs to org, otherwise user key)
+        byte[]? encKey = _encryptionKey;
+        bool usingOrgKey = false;
+        if (!string.IsNullOrEmpty(orgId) && _orgKeys.TryGetValue(orgId, out var orgKeyPair))
+        {
+            encKey = orgKeyPair.encKey;
+            usingOrgKey = true;
+        }
+
+        if (string.IsNullOrEmpty(encrypted) || encKey == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            // Format: 2.{iv}|{data}|{mac}
+            if (!encrypted.StartsWith("2."))
+            {
+                return encrypted; // Return as-is if not encrypted
+            }
+
+            var parts = encrypted[2..].Split('|');
+            if (parts.Length < 2)
+                return null;
+
+            var iv = Convert.FromBase64String(parts[0]);
+            var data = Convert.FromBase64String(parts[1]);
+
+            using var aes = Aes.Create();
+            aes.Key = encKey;
+            aes.IV = iv;
+            aes.Mode = CipherMode.CBC;
+            aes.Padding = PaddingMode.PKCS7;
+
+            using var decryptor = aes.CreateDecryptor();
+            var decrypted = decryptor.TransformFinalBlock(data, 0, data.Length);
+            return Encoding.UTF8.GetString(decrypted);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("DecryptString failed: {Error} (usingOrgKey={UsingOrgKey}, prefix: {Prefix})", 
+                ex.Message, usingOrgKey, encrypted.Substring(0, Math.Min(20, encrypted.Length)));
+            return null;
+        }
+    }
+
+    #endregion
+
     private static bool IsValidServerUrl(string url)
     {
         if (string.IsNullOrWhiteSpace(url))
             return false;
 
-        // Must be a valid absolute URL
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
             return false;
 
-        // Only allow HTTPS (not HTTP or other schemes)
         if (uri.Scheme != "https")
             return false;
 
-        // Block shell metacharacters that could be used for command injection
         var dangerousChars = new[] { ";", "`", "$", "&", "|", "\n", "\r", "'", "\"", "<", ">", "(", ")" };
         if (dangerousChars.Any(url.Contains))
             return false;
 
         return true;
-    }
-
-    private void ApplyCommonEnv(ProcessStartInfo startInfo)
-    {
-        try
-        {
-            // Set consistent data directory for bw CLI to ensure session state persists
-            if (!string.IsNullOrWhiteSpace(_config.DataDirectory))
-            {
-                // Ensure the directory exists
-                Directory.CreateDirectory(_config.DataDirectory);
-                startInfo.Environment["BITWARDENCLI_APPDATA_DIR"] = _config.DataDirectory;
-            }
-            
-            if (!string.IsNullOrWhiteSpace(_config.ClientId))
-            {
-                startInfo.Environment["BW_CLIENTID"] = _config.ClientId!;
-            }
-            if (!string.IsNullOrWhiteSpace(_config.ClientSecret))
-            {
-                startInfo.Environment["BW_CLIENTSECRET"] = _config.ClientSecret!;
-            }
-            // Set BW_SESSION environment variable for newer bw CLI versions
-            if (!string.IsNullOrWhiteSpace(_sessionToken))
-            {
-                startInfo.Environment["BW_SESSION"] = _sessionToken!;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to apply bw environment variables");
-        }
-    }
-
-    private string GetSessionArgs()
-    {
-        if (!string.IsNullOrWhiteSpace(_sessionToken))
-        {
-            return $" --session {_sessionToken}";
-        }
-        return string.Empty;
     }
 }

@@ -15,19 +15,22 @@ public class DashboardController : ControllerBase
     private readonly SyncDbContext _context;
     private readonly ILogger<DashboardController> _logger;
     private readonly AppSettings _appSettings;
+    private readonly AuthenticationConfig _authConfig;
 
     public DashboardController(
         ISyncLogRepository syncLogRepository,
         ISecretStateRepository secretStateRepository,
         SyncDbContext context,
         ILogger<DashboardController> logger,
-        IOptions<AppSettings> appSettings)
+        IOptions<AppSettings> appSettings,
+        AuthenticationConfig authConfig)
     {
         _syncLogRepository = syncLogRepository;
         _secretStateRepository = secretStateRepository;
         _context = context;
         _logger = logger;
         _appSettings = appSettings.Value;
+        _authConfig = authConfig;
     }
 
     /// <summary>
@@ -78,7 +81,8 @@ public class DashboardController : ControllerBase
                     l.CreatedSecrets,
                     l.UpdatedSecrets,
                     l.FailedSecrets,
-                    l.DurationSeconds
+                    l.DurationSeconds,
+                    l.ErrorMessage
                 })
             });
         }
@@ -252,5 +256,19 @@ public class DashboardController : ControllerBase
             _logger.LogError(ex, "Error retrieving sync configuration");
             return StatusCode(500, "Error retrieving sync configuration");
         }
+    }
+
+    /// <summary>
+    /// Get authentication info - whether auth is required and configured
+    /// </summary>
+    [HttpGet("auth-info")]
+    public ActionResult<object> GetAuthInfo()
+    {
+        var authRequired = !_authConfig.LoginlessMode && !string.IsNullOrEmpty(_authConfig.Token);
+        return Ok(new
+        {
+            authRequired,
+            loginlessMode = _authConfig.LoginlessMode
+        });
     }
 }

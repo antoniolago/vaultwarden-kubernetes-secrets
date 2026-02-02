@@ -286,7 +286,6 @@ vaultwarden-kubernetes-secrets/
 │   ├── Services/                # Core business logic
 │   │   ├── SyncService.cs       # Main sync orchestration
 │   │   ├── KubernetesService.cs # K8s API interactions
-│   │   ├── VaultwardenService.cs# Vaultwarden/bw-cli wrapper
 │   │   └── SpectreConsoleSummaryFormatter.cs # Console output
 │   ├── Dockerfile               # Container image definition
 │   └── Program.cs               # Application entry point
@@ -313,7 +312,7 @@ vaultwarden-kubernetes-secrets/
 
 **VaultwardenService** - Vaultwarden integration
 
-- Authenticates via bw-cli
+- Authenticates via inner service to the VW API
 - Fetches and filters items
 - Handles organization/collection scoping
 

@@ -43,7 +43,7 @@ public class DatabaseLoggerService : IDatabaseLoggerService
 
         try
         {
-            _logger.LogInformation("📝 Creating sync log entry for phase: {Phase} with {TotalItems} items", phase, totalItems);
+            _logger.LogDebug("📝 Creating sync log entry for phase: {Phase} with {TotalItems} items", phase, totalItems);
             
             var syncLog = new SyncLog
             {
@@ -67,7 +67,7 @@ public class DatabaseLoggerService : IDatabaseLoggerService
             _activeSyncLogs[created.Id] = created;
             _syncStartTimes[created.Id] = DateTime.UtcNow;
             
-            _logger.LogInformation("✅ Sync log created with ID: {SyncLogId}", created.Id);
+            _logger.LogDebug("✅ Sync log created with ID: {SyncLogId}", created.Id);
             return created.Id;
         }
         catch (Exception ex)
@@ -118,7 +118,7 @@ public class DatabaseLoggerService : IDatabaseLoggerService
         {
             try
             {
-                _logger.LogInformation("💾 Completing sync log {SyncLogId} with status: {Status} (attempt {Attempt})", syncLogId, status, attempt);
+                _logger.LogDebug("💾 Completing sync log {SyncLogId} with status: {Status} (attempt {Attempt})", syncLogId, status, attempt);
                 
                 if (_activeSyncLogs.TryGetValue(syncLogId, out var syncLog))
                 {
@@ -137,7 +137,7 @@ public class DatabaseLoggerService : IDatabaseLoggerService
                     await syncLogRepository.UpdateAsync(syncLog);
                     _activeSyncLogs.Remove(syncLogId);
                     
-                    _logger.LogInformation("✅ Sync log {SyncLogId} saved to database", syncLogId);
+                    _logger.LogDebug("✅ Sync log {SyncLogId} saved to database", syncLogId);
                     return; // Success - exit retry loop
                 }
                 else

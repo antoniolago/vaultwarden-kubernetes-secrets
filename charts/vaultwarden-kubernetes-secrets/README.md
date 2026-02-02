@@ -178,7 +178,7 @@ See [`values.yaml`](charts/vaultwarden-kubernetes-secrets/values.yaml) for all o
 
 ## How It Works
 
-1. The service uses bw-cli to log into Vaultwarden using your credentials
+1. The service authenticates to the VW API using your credentials
 2. Fetches items (optionally filtered by Organization/Collection/Folder)
 3. For each item with a `namespaces` custom field:
    - Creates/updates a Kubernetes Secret in each specified namespace

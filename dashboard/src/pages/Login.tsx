@@ -27,6 +27,23 @@ export default function Login() {
     setLoading(true)
 
     try {
+      // First check auth configuration
+      const authInfo = await api.getAuthInfo()
+      
+      if (authInfo.loginlessMode) {
+        // Loginless mode - auto login
+        login(token || 'loginless')
+        navigate('/')
+        return
+      }
+      
+      if (!authInfo.authRequired) {
+        // No auth token configured on server
+        setError('Authentication not configured. Set AUTH_TOKEN environment variable on the API server.')
+        return
+      }
+      
+      // Auth is required - validate the token
       const isValid = await api.testConnection(token)
       if (isValid) {
         login(token)

@@ -113,6 +113,11 @@ public class NamespaceSummary
             case ReconcileOutcome.Failed:
                 Failed++;
                 Success = false;
+                // Propagate secret error to namespace errors for summary display
+                if (!string.IsNullOrEmpty(secret.Error))
+                {
+                    Errors.Add($"Secret '{secret.Name}': {secret.Error}");
+                }
                 break;
         }
     }

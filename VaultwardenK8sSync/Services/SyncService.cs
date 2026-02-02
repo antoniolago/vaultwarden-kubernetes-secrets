@@ -125,9 +125,14 @@ public class SyncService : ISyncService
             // Group items by namespace (supporting multiple namespaces per item)
             var itemsByNamespace = new Dictionary<string, List<Models.VaultwardenItem>>();
             
+            var itemsWithNamespaces = 0;
             foreach (var item in items)
             {
                 var namespaces = item.ExtractNamespaces();
+                if (namespaces.Any())
+                {
+                    itemsWithNamespaces++;
+                }
                 foreach (var namespaceName in namespaces)
                 {
                     if (!itemsByNamespace.ContainsKey(namespaceName))
@@ -139,8 +144,8 @@ public class SyncService : ISyncService
             }
 
             summary.TotalNamespaces = itemsByNamespace.Count;
-            _logger.LogDebug("Found {Count} items with namespace tags across {NamespaceCount} namespaces", 
-                itemsByNamespace.Values.Sum(x => x.Count), itemsByNamespace.Count);
+            _logger.LogInformation("Found {ItemsWithNamespaces}/{TotalItems} items with namespace tags across {NamespaceCount} namespaces", 
+                itemsWithNamespaces, items.Count, itemsByNamespace.Count);
 
             // Calculate total secrets for progress tracking
             var totalSecrets = 0;
@@ -370,14 +375,14 @@ public class SyncService : ISyncService
             // Group items by secret name to handle multiple items pointing to the same secret
             var itemsBySecretName = GroupItemsBySecretName(items);
             
-            _logger.LogInformation("SyncNamespaceAsync: Namespace {Namespace} has {SecretCount} secret(s) to process: {SecretNames}", 
+            _logger.LogDebug("SyncNamespaceAsync: Namespace {Namespace} has {SecretCount} secret(s) to process: {SecretNames}", 
                 namespaceName, itemsBySecretName.Count, string.Join(", ", itemsBySecretName.Keys));
             
             foreach (var (secretName, secretItems) in itemsBySecretName)
             {
                 var key = $"{namespaceName}/{secretName}";
                 
-                _logger.LogInformation("SyncNamespaceAsync: Processing secret {SecretName} in namespace {Namespace} from {Count} item(s)", 
+                _logger.LogDebug("SyncNamespaceAsync: Processing secret {SecretName} in namespace {Namespace} from {Count} item(s)", 
                     secretName, namespaceName, secretItems.Count);
                 
                 try
@@ -387,7 +392,7 @@ public class SyncService : ISyncService
                     var secretSummary = await SyncSecretAsync(namespaceName, secretName, secretItems, syncLogId);
                     namespaceSummary.AddSecret(secretSummary);
                     
-                    _logger.LogInformation("SyncNamespaceAsync: Secret {SecretName} in namespace {Namespace} completed with outcome: {Outcome}", 
+                    _logger.LogDebug("SyncNamespaceAsync: Secret {SecretName} in namespace {Namespace} completed with outcome: {Outcome}", 
                         secretName, namespaceName, secretSummary.Outcome);
                     
                     if (secretSummary.Outcome == ReconcileOutcome.Failed)

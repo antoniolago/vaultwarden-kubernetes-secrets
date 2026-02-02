@@ -26,7 +26,6 @@ The main sync service follows a layered architecture:
 - **Policies/** - Resilience policies (Polly)
 
 Key architectural patterns:
-- Uses bw-cli (Bitwarden CLI) as an external process to interact with Vaultwarden
 - Enforces single-instance operation via ProcessLock to prevent concurrent syncs
 - Uses GlobalSyncLock for coordination between API and sync service via Redis/Valkey
 - VwConnector package handles Bitwarden CLI interactions
@@ -174,21 +173,19 @@ dotnet test --filter "FullyQualifiedName~VaultwardenK8sSync.Tests.SomeTestClass"
 
 1. **Single Instance Enforcement**: The sync service uses a ProcessLock to ensure only one instance runs at a time. This is critical to prevent race conditions.
 
-2. **bw-cli Integration**: The service spawns bw-cli as an external process. All Bitwarden operations go through VwConnector which manages process lifecycle.
+2. **Secret Naming**: Vaultwarden item names are sanitized to comply with Kubernetes DNS subdomain requirements (lowercase alphanumeric plus dashes).
 
-3. **Secret Naming**: Vaultwarden item names are sanitized to comply with Kubernetes DNS subdomain requirements (lowercase alphanumeric plus dashes).
+3. **Multi-namespace Support**: A single Vaultwarden item can create secrets in multiple namespaces via the `namespaces` custom field (comma-separated).
 
-4. **Multi-namespace Support**: A single Vaultwarden item can create secrets in multiple namespaces via the `namespaces` custom field (comma-separated).
+4. **Secret Merging**: Multiple Vaultwarden items with the same `secret-name` custom field will merge into a single Kubernetes Secret.
 
-5. **Secret Merging**: Multiple Vaultwarden items with the same `secret-name` custom field will merge into a single Kubernetes Secret.
+5. **Orphan Cleanup**: Secrets previously created but no longer in Vaultwarden are automatically removed.
 
-6. **Orphan Cleanup**: Secrets previously created but no longer in Vaultwarden are automatically removed.
-
-7. **Custom Fields**:
+6. **Custom Fields**:
    - Reserved fields: `namespaces`, `secret-name`, `secret-key-password`, `secret-key`, `secret-key-username`, `secret-annotation`, `secret-label`, `ignore-field`
    - All other custom fields become Secret data entries
 
-8. **Dashboard Authentication**: Uses token-based auth. Token is stored in a Kubernetes Secret created during Helm installation.
+7. **Dashboard Authentication**: Uses token-based auth. Token is stored in a Kubernetes Secret created during Helm installation.
 
 ## Helm Chart
 
