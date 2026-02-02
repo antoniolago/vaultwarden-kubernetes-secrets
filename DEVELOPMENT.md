@@ -9,6 +9,7 @@ Start all services (API, Sync, Dashboard, Valkey) with one command:
 ```
 
 This will:
+
 1. ✅ Check and start **Valkey** if not running (for WebSocket sync output)
 2. ✅ Run initial sync if database doesn't exist
 3. ✅ Build and start **API** on port 8080
@@ -18,19 +19,20 @@ This will:
 
 ## Services Started
 
-| Service | Port | URL | Logs |
-|---------|------|-----|------|
-| Dashboard | 3000 | http://localhost:3000 | `tail -f /tmp/vk8s-dashboard.log` |
-| API | 8080 | http://localhost:8080 | `tail -f /tmp/vk8s-api.log` |
-| API Swagger | 8080 | http://localhost:8080/swagger | - |
-| Sync Service | - | (background) | `tail -f /tmp/vk8s-sync.log` |
-| Valkey | 6379 | localhost:6379 | - |
+| Service      | Port | URL                           | Logs                              |
+| ------------ | ---- | ----------------------------- | --------------------------------- |
+| Dashboard    | 3000 | http://localhost:3000         | `tail -f /tmp/vk8s-dashboard.log` |
+| API          | 8080 | http://localhost:8080         | `tail -f /tmp/vk8s-api.log`       |
+| API Swagger  | 8080 | http://localhost:8080/swagger | -                                 |
+| Sync Service | -    | (background)                  | `tail -f /tmp/vk8s-sync.log`      |
+| Valkey       | 6379 | localhost:6379                | -                                 |
 
 ## Stop All Services
 
 Press **Ctrl+C** in the terminal running `start-all.sh`
 
 The cleanup function will:
+
 - Stop Dashboard
 - Stop API
 - Stop Sync Service
@@ -44,6 +46,7 @@ The cleanup function will:
 Valkey is a Redis-compatible fork (https://valkey.io) and can be used as a drop-in replacement for Redis.
 
 The `start-all.sh` script automatically:
+
 - Checks if Valkey is running
 - Tries to start Valkey using Podman/Docker (preferred)
 - Falls back to native valkey-server or redis-server if container runtime not available
@@ -52,11 +55,13 @@ The `start-all.sh` script automatically:
 ### Quick Valkey Setup with Podman/Docker
 
 **Using the helper script (recommended):**
+
 ```bash
 ./scripts/valkey-podman.sh start
 ```
 
 **Manual setup:**
+
 ```bash
 # Using Podman (use fully qualified image name)
 podman run -d --name vaultwarden-valkey --rm -p 6379:6379 docker.io/valkey/valkey:alpine
@@ -70,6 +75,7 @@ docker run -d --name vaultwarden-valkey --rm -p 6379:6379 valkey/valkey:alpine
 ### Alternative: Native Installation
 
 **Ubuntu/Debian:**
+
 ```bash
 # Valkey (recommended)
 sudo apt-get install valkey-server
@@ -79,6 +85,7 @@ sudo apt-get install redis-server
 ```
 
 **macOS:**
+
 ```bash
 # Valkey
 brew install valkey
@@ -104,24 +111,28 @@ brew services start redis
 ### Start Individual Services
 
 **Sync Service:**
+
 ```bash
 cd VaultwardenK8sSync
 dotnet run
 ```
 
 **API:**
+
 ```bash
 cd VaultwardenK8sSync.Api
 dotnet run
 ```
 
 **Dashboard:**
+
 ```bash
 cd dashboard
 npm run dev
 ```
 
 **Valkey:**
+
 ```bash
 # Valkey
 valkey-server --daemonize yes --port 6379
@@ -150,6 +161,7 @@ lsof -ti:6379  # Valkey
 All services read from `.env` file in the project root.
 
 **Key settings for development:**
+
 ```bash
 # Sync runs continuously every 30 seconds
 SYNC__CONTINUOUSSYNC=true
@@ -167,11 +179,13 @@ SYNC__DRYRUN=false
 ### WebSocket connection failed
 
 Check if Valkey is running:
+
 ```bash
 redis-cli ping
 ```
 
 Should return `PONG`. If not, start Valkey manually:
+
 ```bash
 valkey-server --daemonize yes --port 6379
 
@@ -182,11 +196,13 @@ redis-server --daemonize yes --port 6379
 ### Sync service not starting
 
 Check logs:
+
 ```bash
 tail -f /tmp/vk8s-sync.log
 ```
 
 Common issues:
+
 - `.env` file missing or misconfigured
 - Vaultwarden credentials invalid
 - Kubernetes config not accessible
@@ -194,12 +210,34 @@ Common issues:
 ### Port already in use
 
 Kill existing processes:
+
 ```bash
 lsof -ti:8080 | xargs kill -9  # API
 lsof -ti:3000 | xargs kill -9  # Dashboard
 ```
 
 Or run the cleanup manually:
+
 ```bash
 ./scripts/start-all.sh  # Then Ctrl+C immediately to run cleanup
+```
+
+## Test via Docker
+
+```sh
+docker build --no-cache -t vw-k8s-sync -f ./VaultwardenK8sSync/Dockerfile .
+```
+
+```sh
+export SERVER_URL="https://vault.mydomain.com"
+
+docker run -it --rm \
+  -e VAULTWARDEN__SERVERURL=$SERVER_URL \
+  -e BW_CLIENTID=$BW_CLIENTID \
+  -e BW_CLIENTSECRET=$BW_CLIENTSECRET \
+  -e VAULTWARDEN__MASTERPASSWORD=$VAULTWARDEN__MASTERPASSWORD \
+  -e SYNC__DRYRUN=true \
+  -e SYNC__CONTINUOUSSYNC=false \
+  vw-k8s-sync
+
 ```
