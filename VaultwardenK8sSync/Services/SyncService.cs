@@ -375,14 +375,14 @@ public class SyncService : ISyncService
             // Group items by secret name to handle multiple items pointing to the same secret
             var itemsBySecretName = GroupItemsBySecretName(items);
             
-            _logger.LogInformation("SyncNamespaceAsync: Namespace {Namespace} has {SecretCount} secret(s) to process: {SecretNames}", 
+            _logger.LogDebug("SyncNamespaceAsync: Namespace {Namespace} has {SecretCount} secret(s) to process: {SecretNames}", 
                 namespaceName, itemsBySecretName.Count, string.Join(", ", itemsBySecretName.Keys));
             
             foreach (var (secretName, secretItems) in itemsBySecretName)
             {
                 var key = $"{namespaceName}/{secretName}";
                 
-                _logger.LogInformation("SyncNamespaceAsync: Processing secret {SecretName} in namespace {Namespace} from {Count} item(s)", 
+                _logger.LogDebug("SyncNamespaceAsync: Processing secret {SecretName} in namespace {Namespace} from {Count} item(s)", 
                     secretName, namespaceName, secretItems.Count);
                 
                 try
@@ -392,7 +392,7 @@ public class SyncService : ISyncService
                     var secretSummary = await SyncSecretAsync(namespaceName, secretName, secretItems, syncLogId);
                     namespaceSummary.AddSecret(secretSummary);
                     
-                    _logger.LogInformation("SyncNamespaceAsync: Secret {SecretName} in namespace {Namespace} completed with outcome: {Outcome}", 
+                    _logger.LogDebug("SyncNamespaceAsync: Secret {SecretName} in namespace {Namespace} completed with outcome: {Outcome}", 
                         secretName, namespaceName, secretSummary.Outcome);
                     
                     if (secretSummary.Outcome == ReconcileOutcome.Failed)

@@ -69,20 +69,20 @@ public class ApplicationHost
                 
                 if (!columns.Contains("SyncIntervalSeconds"))
                 {
-                    _logger.LogInformation("Adding SyncIntervalSeconds column to SyncLogs");
+                    _logger.LogDebug("Adding SyncIntervalSeconds column to SyncLogs");
                     using var addCmd = connection.CreateCommand();
                     addCmd.CommandText = "ALTER TABLE SyncLogs ADD COLUMN SyncIntervalSeconds INTEGER NOT NULL DEFAULT 0;";
                     addCmd.ExecuteNonQuery();
-                    _logger.LogInformation("SyncIntervalSeconds column added");
+                    _logger.LogDebug("SyncIntervalSeconds column added");
                 }
                 
                 if (!columns.Contains("ContinuousSync"))
                 {
-                    _logger.LogInformation("Adding ContinuousSync column to SyncLogs");
+                    _logger.LogDebug("Adding ContinuousSync column to SyncLogs");
                     using var addCmd = connection.CreateCommand();
                     addCmd.CommandText = "ALTER TABLE SyncLogs ADD COLUMN ContinuousSync INTEGER NOT NULL DEFAULT 0;";
                     addCmd.ExecuteNonQuery();
-                    _logger.LogInformation("ContinuousSync column added");
+                    _logger.LogDebug("ContinuousSync column added");
                 }
                 
                 connection.Close();
@@ -130,7 +130,7 @@ public class ApplicationHost
                 }
                 
                 db.SaveChanges();
-                _logger.LogInformation("Cleaned up {Count} orphaned sync logs", orphanedLogs.Count);
+                _logger.LogDebug("Cleaned up {Count} orphaned sync logs", orphanedLogs.Count);
             }
         }
         catch (Exception ex)

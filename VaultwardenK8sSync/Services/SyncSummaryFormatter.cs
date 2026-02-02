@@ -159,18 +159,16 @@ public static class SyncSummaryFormatter
                 var stats = GetNamespaceStatsText(ns);
                 sb.AppendLine($"   • {ns.Name}{stats}");
                 
-                // Limit to first 3 errors per namespace and truncate long messages
-                var errorsToShow = ns.Errors.Take(3).ToList();
-                for (int i = 0; i < errorsToShow.Count; i++)
+                // Show errors (which now include secret errors propagated from AddSecret)
+                var errorsToShow = ns.Errors.Take(5).ToList();
+                foreach (var error in errorsToShow)
                 {
-                    var error = errorsToShow[i];
-                    var truncatedError = error.Length > 100 ? error.Substring(0, 100) + "..." : error;
-                    sb.AppendLine($"     ↳ Error {i + 1}: {truncatedError}");
+                    var truncatedError = error.Length > 120 ? error.Substring(0, 120) + "..." : error;
+                    sb.AppendLine($"     ↳ {truncatedError}");
                 }
-                
-                if (ns.Errors.Count > 3)
+                if (ns.Errors.Count > 5)
                 {
-                    sb.AppendLine($"     ↳ ... and {ns.Errors.Count - 3} more error(s)");
+                    sb.AppendLine($"     ↳ ... and {ns.Errors.Count - 5} more error(s)");
                 }
             }
             sb.AppendLine();
@@ -195,12 +193,12 @@ public static class SyncSummaryFormatter
     private static string GetNamespaceStatsText(NamespaceSummary ns)
     {
         var stats = new List<string>();
-        if (ns.Created > 0) stats.Add($"C:{ns.Created}");
-        if (ns.Updated > 0) stats.Add($"U:{ns.Updated}");
-        if (ns.Skipped > 0) stats.Add($"S:{ns.Skipped}");
-        if (ns.Failed > 0) stats.Add($"F:{ns.Failed}");
+        if (ns.Created > 0) stats.Add($"{ns.Created} created");
+        if (ns.Updated > 0) stats.Add($"{ns.Updated} updated");
+        if (ns.Skipped > 0) stats.Add($"{ns.Skipped} up-to-date");
+        if (ns.Failed > 0) stats.Add($"{ns.Failed} failed");
         
-        return stats.Any() ? $" [{string.Join(", ", stats)}]" : "";
+        return stats.Any() ? $" ({string.Join(", ", stats)})" : "";
     }
     
     private static void AppendFooter(StringBuilder sb, SyncSummary summary)
