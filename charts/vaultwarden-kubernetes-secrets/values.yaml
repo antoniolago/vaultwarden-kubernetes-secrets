@@ -145,6 +145,9 @@ env:
     VAULTWARDEN__FOLDERNAME: ""
     VAULTWARDEN__COLLECTIONID: "" #RECOMMENDED
     VAULTWARDEN__COLLECTIONNAME: ""
+    # Optional: Fixed device identifier to prevent "New device logged in" notifications
+    # If not set, a deterministic ID is auto-generated from SERVERURL + BW_CLIENTID
+    # VAULTWARDEN__DEVICEID: ""
     KUBERNETES__INCLUSTER: "true"
     KUBERNETES__DEFAULTNAMESPACE: "default"
     SYNC__DRYRUN: "false"
