@@ -174,6 +174,16 @@ Common settings you can override with `--set`:
 
 See [`values.yaml`](charts/vaultwarden-kubernetes-secrets/values.yaml) for all options.
 
+### Preventing "New Device Logged In" Notifications
+
+By default, the sync service generates a deterministic device identifier from your server URL and client ID. This prevents Vaultwarden from sending "New device logged in" notifications on every sync.
+
+If you need to set an explicit device ID (e.g., for migration or specific requirements):
+
+```bash
+VAULTWARDEN__DEVICEID="your-fixed-device-id"
+```
+
 ### Logging Configuration
 
 The service uses Serilog for structured logging with environment-aware output:

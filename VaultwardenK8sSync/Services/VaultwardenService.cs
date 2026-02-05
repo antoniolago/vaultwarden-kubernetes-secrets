@@ -109,8 +109,11 @@ public class VaultwardenService : IVaultwardenService
             // User API keys need device info, organization API keys don't
             if (!isOrgApiKey)
             {
+                var deviceId = DeviceIdGenerator.GetOrGenerateDeviceId(_config);
+                _logger.LogDebug("Using device identifier: {DeviceIdPrefix}...", deviceId[..8]);
+
                 formParams["deviceType"] = "6";
-                formParams["deviceIdentifier"] = Guid.NewGuid().ToString();
+                formParams["deviceIdentifier"] = deviceId;
                 formParams["deviceName"] = "vaultwarden-k8s-sync";
             }
             
