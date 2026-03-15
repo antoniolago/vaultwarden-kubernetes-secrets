@@ -1212,7 +1212,9 @@ public class SyncService : ISyncService
                     customLabels[kvp.Key] = kvp.Value;
                 }
                 
-                // Extract secret type (last item wins if there are duplicates)
+                // Secret type selection uses "non-default wins" semantics rather than true last-writer-wins:
+                // Any non-default type (e.g., kubernetes.io/tls) will override default/Opaque, even if it appeared earlier or later.
+                // Examples: A=kubernetes.io/tls then B=Opaque -> kubernetes.io/tls; A=Opaque then B=kubernetes.io/tls -> kubernetes.io/tls
                 var itemSecretType = item.ExtractSecretType();
                 if (itemSecretType != Models.FieldNameConfig.DefaultSecretType)
                 {
