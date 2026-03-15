@@ -503,4 +503,158 @@ public class VaultwardenItemTests
         Assert.Equal("value2", result["key2"]);
         Assert.Equal("value3", result["key3"]);
     }
+
+    [Fact]
+    [Trait("Category", "CustomFields")]
+    public void ExtractSecretType_WithNoField_ReturnsDefaultOpaque()
+    {
+        // Arrange
+        var item = new VaultwardenItem
+        {
+            Fields = new List<FieldInfo>()
+        };
+
+        // Act
+        var result = item.ExtractSecretType();
+
+        // Assert
+        Assert.Equal("Opaque", result);
+    }
+
+    [Fact]
+    [Trait("Category", "CustomFields")]
+    public void ExtractSecretType_WithOpaqueType_ReturnsOpaque()
+    {
+        // Arrange
+        var item = new VaultwardenItem
+        {
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "secret-type", Value = "Opaque", Type = 0 }
+            }
+        };
+
+        // Act
+        var result = item.ExtractSecretType();
+
+        // Assert
+        Assert.Equal("Opaque", result);
+    }
+
+    [Fact]
+    [Trait("Category", "CustomFields")]
+    public void ExtractSecretType_WithBasicAuthType_ReturnsBasicAuth()
+    {
+        // Arrange
+        var item = new VaultwardenItem
+        {
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "secret-type", Value = "kubernetes.io/basic-auth", Type = 0 }
+            }
+        };
+
+        // Act
+        var result = item.ExtractSecretType();
+
+        // Assert
+        Assert.Equal("kubernetes.io/basic-auth", result);
+    }
+
+    [Fact]
+    [Trait("Category", "CustomFields")]
+    public void ExtractSecretType_WithTlsType_ReturnsTls()
+    {
+        // Arrange
+        var item = new VaultwardenItem
+        {
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "secret-type", Value = "kubernetes.io/tls", Type = 0 }
+            }
+        };
+
+        // Act
+        var result = item.ExtractSecretType();
+
+        // Assert
+        Assert.Equal("kubernetes.io/tls", result);
+    }
+
+    [Fact]
+    [Trait("Category", "CustomFields")]
+    public void ExtractSecretType_CaseInsensitive_ReturnsCanonicalCasing()
+    {
+        // Arrange
+        var item = new VaultwardenItem
+        {
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "secret-type", Value = "KUBERNETES.IO/BASIC-AUTH", Type = 0 }
+            }
+        };
+
+        // Act
+        var result = item.ExtractSecretType();
+
+        // Assert
+        Assert.Equal("kubernetes.io/basic-auth", result);
+    }
+
+    [Fact]
+    [Trait("Category", "CustomFields")]
+    public void ExtractSecretType_WithInvalidType_ReturnsDefaultOpaque()
+    {
+        // Arrange
+        var item = new VaultwardenItem
+        {
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "secret-type", Value = "invalid-type", Type = 0 }
+            }
+        };
+
+        // Act
+        var result = item.ExtractSecretType();
+
+        // Assert
+        Assert.Equal("Opaque", result);
+    }
+
+    [Fact]
+    [Trait("Category", "CustomFields")]
+    public void ExtractSecretType_WithWhitespace_TrimsAndReturnsType()
+    {
+        // Arrange
+        var item = new VaultwardenItem
+        {
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "secret-type", Value = "  kubernetes.io/tls  ", Type = 0 }
+            }
+        };
+
+        // Act
+        var result = item.ExtractSecretType();
+
+        // Assert
+        Assert.Equal("kubernetes.io/tls", result);
+    }
+
+    [Fact]
+    [Trait("Category", "CustomFields")]
+    public void ExtractIgnoredFields_IncludesSecretType()
+    {
+        // Arrange
+        var item = new VaultwardenItem
+        {
+            Fields = new List<FieldInfo>()
+        };
+
+        // Act
+        var result = item.ExtractIgnoredFields();
+
+        // Assert
+        Assert.Contains("secret-type", result);
+    }
 }
