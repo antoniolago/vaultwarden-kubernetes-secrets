@@ -1337,14 +1337,53 @@ public class SyncService : ISyncService
                 string? oldHashValue = existingAnnotations?.GetValueOrDefault(hashAnnotationKey);
                 bool hasHashChanged = oldHashValue != combinedHash;
 
+                // Check if the secret type has changed (immutable field in Kubernetes)
+                var existingSecretType = await _kubernetesService.GetSecretTypeAsync(namespaceName, secretName);
+                var desiredSecretType = secretType ?? Models.FieldNameConfig.DefaultSecretType;
+                bool hasTypeChanged = existingSecretType != null && existingSecretType != desiredSecretType;
+
                 // Log detailed information about what changed
                 if (hasHashChanged)
                 {
                     _logger.LogDebug("Hash changed for secret {SecretName} in namespace {Namespace}: old={OldHash}, new={NewHash}", 
                         secretName, namespaceName, oldHashValue, combinedHash);
                 }
+                
+                if (hasTypeChanged)
+                {
+                    _logger.LogInformation("Secret type changed for {SecretName} in namespace {Namespace}: old={OldType}, new={NewType} - will recreate secret", 
+                        secretName, namespaceName, existingSecretType, desiredSecretType);
+                }
 
-                if (!hasDataChanged && !hasHashChanged)
+                // If type changed, we must delete and recreate (type is immutable in Kubernetes)
+                if (hasTypeChanged)
+                {
+                    _logger.LogInformation("Deleting secret {SecretName} in namespace {Namespace} due to type change from {OldType} to {NewType}", 
+                        secretName, namespaceName, existingSecretType, desiredSecretType);
+                    
+                    var deleteSuccess = await _kubernetesService.DeleteSecretAsync(namespaceName, secretName);
+                    if (deleteSuccess)
+                    {
+                        _logger.LogInformation("Deleted secret {SecretName} in namespace {Namespace} - will recreate with new type", 
+                            secretName, namespaceName);
+                        
+                        // Clear cache entry
+                        var cacheKey = $"{namespaceName}/{secretName}";
+                        _secretExistsCache.Remove(cacheKey);
+                        
+                        // Fall through to create logic below by setting actuallyExists to false
+                        actuallyExists = false;
+                    }
+                    else
+                    {
+                        _logger.LogError("Failed to delete secret {SecretName} in namespace {Namespace} for type change", 
+                            secretName, namespaceName);
+                        secretSummary.Outcome = ReconcileOutcome.Failed;
+                        secretSummary.Error = "Failed to delete secret for type change";
+                        return secretSummary;
+                    }
+                }
+                else if (!hasDataChanged && !hasHashChanged)
                 {
                     // Even if no changes detected, verify the secret still exists
                     // It might have been deleted externally after we retrieved the data
@@ -1740,7 +1779,8 @@ public class SyncService : ISyncService
 
             item.ExtractSecretKeyPassword() ?? "",
             item.ExtractSecretKeyUsername() ?? "",
-            string.Join(",", item.ExtractNamespaces().OrderBy(ns => ns))
+            string.Join(",", item.ExtractNamespaces().OrderBy(ns => ns)),
+            item.ExtractSecretType() ?? Models.FieldNameConfig.DefaultSecretType
         };
 
         if (item.SshKey != null)

@@ -19,6 +19,7 @@ public interface IKubernetesService
     Task<bool> SecretExistsAsync(string namespaceName, string secretName);
     Task<Dictionary<string, string>?> GetSecretDataAsync(string namespaceName, string secretName);
     Task<Dictionary<string, string>?> GetSecretAnnotationsAsync(string namespaceName, string secretName);
+    Task<string?> GetSecretTypeAsync(string namespaceName, string secretName);
 
     /// <summary>
     /// Removes only the managed keys from a secret, preserving any external keys

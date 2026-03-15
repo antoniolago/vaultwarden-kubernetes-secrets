@@ -599,6 +599,29 @@ public class KubernetesService : IKubernetesService
         }
     }
 
+    public async Task<string?> GetSecretTypeAsync(string namespaceName, string secretName)
+    {
+        if (_client == null)
+        {
+            throw new InvalidOperationException("Kubernetes client not initialized. Call InitializeAsync first.");
+        }
+
+        try
+        {
+            var secret = await _client.CoreV1.ReadNamespacedSecretAsync(secretName, namespaceName);
+            return secret.Type;
+        }
+        catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get type for secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
+            return null;
+        }
+    }
+
     public async Task<V1Secret?> GetSecretAsync(string namespaceName, string secretName)
     {
         if (_client == null)
