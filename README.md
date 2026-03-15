@@ -54,10 +54,25 @@ In Vaultwarden, create a **Login**, **SSH Key** or **Secure Note** item with:
 - `secret-name`: Set the Kubernetes Secret name (default: sanitized item name)
 - `secret-key-password` or `secret-key`: Key name for the password field (default: sanitized item name)
 - `secret-key-username`: Key name for the username field (default: `<name>-username`)
+- `secret-type`: Set the Kubernetes Secret type (see below)
 - `secret-annotation`: Add custom annotations to the Secret metadata (see examples below)
 - `secret-label`: Add custom labels to the Secret metadata (see examples below)
+- `ignore-field`: Comma-separated list of field names to exclude from sync
 
 **That's it!** The sync service will create the Secret in your specified namespace(s) within the sync interval.
+
+### Available Custom Fields Reference
+
+| Field Name | Description | Default |
+|------------|-------------|---------|
+| `namespaces` | **Required.** Comma-separated list of target Kubernetes namespaces | - |
+| `secret-name` | Custom name for the Kubernetes Secret | Sanitized item name |
+| `secret-key-password` | Key name for the password/credential value | Sanitized item name |
+| `secret-key-username` | Key name for the username value | `<name>-username` |
+| `secret-type` | Kubernetes Secret type: `Opaque`, `kubernetes.io/basic-auth`, `kubernetes.io/tls` | `Opaque` |
+| `secret-annotation` | Custom annotations (format: `key=value` or `key: value`) | - |
+| `secret-label` | Custom labels (format: `key=value` or `key: value`) | - |
+| `ignore-field` | Comma-separated list of field names to exclude from sync | - |
 
 ---
 
@@ -114,6 +129,36 @@ data:
   - `DATABASE_URL` = `postgres://...`
 
 **Result:** All custom fields (except reserved ones) are synced to the Secret.
+
+### With Custom Secret Type
+
+You can specify the Kubernetes Secret type using the `secret-type` custom field:
+
+**Vaultwarden Item (TLS Certificate):**
+- Name: `my-tls-cert`
+- Custom fields:
+  - `namespaces` = `production`
+  - `secret-type` = `kubernetes.io/tls`
+  - `tls.crt` = `-----BEGIN CERTIFICATE-----...`
+  - `tls.key` = `-----BEGIN PRIVATE KEY-----...`
+
+**Result in Kubernetes:**
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-tls-cert
+  namespace: production
+type: kubernetes.io/tls
+data:
+  tls.crt: LS0tLS1CRUdJTi...  # base64 encoded
+  tls.key: LS0tLS1CRUdJTi...  # base64 encoded
+```
+
+**Supported Secret Types:**
+- `Opaque` (default) - arbitrary user-defined data
+- `kubernetes.io/basic-auth` - credentials for basic authentication
+- `kubernetes.io/tls` - TLS certificate and key
 
 ### With Custom Annotations and Labels
 
@@ -246,7 +291,7 @@ The service uses Serilog for structured logging with environment-aware output:
 - **Namespace requirement**: Items must have a `namespaces` custom field to be synced
 - **Supported item types**: Login, Secure Note, SSH Key (Card/Identity not recommended)
 - **User API keys only**: Organization API keys are not supported by Bitwarden CLI
-- **Opaque Secrets only**: TLS and other special Secret types are not generated
+- **Secret types**: Supports `Opaque` (default), `kubernetes.io/basic-auth`, and `kubernetes.io/tls` via the `secret-type` custom field
 - **Size limit**: Secrets must stay under ~1 MiB (Kubernetes limit)
 
 ---

@@ -189,7 +189,7 @@ public class KubernetesService : IKubernetesService
         }
     }
 
-    public async Task<OperationResult> CreateSecretAsync(string namespaceName, string secretName, Dictionary<string, string> data, Dictionary<string, string>? annotations = null, Dictionary<string, string>? customLabels = null)
+    public async Task<OperationResult> CreateSecretAsync(string namespaceName, string secretName, Dictionary<string, string> data, Dictionary<string, string>? annotations = null, Dictionary<string, string>? customLabels = null, string? secretType = null)
     {
         if (_client == null)
         {
@@ -242,12 +242,12 @@ public class KubernetesService : IKubernetesService
                 ApiVersion = "v1",
                 Kind = "Secret",
                 Metadata = metadata,
-                Type = Constants.Kubernetes.SecretType,
+                Type = secretType ?? Constants.Kubernetes.SecretType,
                 Data = data.ToDictionary(kvp => kvp.Key, kvp => System.Text.Encoding.UTF8.GetBytes(kvp.Value))
             };
 
             await _client.CoreV1.CreateNamespacedSecretAsync(secret, namespaceName);
-            _logger.LogInformation("Created secret {SecretName} in namespace {Namespace} with {KeyCount} managed keys", secretName, namespaceName, data.Count);
+            _logger.LogInformation("Created secret {SecretName} in namespace {Namespace} with {KeyCount} managed keys (type: {SecretType})", secretName, namespaceName, data.Count, secret.Type);
             return OperationResult.Successful();
         }
         catch (k8s.Autorest.HttpOperationException httpEx)

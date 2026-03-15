@@ -204,11 +204,36 @@ public class VaultwardenItem
         // Always add the ignore-field itself to the ignored list to prevent it from being synced
         ignoredFields.Add(FieldNameConfig.IgnoreFieldName);
         
-        // Also add secret-annotation and secret-label to prevent them from being synced as secret data
+        // Also add secret-annotation, secret-label, and secret-type to prevent them from being synced as secret data
         ignoredFields.Add(FieldNameConfig.SecretAnnotationsFieldName);
         ignoredFields.Add(FieldNameConfig.SecretLabelsFieldName);
+        ignoredFields.Add(FieldNameConfig.SecretTypeFieldName);
         
         return ignoredFields;
+    }
+
+    /// <summary>
+    /// Extract the Kubernetes secret type from the secret-type custom field.
+    /// Valid values: Opaque (default), kubernetes.io/basic-auth, kubernetes.io/tls
+    /// </summary>
+    public string ExtractSecretType()
+    {
+        var fromField = GetCustomFieldValue(FieldNameConfig.SecretTypeFieldName, "secret-type");
+        if (!string.IsNullOrWhiteSpace(fromField))
+        {
+            var trimmed = fromField.Trim();
+            if (FieldNameConfig.ValidSecretTypes.Contains(trimmed))
+            {
+                // Return the canonical casing for the type
+                if (string.Equals(trimmed, "Opaque", StringComparison.OrdinalIgnoreCase))
+                    return "Opaque";
+                if (string.Equals(trimmed, "kubernetes.io/basic-auth", StringComparison.OrdinalIgnoreCase))
+                    return "kubernetes.io/basic-auth";
+                if (string.Equals(trimmed, "kubernetes.io/tls", StringComparison.OrdinalIgnoreCase))
+                    return "kubernetes.io/tls";
+            }
+        }
+        return FieldNameConfig.DefaultSecretType;
     }
 
     /// <summary>
@@ -331,6 +356,23 @@ internal static class FieldNameConfig
         Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETANNOTATIONS")?.Trim() ?? "secret-annotation";
     public static readonly string SecretLabelsFieldName =
         Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETLABELS")?.Trim() ?? "secret-label";
+    public static readonly string SecretTypeFieldName =
+        Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETTYPE")?.Trim() ?? "secret-type";
+
+    /// <summary>
+    /// Valid Kubernetes secret types that can be specified via the secret-type custom field
+    /// </summary>
+    public static readonly HashSet<string> ValidSecretTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Opaque",
+        "kubernetes.io/basic-auth",
+        "kubernetes.io/tls"
+    };
+
+    /// <summary>
+    /// Default secret type if not specified or invalid
+    /// </summary>
+    public const string DefaultSecretType = "Opaque";
 }
 
 public class LoginInfo

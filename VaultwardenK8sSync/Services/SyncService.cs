@@ -521,6 +521,7 @@ public class SyncService : ISyncService
                 : SanitizeSecretName(item.Name);
             
             var secretData = await ExtractSecretDataAsync(item);
+            var secretType = item.ExtractSecretType();
 
             if (_syncConfig.DryRun)
             {
@@ -579,7 +580,7 @@ public class SyncService : ISyncService
             }
             else
             {
-                var createResult = await _kubernetesService.CreateSecretAsync(namespaceName, secretName, secretData);
+                var createResult = await _kubernetesService.CreateSecretAsync(namespaceName, secretName, secretData, null, null, secretType);
                 success = createResult.Success;
                 if (success)
                 {
@@ -1185,6 +1186,7 @@ public class SyncService : ISyncService
             var itemHashes = new List<string>();
             var customAnnotations = new Dictionary<string, string>();
             var customLabels = new Dictionary<string, string>();
+            string? secretType = null;
 
             foreach (var item in items)
             {
@@ -1208,6 +1210,13 @@ public class SyncService : ISyncService
                 {
                     // Merge labels (last item wins if there are duplicates)
                     customLabels[kvp.Key] = kvp.Value;
+                }
+                
+                // Extract secret type (last item wins if there are duplicates)
+                var itemSecretType = item.ExtractSecretType();
+                if (itemSecretType != Models.FieldNameConfig.DefaultSecretType)
+                {
+                    secretType = itemSecretType;
                 }
                 
                 // Calculate hash for this item
@@ -1422,7 +1431,7 @@ public class SyncService : ISyncService
                             _secretExistsCache.Remove(cacheKey);
                             
                             // Retry as create
-                            var createResult = await _kubernetesService.CreateSecretAsync(namespaceName, secretName, combinedSecretData, annotations, customLabels);
+                            var createResult = await _kubernetesService.CreateSecretAsync(namespaceName, secretName, combinedSecretData, annotations, customLabels, secretType);
                             success = createResult.Success;
                             if (success)
                             {
@@ -1456,7 +1465,7 @@ public class SyncService : ISyncService
                     { hashAnnotationKey, combinedHash }
                 };
 
-                var createResult = await _kubernetesService.CreateSecretAsync(namespaceName, secretName, combinedSecretData, annotations, customLabels);
+                var createResult = await _kubernetesService.CreateSecretAsync(namespaceName, secretName, combinedSecretData, annotations, customLabels, secretType);
                 success = createResult.Success;
                 if (success)
                 {
@@ -1603,7 +1612,9 @@ public class SyncService : ISyncService
             Models.FieldNameConfig.SecretAnnotationsFieldName,
             "secret-annotation", // Legacy/alternative name
             Models.FieldNameConfig.SecretLabelsFieldName,
-            "secret-label" // Legacy/alternative name
+            "secret-label", // Legacy/alternative name
+            Models.FieldNameConfig.SecretTypeFieldName,
+            "secret-type" // Legacy/alternative name
         };
         
         return metadataFields.Any(meta => 
