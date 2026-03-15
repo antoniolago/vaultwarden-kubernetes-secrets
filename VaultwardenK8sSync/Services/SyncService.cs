@@ -510,6 +510,16 @@ public class SyncService : ISyncService
         }
     }
 
+    /// <summary>
+    /// Synchronizes a single Vaultwarden item into a Kubernetes secret in the specified namespace.
+    /// </summary>
+    /// <param name="namespaceName">The target Kubernetes namespace for the secret.</param>
+    /// <param name="item">The Vaultwarden item to convert into secret data.</param>
+    /// <returns>`true` if the operation completed successfully (secret created, updated, deleted as needed, or no action required); `false` if the sync failed.</returns>
+    /// <remarks>
+    /// In dry-run mode this method performs no mutations and returns `true` when the planned actions would succeed.
+    /// The method may create, update, or remove secrets in the target namespace as required to reflect the item's state.
+    /// </remarks>
     private async Task<bool> SyncItemAsync(string namespaceName, Models.VaultwardenItem item)
     {
         try
@@ -521,6 +531,7 @@ public class SyncService : ISyncService
                 : SanitizeSecretName(item.Name);
             
             var secretData = await ExtractSecretDataAsync(item);
+            var secretType = item.ExtractSecretType();
 
             if (_syncConfig.DryRun)
             {
@@ -579,7 +590,7 @@ public class SyncService : ISyncService
             }
             else
             {
-                var createResult = await _kubernetesService.CreateSecretAsync(namespaceName, secretName, secretData);
+                var createResult = await _kubernetesService.CreateSecretAsync(namespaceName, secretName, secretData, null, null, secretType);
                 success = createResult.Success;
                 if (success)
                 {
@@ -1137,6 +1148,14 @@ public class SyncService : ISyncService
         return itemsBySecretName;
     }
 
+    /// <summary>
+    /// Reconciles a Kubernetes Secret in the specified namespace from the provided Vaultwarden items.
+    /// </summary>
+    /// <param name="namespaceName">The target Kubernetes namespace for the secret.</param>
+    /// <param name="secretName">The desired Kubernetes secret name (already sanitized).</param>
+    /// <param name="items">The Vaultwarden items whose data, labels, annotations, and secret-type will be merged to produce the secret.</param>
+    /// <param name="syncLogId">Optional database sync log identifier used to record per-sync progress; pass 0 if no per-sync progress update is required.</param>
+    /// <returns>A <see cref="SecretSummary"/> describing the reconciliation result (Created, Updated, Skipped, or Failed) and associated metadata such as error message and change reason.</returns>
     private async Task<SecretSummary> SyncSecretAsync(string namespaceName, string secretName, List<Models.VaultwardenItem> items, long syncLogId)
     {
         // Begin secret-level logging scope (include first item's ID for correlation)
@@ -1185,6 +1204,7 @@ public class SyncService : ISyncService
             var itemHashes = new List<string>();
             var customAnnotations = new Dictionary<string, string>();
             var customLabels = new Dictionary<string, string>();
+            string? secretType = null;
 
             foreach (var item in items)
             {
@@ -1208,6 +1228,13 @@ public class SyncService : ISyncService
                 {
                     // Merge labels (last item wins if there are duplicates)
                     customLabels[kvp.Key] = kvp.Value;
+                }
+                
+                // Extract secret type (last item wins if there are duplicates)
+                var itemSecretType = item.ExtractSecretType();
+                if (itemSecretType != Models.FieldNameConfig.DefaultSecretType)
+                {
+                    secretType = itemSecretType;
                 }
                 
                 // Calculate hash for this item
@@ -1422,7 +1449,7 @@ public class SyncService : ISyncService
                             _secretExistsCache.Remove(cacheKey);
                             
                             // Retry as create
-                            var createResult = await _kubernetesService.CreateSecretAsync(namespaceName, secretName, combinedSecretData, annotations, customLabels);
+                            var createResult = await _kubernetesService.CreateSecretAsync(namespaceName, secretName, combinedSecretData, annotations, customLabels, secretType);
                             success = createResult.Success;
                             if (success)
                             {
@@ -1456,7 +1483,7 @@ public class SyncService : ISyncService
                     { hashAnnotationKey, combinedHash }
                 };
 
-                var createResult = await _kubernetesService.CreateSecretAsync(namespaceName, secretName, combinedSecretData, annotations, customLabels);
+                var createResult = await _kubernetesService.CreateSecretAsync(namespaceName, secretName, combinedSecretData, annotations, customLabels, secretType);
                 success = createResult.Success;
                 if (success)
                 {
@@ -1584,6 +1611,14 @@ public class SyncService : ISyncService
         return ++_syncCount;
     }
 
+    /// <summary>
+    /// Determines whether a field name is treated as metadata that controls how Vaultwarden items are mapped to Kubernetes secrets.
+    /// </summary>
+    /// <remarks>
+    /// Comparison is case-insensitive and recognizes both current and legacy metadata keys (for example: "namespaces", "secret-name", "secret-type", and other configured metadata field names).
+    /// If <paramref name="fieldName"/> is null or empty, the method returns false.
+    /// </remarks>
+    /// <returns>`true` if the provided field name matches a known metadata key (case-insensitive), `false` otherwise.</returns>
     private static bool IsMetadataField(string fieldName)
     {
         if (string.IsNullOrEmpty(fieldName)) return false;
@@ -1603,7 +1638,9 @@ public class SyncService : ISyncService
             Models.FieldNameConfig.SecretAnnotationsFieldName,
             "secret-annotation", // Legacy/alternative name
             Models.FieldNameConfig.SecretLabelsFieldName,
-            "secret-label" // Legacy/alternative name
+            "secret-label", // Legacy/alternative name
+            Models.FieldNameConfig.SecretTypeFieldName,
+            "secret-type" // Legacy/alternative name
         };
         
         return metadataFields.Any(meta => 

@@ -142,6 +142,12 @@ public class KubernetesService : IKubernetesService
         }
     }
 
+    /// <summary>
+    /// Gets the names of secrets in the specified namespace that were created by the sync service.
+    /// </summary>
+    /// <param name="namespaceName">The Kubernetes namespace to inspect.</param>
+    /// <returns>A list of secret names that have the sync-service creation label; returns an empty list if none are found or if an error occurs.</returns>
+    /// <exception cref="InvalidOperationException">Thrown if the Kubernetes client has not been initialized.</exception>
     public async Task<List<string>> GetManagedSecretNamesAsync(string namespaceName)
     {
         if (_client == null)
@@ -189,7 +195,18 @@ public class KubernetesService : IKubernetesService
         }
     }
 
-    public async Task<OperationResult> CreateSecretAsync(string namespaceName, string secretName, Dictionary<string, string> data, Dictionary<string, string>? annotations = null, Dictionary<string, string>? customLabels = null)
+    /// <summary>
+    /// Creates a Kubernetes Secret in the specified namespace, storing the provided key/value pairs and marking the secret as managed by the sync service.
+    /// </summary>
+    /// <param name="namespaceName">The target Kubernetes namespace for the secret.</param>
+    /// <param name="secretName">The name to assign to the created secret.</param>
+    /// <param name="data">A dictionary of secret keys and their plaintext values; values are encoded as UTF-8 bytes and stored in the Secret's data.</param>
+    /// <param name="annotations">Optional annotations to attach to the Secret; a managed-keys annotation is added or replaced to track managed keys.</param>
+    /// <param name="customLabels">Optional additional labels to attach; management labels required by the sync service are added and cannot be overridden by these custom labels.</param>
+    /// <param name="secretType">Optional Kubernetes secret type to set on the Secret; if null, the default secret type from Constants.Kubernetes.SecretType is used.</param>
+    /// <returns>An OperationResult indicating success or failure. On success, a successful result is returned; on failure, the result contains an error message describing the problem.</returns>
+    /// <exception cref="InvalidOperationException">Thrown if the Kubernetes client has not been initialized (call InitializeAsync first).</exception>
+    public async Task<OperationResult> CreateSecretAsync(string namespaceName, string secretName, Dictionary<string, string> data, Dictionary<string, string>? annotations = null, Dictionary<string, string>? customLabels = null, string? secretType = null)
     {
         if (_client == null)
         {
@@ -242,12 +259,12 @@ public class KubernetesService : IKubernetesService
                 ApiVersion = "v1",
                 Kind = "Secret",
                 Metadata = metadata,
-                Type = Constants.Kubernetes.SecretType,
+                Type = secretType ?? Constants.Kubernetes.SecretType,
                 Data = data.ToDictionary(kvp => kvp.Key, kvp => System.Text.Encoding.UTF8.GetBytes(kvp.Value))
             };
 
             await _client.CoreV1.CreateNamespacedSecretAsync(secret, namespaceName);
-            _logger.LogInformation("Created secret {SecretName} in namespace {Namespace} with {KeyCount} managed keys", secretName, namespaceName, data.Count);
+            _logger.LogInformation("Created secret {SecretName} in namespace {Namespace} with {KeyCount} managed keys (type: {SecretType})", secretName, namespaceName, data.Count, secret.Type);
             return OperationResult.Successful();
         }
         catch (k8s.Autorest.HttpOperationException httpEx)
