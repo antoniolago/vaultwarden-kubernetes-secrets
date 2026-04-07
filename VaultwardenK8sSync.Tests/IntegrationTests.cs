@@ -1082,6 +1082,206 @@ public class IntegrationTests : IDisposable
         Assert.Equal(1, firstSync.TotalSecretsCreated);
     }
 
+    #region Spurious Fallback Key Bug Tests
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    [Trait("Category", "BugFix")]
+    public async Task ExtractSecretDataAsync_NoPassword_NoNotes_WithCustomFields_ShouldNotAddSpuriousKey()
+    {
+        // Arrange - reproduces the bug where "vaultwarden-masterless-demo-keycloak-secrets"
+        // appeared as both a key and value when an item had no password/notes but had custom fields
+        var item = new VaultwardenItem
+        {
+            Id = "test-id",
+            Name = "vaultwarden-masterless-demo-keycloak-secrets",
+            Type = 1, // Login
+            Login = new LoginInfo
+            {
+                Username = "",
+                Password = ""
+            },
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "namespaces", Value = "vaultwarden-masterless-demo", Type = 0 },
+                new FieldInfo { Name = "ADMIN_TOKEN", Value = "some-admin-token", Type = 0 },
+                new FieldInfo { Name = "DEMO_USER_PASSWORD", Value = "demopass", Type = 0 }
+            }
+        };
+
+        // Act
+        var result = await ExtractSecretDataAsync(item);
+
+        // Assert - the secret name itself must NOT appear as a data key
+        Assert.True(result.ContainsKey("ADMIN_TOKEN"), "Should contain ADMIN_TOKEN key");
+        Assert.True(result.ContainsKey("DEMO_USER_PASSWORD"), "Should contain DEMO_USER_PASSWORD key");
+        Assert.False(result.ContainsKey("vaultwarden-masterless-demo-keycloak-secrets"),
+            "The secret name should not be added as a data key when there is no password/notes but custom fields exist");
+        Assert.Equal(2, result.Count);
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    [Trait("Category", "BugFix")]
+    public async Task ExtractSecretDataAsync_NoPassword_NoNotes_WithCustomFields_AndSecretName_ShouldNotAddSpuriousKey()
+    {
+        // Arrange - same bug but with a custom secret-name field
+        var item = new VaultwardenItem
+        {
+            Id = "test-id",
+            Name = "My Keycloak Config",
+            Type = 1,
+            Login = new LoginInfo
+            {
+                Username = "",
+                Password = ""
+            },
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "namespaces", Value = "default", Type = 0 },
+                new FieldInfo { Name = "secret-name", Value = "keycloak-secrets", Type = 0 },
+                new FieldInfo { Name = "DB_PASSWORD", Value = "dbpass123", Type = 0 }
+            }
+        };
+
+        // Act
+        var result = await ExtractSecretDataAsync(item);
+
+        // Assert
+        Assert.True(result.ContainsKey("DB_PASSWORD"), "Should contain DB_PASSWORD key");
+        Assert.False(result.ContainsKey("keycloak-secrets"),
+            "The custom secret name should not appear as a data key");
+        Assert.False(result.ContainsKey("My-Keycloak-Config"),
+            "The item name should not appear as a data key");
+        Assert.Equal(1, result.Count);
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    [Trait("Category", "BugFix")]
+    public async Task ExtractSecretDataAsync_NoPassword_WithNotes_ShouldUseNotesAsValue()
+    {
+        // Arrange - notes should still be stored even without a password
+        var item = new VaultwardenItem
+        {
+            Id = "test-id",
+            Name = "my-config",
+            Type = 2, // Secure Note
+            Notes = "some important configuration content",
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "namespaces", Value = "default", Type = 0 },
+                new FieldInfo { Name = "EXTRA_KEY", Value = "extra-value", Type = 0 }
+            }
+        };
+
+        // Act
+        var result = await ExtractSecretDataAsync(item);
+
+        // Assert
+        Assert.True(result.ContainsKey("my-config"), "Should contain my-config key from notes");
+        Assert.Equal("some important configuration content", result["my-config"]);
+        Assert.True(result.ContainsKey("EXTRA_KEY"), "Should contain EXTRA_KEY custom field");
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    [Trait("Category", "BugFix")]
+    public async Task ExtractSecretDataAsync_WithPassword_ShouldUsePasswordAsValue()
+    {
+        // Arrange - password should always be stored
+        var item = new VaultwardenItem
+        {
+            Id = "test-id",
+            Name = "my-secret",
+            Type = 1,
+            Login = new LoginInfo
+            {
+                Username = "admin",
+                Password = "supersecret"
+            },
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "namespaces", Value = "default", Type = 0 },
+                new FieldInfo { Name = "API_KEY", Value = "api123", Type = 0 }
+            }
+        };
+
+        // Act
+        var result = await ExtractSecretDataAsync(item);
+
+        // Assert
+        Assert.True(result.ContainsKey("my-secret"), "Should contain my-secret key for password");
+        Assert.Equal("supersecret", result["my-secret"]);
+        Assert.True(result.ContainsKey("my-secret-username"), "Should contain my-secret-username key");
+        Assert.Equal("admin", result["my-secret-username"]);
+        Assert.True(result.ContainsKey("API_KEY"), "Should contain API_KEY custom field");
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    [Trait("Category", "BugFix")]
+    public async Task ExtractSecretDataAsync_NoPassword_NoNotes_NoCustomFields_ShouldFallbackToItemName()
+    {
+        // Arrange - edge case: nothing to store at all, fallback to item name as placeholder
+        var item = new VaultwardenItem
+        {
+            Id = "test-id",
+            Name = "empty-item",
+            Type = 1,
+            Login = new LoginInfo
+            {
+                Username = "",
+                Password = ""
+            },
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "namespaces", Value = "default", Type = 0 }
+            }
+        };
+
+        // Act
+        var result = await ExtractSecretDataAsync(item);
+
+        // Assert - with no data at all, fallback is acceptable
+        Assert.True(result.ContainsKey("empty-item"), "Should contain fallback key when no data exists");
+        Assert.Equal("empty-item", result["empty-item"]);
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    [Trait("Category", "BugFix")]
+    public async Task ExtractSecretDataAsync_NoPassword_NoNotes_OnlyMetadataFields_ShouldFallbackToItemName()
+    {
+        // Arrange - only metadata fields (namespaces, secret-name, etc.), no real data fields
+        var item = new VaultwardenItem
+        {
+            Id = "test-id",
+            Name = "metadata-only-item",
+            Type = 1,
+            Login = new LoginInfo
+            {
+                Username = "",
+                Password = ""
+            },
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "namespaces", Value = "default", Type = 0 },
+                new FieldInfo { Name = "secret-name", Value = "custom-name", Type = 0 },
+                new FieldInfo { Name = "secret-key-password", Value = "PASSWORD", Type = 0 }
+            }
+        };
+
+        // Act
+        var result = await ExtractSecretDataAsync(item);
+
+        // Assert - no real custom fields, so the fallback key should appear
+        Assert.True(result.ContainsKey("PASSWORD"), "Should contain PASSWORD key from secret-key-password");
+        Assert.Equal("metadata-only-item", result["PASSWORD"]);
+    }
+
+    #endregion
+
     public void Dispose()
     {
         // Clean up lock file after each test
