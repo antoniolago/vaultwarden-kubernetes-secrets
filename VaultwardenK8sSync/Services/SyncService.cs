@@ -665,12 +665,27 @@ public class SyncService : ISyncService
         }
         else
         {
-            // If no password found, store the item's note content (excluding metadata tags) when present,
-            // otherwise fall back to the item name as a placeholder.
             var noteBody = ExtractPureNoteBody(item.Notes);
-            data[passwordKeyResolved] = string.IsNullOrWhiteSpace(noteBody) 
-                ? (item.Name ?? string.Empty) 
-                : FormatMultilineValue(noteBody);
+            if (!string.IsNullOrWhiteSpace(noteBody))
+            {
+                // Store note content when present
+                data[passwordKeyResolved] = FormatMultilineValue(noteBody);
+            }
+            else
+            {
+                // Only add the fallback key if the item has no custom fields that would
+                // provide data. Otherwise we'd create a spurious key with the item name
+                // as both key and value (e.g., "my-secret" = "my-secret").
+                var hasNonMetadataCustomFields = item.Fields?.Any(f =>
+                    !string.IsNullOrWhiteSpace(f.Name) &&
+                    !string.IsNullOrEmpty(f.Value) &&
+                    !IsMetadataField(f.Name)) == true;
+
+                if (!hasNonMetadataCustomFields)
+                {
+                    data[passwordKeyResolved] = item.Name ?? string.Empty;
+                }
+            }
         }
 
         // Include SSH-specific extras if present
