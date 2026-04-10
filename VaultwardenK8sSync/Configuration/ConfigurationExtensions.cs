@@ -24,6 +24,7 @@ public static class ConfigurationExtensions
         services.AddSingleton(appSettings.Logging);
         services.AddSingleton(appSettings.Metrics);
         services.AddSingleton(appSettings.Webhook);
+        services.AddSingleton(appSettings.DockerRegistry);
         services.AddSingleton(appSettings);
 
         var dbPath = Environment.GetEnvironmentVariable("DATABASE_PATH") ?? "./data/sync.db";

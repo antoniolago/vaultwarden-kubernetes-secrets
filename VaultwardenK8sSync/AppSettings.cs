@@ -10,6 +10,7 @@ public class AppSettings
     public LoggingSettings Logging { get; set; } = new();
     public MetricsSettings Metrics { get; set; } = new();
     public WebhookSettings Webhook { get; set; } = new();
+    public DockerRegistrySettings DockerRegistry { get; set; } = new();
 
     public static AppSettings FromEnvironment()
     {
@@ -66,6 +67,10 @@ public class AppSettings
                 Path = Environment.GetEnvironmentVariable("WEBHOOK__PATH") ?? "/webhook",
                 Secret = Environment.GetEnvironmentVariable("WEBHOOK__SECRET"),
                 RequireSignature = bool.TryParse(Environment.GetEnvironmentVariable("WEBHOOK__REQUIRESIGNATURE"), out var requireSig) ? requireSig : true
+            },
+            DockerRegistry = new DockerRegistrySettings
+            {
+                DefaultServer = Environment.GetEnvironmentVariable("DOCKER_REGISTRY_DEFAULT_SERVER") ?? "https://index.docker.io/v1/",
             }
         };
     }
@@ -168,4 +173,9 @@ public class WebhookSettings
     public string Path { get; set; } = "/webhook";
     public string? Secret { get; set; }
     public bool RequireSignature { get; set; } = true;
-} 
+}
+
+public class DockerRegistrySettings
+{
+    public string DefaultServer { get; set; } = "https://index.docker.io/v1/";
+}

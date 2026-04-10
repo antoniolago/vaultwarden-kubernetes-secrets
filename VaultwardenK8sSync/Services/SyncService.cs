@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging;
 using System.Text.RegularExpressions;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using VaultwardenK8sSync.Models;
 using VaultwardenK8sSync.Configuration;
 using VaultwardenK8sSync.Infrastructure;
@@ -14,6 +16,7 @@ public class SyncService : ISyncService
     private readonly IMetricsService _metricsService;
     private readonly IDatabaseLoggerService _dbLogger;
     private readonly SyncSettings _syncConfig;
+    private readonly DockerRegistrySettings _dockerRegistrySettings;
     private string? _lastItemsHash;
     private string? _currentItemsHash;
     private readonly Dictionary<string, DateTime> _secretExistsCache = new();
@@ -25,7 +28,8 @@ public class SyncService : ISyncService
         IKubernetesService kubernetesService,
         IMetricsService metricsService,
         IDatabaseLoggerService dbLogger,
-        SyncSettings syncConfig)
+        SyncSettings syncConfig,
+        DockerRegistrySettings dockerRegistrySettings)
     {
         _logger = logger;
         _vaultwardenService = vaultwardenService;
@@ -33,6 +37,7 @@ public class SyncService : ISyncService
         _metricsService = metricsService;
         _dbLogger = dbLogger;
         _syncConfig = syncConfig;
+        _dockerRegistrySettings = dockerRegistrySettings;
     }
 
     public async Task<SyncSummary> SyncAsync()
@@ -520,8 +525,8 @@ public class SyncService : ISyncService
                 ? SanitizeSecretName(extractedSecretName) 
                 : SanitizeSecretName(item.Name);
             
-            var secretData = await ExtractSecretDataAsync(item);
             var secretType = item.ExtractSecretType();
+            var secretData = await ExtractSecretDataAsync(item, secretType);
 
             if (_syncConfig.DryRun)
             {
@@ -597,8 +602,55 @@ public class SyncService : ISyncService
         }
     }
 
-    private async Task<Dictionary<string, string>> ExtractSecretDataAsync(Models.VaultwardenItem item)
+    private async Task<Dictionary<string, string>> ExtractSecretDataAsync(Models.VaultwardenItem item, string secretType)
     {
+        var data = secretType == "kubernetes.io/dockerconfigjson" ? ExtractDockerConfigJson(item) : await ExtractCredentialsAsync(item);
+
+        // Get the list of fields that should be ignored for this item
+        var ignoredFields = item.ExtractIgnoredFields();
+
+        if (item.Fields?.Any() == true)
+        {
+            foreach (var field in item.Fields)
+            {
+                if (string.IsNullOrWhiteSpace(field.Name))
+                    continue;
+                if (string.IsNullOrEmpty(field.Value))
+                    continue;
+                
+                if (IsMetadataField(field.Name))
+                    continue;
+
+                // Skip this field if it's in the ignore list
+                if (ignoredFields.Contains(field.Name))
+                    continue;
+
+                _logger.LogDebug("Processing field: original name='{OriginalName}', sanitized name='{SanitizedName}'", field.Name, SanitizeFieldName(field.Name));
+                var fieldKey = SanitizeFieldName(field.Name);
+
+                if (!data.ContainsKey(fieldKey))
+                {
+                    // Log before conversion for debugging
+                    var hasEscapesBefore = field.Value.Contains("\\n") || field.Value.Contains("\\r") || field.Value.Contains("\\t");
+                    var hasNewlinesBefore = field.Value.Contains('\n') || field.Value.Contains('\r');
+                    var formattedValue = FormatMultilineValue(field.Value);
+                    var hasNewlinesAfter = formattedValue.Contains('\n') || formattedValue.Contains('\r');
+                    
+                    if (hasEscapesBefore && !hasNewlinesBefore)
+                    {
+                        _logger.LogDebug("Field {FieldName}: Converting escape sequences (hasEscapes={HasEscapes}, hasNewlinesAfter={HasNewlinesAfter})", 
+                            field.Name, hasEscapesBefore, hasNewlinesAfter);
+                    }
+                    
+                    data[fieldKey] = formattedValue;
+                }
+            }
+        }
+
+        return data;
+    }
+
+    private async Task<Dictionary<string, string>> ExtractCredentialsAsync(Models.VaultwardenItem item) {
         var data = new Dictionary<string, string>();
 
         // Hydrate SSH Key payload for SSH items if missing from list output
@@ -715,51 +767,44 @@ public class SyncService : ISyncService
             }
         }
 
+        return data;
+    }
 
-        // Get the list of fields that should be ignored for this item
-        var ignoredFields = item.ExtractIgnoredFields();
+    private Dictionary<string, string> ExtractDockerConfigJson(Models.VaultwardenItem item)
+    {   
+        // Create a json string containing the docker registry credentials for the kubernetes.io/dockerconfigjson secret type
 
-        if (item.Fields?.Any() == true)
+        var username = GetUsername(item);
+        var password = GetLoginPasswordOrSshKey(item);
+        var authEncoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{username}:{password}"));
+
+        var dockerServer = item.ExtractDockerRegistryServer();
+        if (string.IsNullOrEmpty(dockerServer))
         {
-            foreach (var field in item.Fields)
+            // If the docker registry server is not specified in the item, use the default server from the configuration
+            dockerServer = _dockerRegistrySettings.DefaultServer;
+        }
+        var dockerEmail = item.ExtractDockerRegistryEmail();
+
+        var dockerConfig = new
+        {
+            auths = new Dictionary<string, object>
             {
-                if (string.IsNullOrWhiteSpace(field.Name))
-                    continue;
-                if (string.IsNullOrEmpty(field.Value))
-                    continue;
-                
-                if (IsMetadataField(field.Name))
-                    continue;
-
-                // Skip this field if it's in the ignore list
-                if (ignoredFields.Contains(field.Name))
-                    continue;
-
-                _logger.LogDebug("Processing field: original name='{OriginalName}', sanitized name='{SanitizedName}'", field.Name, SanitizeFieldName(field.Name));
-                var fieldKey = SanitizeFieldName(field.Name);
-
-                if (!data.ContainsKey(fieldKey))
+                [dockerServer] = new
                 {
-                    // Log before conversion for debugging
-                    var hasEscapesBefore = field.Value.Contains("\\n") || field.Value.Contains("\\r") || field.Value.Contains("\\t");
-                    var hasNewlinesBefore = field.Value.Contains('\n') || field.Value.Contains('\r');
-                    var formattedValue = FormatMultilineValue(field.Value);
-                    var hasNewlinesAfter = formattedValue.Contains('\n') || formattedValue.Contains('\r');
-                    
-                    if (hasEscapesBefore && !hasNewlinesBefore)
-                    {
-                        _logger.LogDebug("Field {FieldName}: Converting escape sequences (hasEscapes={HasEscapes}, hasNewlinesAfter={HasNewlinesAfter})", 
-                            field.Name, hasEscapesBefore, hasNewlinesAfter);
-                    }
-                    
-                    data[fieldKey] = formattedValue;
+                    username = username,
+                    password = password,
+                    email = dockerEmail,
+                    auth = authEncoded
                 }
             }
-        }
+        };
 
-
-
-        return data;
+        return new Dictionary<string, string>
+        {
+            // Create the ".dockerconfigjson" key that is expected by the kubernetes.io/dockerconfigjson secret type
+            { ".dockerconfigjson", JsonSerializer.Serialize(dockerConfig, new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull }) }
+        };
     }
 
     private static string ExtractPureNoteBody(string notes)
@@ -1205,7 +1250,16 @@ public class SyncService : ISyncService
 
             foreach (var item in items)
             {
-                var itemData = await ExtractSecretDataAsync(item);
+                // Secret type selection uses "non-default wins" semantics rather than true last-writer-wins:
+                // Any non-default type (e.g., kubernetes.io/tls) will override default/Opaque, even if it appeared earlier or later.
+                // Examples: A=kubernetes.io/tls then B=Opaque -> kubernetes.io/tls; A=Opaque then B=kubernetes.io/tls -> kubernetes.io/tls
+                var itemSecretType = item.ExtractSecretType();
+                if (itemSecretType != Models.FieldNameConfig.DefaultSecretType)
+                {
+                    secretType = itemSecretType;
+                }
+                
+                var itemData = await ExtractSecretDataAsync(item, secretType);
                 foreach (var kvp in itemData)
                 {
                     // If multiple items have the same key, the last one wins
@@ -1225,15 +1279,6 @@ public class SyncService : ISyncService
                 {
                     // Merge labels (last item wins if there are duplicates)
                     customLabels[kvp.Key] = kvp.Value;
-                }
-                
-                // Secret type selection uses "non-default wins" semantics rather than true last-writer-wins:
-                // Any non-default type (e.g., kubernetes.io/tls) will override default/Opaque, even if it appeared earlier or later.
-                // Examples: A=kubernetes.io/tls then B=Opaque -> kubernetes.io/tls; A=Opaque then B=kubernetes.io/tls -> kubernetes.io/tls
-                var itemSecretType = item.ExtractSecretType();
-                if (itemSecretType != Models.FieldNameConfig.DefaultSecretType)
-                {
-                    secretType = itemSecretType;
                 }
                 
                 // Calculate hash for this item
@@ -1670,7 +1715,11 @@ public class SyncService : ISyncService
             Models.FieldNameConfig.SecretLabelsFieldName,
             "secret-label", // Legacy/alternative name
             Models.FieldNameConfig.SecretTypeFieldName,
-            "secret-type" // Legacy/alternative name
+            "secret-type", // Legacy/alternative name
+            Models.FieldNameConfig.DockerRegistryServerFieldName,
+            "docker-registry-server", // Legacy/alternative name
+            Models.FieldNameConfig.DockerRegistryEmailFieldName,
+            "docker-registry-email", // Legacy/alternative name
         };
         
         return metadataFields.Any(meta => 

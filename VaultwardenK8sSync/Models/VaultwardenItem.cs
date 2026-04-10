@@ -175,6 +175,24 @@ public class VaultwardenItem
         return null;
     }
 
+    public string? ExtractDockerRegistryServer()
+    {
+        var fromField = GetCustomFieldValue(FieldNameConfig.DockerRegistryServerFieldName, "docker-registry-server");
+        if (!string.IsNullOrWhiteSpace(fromField))
+            return fromField.Trim();
+
+        return null;
+    }
+
+    public string? ExtractDockerRegistryEmail()
+    {
+        var fromField = GetCustomFieldValue(FieldNameConfig.DockerRegistryEmailFieldName, "docker-registry-email");
+        if (!string.IsNullOrWhiteSpace(fromField))
+            return fromField.Trim();
+
+        return null;
+    }
+
     /// <summary>
     /// Extract the list of field names that should be ignored during synchronization.
     /// The ignore-field can contain a comma-separated list of field names.
@@ -204,17 +222,19 @@ public class VaultwardenItem
         // Always add the ignore-field itself to the ignored list to prevent it from being synced
         ignoredFields.Add(FieldNameConfig.IgnoreFieldName);
         
-        // Also add secret-annotation, secret-label, and secret-type to prevent them from being synced as secret data
+        // Also add secret-annotation, secret-label, secret-type, and docker registry configuration fields to prevent them from being synced as secret data
         ignoredFields.Add(FieldNameConfig.SecretAnnotationsFieldName);
         ignoredFields.Add(FieldNameConfig.SecretLabelsFieldName);
         ignoredFields.Add(FieldNameConfig.SecretTypeFieldName);
+        ignoredFields.Add(FieldNameConfig.DockerRegistryServerFieldName);
+        ignoredFields.Add(FieldNameConfig.DockerRegistryEmailFieldName);
         
         return ignoredFields;
     }
 
     /// <summary>
     /// Extract the Kubernetes secret type from the secret-type custom field.
-    /// Valid values: Opaque (default), kubernetes.io/basic-auth, kubernetes.io/tls
+    /// Valid values: Opaque (default), kubernetes.io/basic-auth, kubernetes.io/tls, kubernetes.io/dockerconfigjson
     /// </summary>
     public string ExtractSecretType()
     {
@@ -231,6 +251,8 @@ public class VaultwardenItem
                     return "kubernetes.io/basic-auth";
                 if (string.Equals(trimmed, "kubernetes.io/tls", StringComparison.OrdinalIgnoreCase))
                     return "kubernetes.io/tls";
+                if (string.Equals(trimmed, "kubernetes.io/dockerconfigjson", StringComparison.OrdinalIgnoreCase))
+                    return "kubernetes.io/dockerconfigjson";
             }
         }
         return FieldNameConfig.DefaultSecretType;
@@ -358,6 +380,10 @@ internal static class FieldNameConfig
         Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETLABELS")?.Trim() ?? "secret-label";
     public static readonly string SecretTypeFieldName =
         Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETTYPE")?.Trim() ?? "secret-type";
+    public static readonly string DockerRegistryServerFieldName =
+        Environment.GetEnvironmentVariable("SYNC__FIELD__DOCKER_REGISTRY_SERVER")?.Trim() ?? "docker-registry-server";
+    public static readonly string DockerRegistryEmailFieldName =
+        Environment.GetEnvironmentVariable("SYNC__FIELD__DOCKER_REGISTRY_EMAIL")?.Trim() ?? "docker-registry-email";
 
     /// <summary>
     /// Valid Kubernetes secret types that can be specified via the secret-type custom field
@@ -366,7 +392,8 @@ internal static class FieldNameConfig
     {
         "Opaque",
         "kubernetes.io/basic-auth",
-        "kubernetes.io/tls"
+        "kubernetes.io/tls",
+        "kubernetes.io/dockerconfigjson"
     };
 
     /// <summary>
