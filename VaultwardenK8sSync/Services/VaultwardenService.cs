@@ -422,7 +422,7 @@ public class VaultwardenService : IVaultwardenService
                 try
                 {
                     var item = ParseAndDecryptCipher(cipher);
-                    if (item != null)
+                    if (item != null && item.DeletedDate == null)
                     {
                         items.Add(item);
                     }
@@ -477,6 +477,9 @@ public class VaultwardenService : IVaultwardenService
 
         if (cipher.TryGetProperty("type", out var typeProp) || cipher.TryGetProperty("Type", out typeProp))
             item.Type = typeProp.GetInt32();
+
+        if (cipher.TryGetProperty("deletedDate", out var deletedDateProp) || cipher.TryGetProperty("DeletedDate", out deletedDateProp))
+            item.DeletedDate = deletedDateProp.ValueKind != JsonValueKind.Null ? deletedDateProp.GetDateTime() : null;
 
         // Decrypt name (use org key if item belongs to org)
         var orgId = item.OrganizationId;
