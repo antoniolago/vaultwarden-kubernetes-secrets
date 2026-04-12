@@ -221,7 +221,7 @@ public class VaultwardenItem
         
         // Always add the ignore-field itself to the ignored list to prevent it from being synced
         ignoredFields.Add(FieldNameConfig.IgnoreFieldName);
-        
+
         // Also add secret-annotation, secret-label, secret-type, and registry configuration fields to prevent them from being synced as secret data
         ignoredFields.Add(FieldNameConfig.SecretAnnotationsFieldName);
         ignoredFields.Add(FieldNameConfig.SecretLabelsFieldName);
@@ -229,6 +229,12 @@ public class VaultwardenItem
         ignoredFields.Add(FieldNameConfig.DockerConfigJsonServerFieldName);
         ignoredFields.Add(FieldNameConfig.DockerConfigJsonEmailFieldName);
         
+        // Add secret-name, secret-key-password, secret-key-username, and namespaces as they are configuration metadata
+        ignoredFields.Add(FieldNameConfig.SecretNameFieldName);
+        ignoredFields.Add(FieldNameConfig.SecretKeyPasswordFieldName);
+        ignoredFields.Add(FieldNameConfig.SecretKeyUsernameFieldName);
+        ignoredFields.Add(FieldNameConfig.NamespacesFieldName);
+
         return ignoredFields;
     }
 

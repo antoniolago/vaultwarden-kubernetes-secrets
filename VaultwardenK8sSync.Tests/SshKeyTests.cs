@@ -428,7 +428,7 @@ oWQDYgAEa0mWi5HqMjGJOzJ8pN9H9xY7zQk8GQIDAQABAoGAAiCyL8P
         // Assert
         Assert.Equal(2, namespaces.Count);
         Assert.Contains("production", namespaces);
-        Assert.Contains("staging", namespaces);
+        Assert.Contains("staking", namespaces);
     }
 
     [Fact]
@@ -515,7 +515,7 @@ oWQDYgAEa0mWi5HqMjGJOzJ8pN9H9xY7zQk8GQIDAQABAoGAAiCyL8P
         // Act
         var ignoredFields = item.ExtractIgnoredFields();
 
-        // Assert
+        // Assert - secret-annotation, secret-label, secret-type, namespaces should all be ignored
         Assert.Contains("namespaces", ignoredFields);
         Assert.Contains("secret-type", ignoredFields);
         Assert.Contains("secret-annotation", ignoredFields);
