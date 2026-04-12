@@ -802,8 +802,9 @@ public class SyncService : ISyncService
             }
         }
 
-        // Also check notes if password didn't have JSON
-        if (string.IsNullOrWhiteSpace(rawJson) && !string.IsNullOrWhiteSpace(item.Notes))
+        // Also check notes if password didn't have valid JSON object
+        // This covers both the case where rawJson is blank AND where it was invalid JSON
+        if (!string.IsNullOrWhiteSpace(item.Notes))
         {
             try
             {
@@ -837,6 +838,12 @@ public class SyncService : ISyncService
         {
             _logger.LogWarning("Cannot build dockerconfigjson: password/token is required but not found for item '{ItemName}'", item.Name);
             throw new InvalidOperationException($"Docker registry secret requires a password/token, but none was found for item '{item.Name}'");
+        }
+
+        // Username is optional for docker registry auth, but warn if missing
+        if (string.IsNullOrWhiteSpace(username))
+        {
+            _logger.LogWarning("Building dockerconfigjson without username for item '{ItemName}' - auth will be ':password' format", item.Name);
         }
 
         var authEncoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{username}:{password}"));

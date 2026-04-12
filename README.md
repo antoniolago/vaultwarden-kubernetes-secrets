@@ -158,10 +158,10 @@ You can store the raw json on password/note field like any other secret:
   - `secret-type` = `kubernetes.io/dockerconfigjson`
   - `secret-key` = `.dockerconfigjson`
 
-or use custom fields: 
+or use custom fields:
 - Name: `my-registry-token`
 - Username: `user`
-- Password: `xyz_1a2b3c4[...]`
+- Password: `example-token`
 - Custom fields:
   - `namespaces` = `production`
   - `secret-type` = `kubernetes.io/dockerconfigjson`
@@ -177,12 +177,12 @@ metadata:
   namespace: production
 type: kubernetes.io/dockerconfigjson
 data:
-  .dockerconfigjson: eyJhdXRocyI...  # base64 encoded
+  .dockerconfigjson: eyJhdXRocyI6eyJnaGNyLmlvIjp7InVzZXJuYW1lIjoidXNlciIsInBhc3N3b3JkIjoiZXhhbXBsZS10b2tlbiIsImVtYWlsIjoibWVAZXhhbXBsZS5jb20iLCJhdXRoIjoiZFhObGNqcGxlYlhBbWNtRmpiMlJsYzJVdCJ9fX0=
 ```
 
 Decoded contents of `.dockerconfigjson`:
 ```json
-{"auths":{"ghcr.io":{"username":"user","password":"xyz_1a2b3c4[...]","email":"me@example.com","auth":"Z2l0aHVidXNlcjpnaHBfVDl4ek95Wy4uLl0="}}}
+{"auths":{"ghcr.io":{"username":"user","password":"example-token","email":"me@example.com","auth":"dXNlcjpleGFtcGxlLXRva2Vu"}}}
 ```
 
 **Supported Secret Types:**
