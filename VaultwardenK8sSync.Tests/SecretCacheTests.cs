@@ -69,7 +69,8 @@ public class SecretCacheTests : IDisposable
             _kubernetesServiceMock.Object,
             _metricsServiceMock.Object,
             _dbLoggerMock.Object,
-            _syncConfig);
+            _syncConfig,
+            new DockerConfigJsonSettings());
     }
 
     [Fact]

@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging;
 using System.Text.RegularExpressions;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using VaultwardenK8sSync.Models;
 using VaultwardenK8sSync.Configuration;
 using VaultwardenK8sSync.Infrastructure;
@@ -14,6 +16,7 @@ public class SyncService : ISyncService
     private readonly IMetricsService _metricsService;
     private readonly IDatabaseLoggerService _dbLogger;
     private readonly SyncSettings _syncConfig;
+    private readonly DockerConfigJsonSettings _dockerConfigJsonSettings;
     private string? _lastItemsHash;
     private string? _currentItemsHash;
     private readonly Dictionary<string, DateTime> _secretExistsCache = new();
@@ -25,7 +28,8 @@ public class SyncService : ISyncService
         IKubernetesService kubernetesService,
         IMetricsService metricsService,
         IDatabaseLoggerService dbLogger,
-        SyncSettings syncConfig)
+        SyncSettings syncConfig,
+        DockerConfigJsonSettings dockerConfigJsonSettings)
     {
         _logger = logger;
         _vaultwardenService = vaultwardenService;
@@ -33,6 +37,7 @@ public class SyncService : ISyncService
         _metricsService = metricsService;
         _dbLogger = dbLogger;
         _syncConfig = syncConfig;
+        _dockerConfigJsonSettings = dockerConfigJsonSettings;
     }
 
     public async Task<SyncSummary> SyncAsync()
@@ -520,8 +525,8 @@ public class SyncService : ISyncService
                 ? SanitizeSecretName(extractedSecretName) 
                 : SanitizeSecretName(item.Name);
             
-            var secretData = await ExtractSecretDataAsync(item);
             var secretType = item.ExtractSecretType();
+            var secretData = await ExtractSecretDataAsync(item, secretType);
 
             if (_syncConfig.DryRun)
             {
@@ -597,8 +602,57 @@ public class SyncService : ISyncService
         }
     }
 
-    private async Task<Dictionary<string, string>> ExtractSecretDataAsync(Models.VaultwardenItem item)
+    private async Task<Dictionary<string, string>> ExtractSecretDataAsync(Models.VaultwardenItem item, string? secretType)
     {
+        var data = secretType == "kubernetes.io/dockerconfigjson" 
+            ? await ExtractDockerConfigJsonJsonAsync(item) 
+            : await ExtractCredentialsAsync(item);
+
+        // Get the list of fields that should be ignored for this item
+        var ignoredFields = item.ExtractIgnoredFields();
+
+        if (item.Fields?.Any() == true)
+        {
+            foreach (var field in item.Fields)
+            {
+                if (string.IsNullOrWhiteSpace(field.Name))
+                    continue;
+                if (string.IsNullOrEmpty(field.Value))
+                    continue;
+                
+                if (IsMetadataField(field.Name))
+                    continue;
+
+                // Skip this field if it's in the ignore list
+                if (ignoredFields.Contains(field.Name))
+                    continue;
+
+                _logger.LogDebug("Processing field: original name='{OriginalName}', sanitized name='{SanitizedName}'", field.Name, SanitizeFieldName(field.Name));
+                var fieldKey = SanitizeFieldName(field.Name);
+
+                if (!data.ContainsKey(fieldKey))
+                {
+                    // Log before conversion for debugging
+                    var hasEscapesBefore = field.Value.Contains("\\n") || field.Value.Contains("\\r") || field.Value.Contains("\\t");
+                    var hasNewlinesBefore = field.Value.Contains('\n') || field.Value.Contains('\r');
+                    var formattedValue = FormatMultilineValue(field.Value);
+                    var hasNewlinesAfter = formattedValue.Contains('\n') || formattedValue.Contains('\r');
+                    
+                    if (hasEscapesBefore && !hasNewlinesBefore)
+                    {
+                        _logger.LogDebug("Field {FieldName}: Converting escape sequences (hasEscapes={HasEscapes}, hasNewlinesAfter={HasNewlinesAfter})", 
+                            field.Name, hasEscapesBefore, hasNewlinesAfter);
+                    }
+                    
+                    data[fieldKey] = formattedValue;
+                }
+            }
+        }
+
+        return data;
+    }
+
+    private async Task<Dictionary<string, string>> ExtractCredentialsAsync(Models.VaultwardenItem item) {
         var data = new Dictionary<string, string>();
 
         // Hydrate SSH Key payload for SSH items if missing from list output
@@ -715,51 +769,114 @@ public class SyncService : ISyncService
             }
         }
 
+        return data;
+    }
 
-        // Get the list of fields that should be ignored for this item
-        var ignoredFields = item.ExtractIgnoredFields();
-
-        if (item.Fields?.Any() == true)
+    private async Task<Dictionary<string, string>> ExtractDockerConfigJsonJsonAsync(Models.VaultwardenItem item)
+    {
+        // Approach 1: Check if password/notes contain raw JSON directly
+        var rawJson = GetLoginPasswordOrSshKey(item);
+        if (!string.IsNullOrWhiteSpace(rawJson))
         {
-            foreach (var field in item.Fields)
+            // Validate that it's valid JSON AND is a JSON object (not a number, string, array, etc.)
+            try
             {
-                if (string.IsNullOrWhiteSpace(field.Name))
-                    continue;
-                if (string.IsNullOrEmpty(field.Value))
-                    continue;
-                
-                if (IsMetadataField(field.Name))
-                    continue;
-
-                // Skip this field if it's in the ignore list
-                if (ignoredFields.Contains(field.Name))
-                    continue;
-
-                _logger.LogDebug("Processing field: original name='{OriginalName}', sanitized name='{SanitizedName}'", field.Name, SanitizeFieldName(field.Name));
-                var fieldKey = SanitizeFieldName(field.Name);
-
-                if (!data.ContainsKey(fieldKey))
+                using var doc = JsonDocument.Parse(rawJson);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
                 {
-                    // Log before conversion for debugging
-                    var hasEscapesBefore = field.Value.Contains("\\n") || field.Value.Contains("\\r") || field.Value.Contains("\\t");
-                    var hasNewlinesBefore = field.Value.Contains('\n') || field.Value.Contains('\r');
-                    var formattedValue = FormatMultilineValue(field.Value);
-                    var hasNewlinesAfter = formattedValue.Contains('\n') || formattedValue.Contains('\r');
-                    
-                    if (hasEscapesBefore && !hasNewlinesBefore)
+                    _logger.LogDebug("Using raw registry config JSON from password field");
+                    return new Dictionary<string, string>
                     {
-                        _logger.LogDebug("Field {FieldName}: Converting escape sequences (hasEscapes={HasEscapes}, hasNewlinesAfter={HasNewlinesAfter})", 
-                            field.Name, hasEscapesBefore, hasNewlinesAfter);
-                    }
-                    
-                    data[fieldKey] = formattedValue;
+                        { ".dockerconfigjson", rawJson }
+                    };
                 }
+                else
+                {
+                    _logger.LogDebug("Password is JSON but not an object (kind: {ValueKind}), falling back to field-based construction", doc.RootElement.ValueKind);
+                }
+            }
+            catch (JsonException)
+            {
+                // Not valid JSON, fall through to field-based construction
+                _logger.LogDebug("Password is not valid JSON, falling back to field-based construction");
             }
         }
 
+        // Also check notes if password didn't have valid JSON object
+        // This covers both the case where rawJson is blank AND where it was invalid JSON
+        if (!string.IsNullOrWhiteSpace(item.Notes))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(item.Notes);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    _logger.LogDebug("Using raw registry config JSON from notes field");
+                    return new Dictionary<string, string>
+                    {
+                        { ".dockerconfigjson", item.Notes }
+                    };
+                }
+            }
+            catch (JsonException)
+            {
+                // Notes not valid JSON either, fall through
+            }
+        }
 
+        // Approach 2: Build JSON from individual custom fields (username, password, registry, email)
+        return BuildDockerConfigJsonFromFields(item);
+    }
 
-        return data;
+    private Dictionary<string, string> BuildDockerConfigJsonFromFields(Models.VaultwardenItem item)
+    {
+        var username = GetUsername(item);
+        var password = GetLoginPasswordOrSshKey(item);
+        
+        // Validate required fields for dockerconfigjson
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            _logger.LogWarning("Cannot build dockerconfigjson: password/token is required but not found for item '{ItemName}'", item.Name);
+            throw new InvalidOperationException($"Docker registry secret requires a password/token, but none was found for item '{item.Name}'");
+        }
+
+        // Username is optional for docker registry auth, but warn if missing
+        if (string.IsNullOrWhiteSpace(username))
+        {
+            _logger.LogWarning("Building dockerconfigjson without username for item '{ItemName}' - auth will be ':password' format", item.Name);
+        }
+
+        var authEncoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{username}:{password}"));
+
+        var registry = item.ExtractDockerConfigJsonServer();
+        if (string.IsNullOrEmpty(registry))
+        {
+            // If the registry is not specified in the item, use the default from configuration
+            registry = _dockerConfigJsonSettings.DefaultDockerConfigJsonServer;
+        }
+        var email = item.ExtractDockerConfigJsonEmail();
+
+        var auths = new Dictionary<string, object>
+        {
+            [registry] = new
+            {
+                username = username,
+                password = password,
+                email = string.IsNullOrEmpty(email) ? null : email,
+                auth = authEncoded
+            }
+        };
+
+        var dockerConfig = new
+        {
+            auths = auths
+        };
+
+        return new Dictionary<string, string>
+        {
+            // Create the ".dockerconfigjson" key that is expected by the kubernetes.io/dockerconfigjson secret type
+            { ".dockerconfigjson", JsonSerializer.Serialize(dockerConfig) }
+        };
     }
 
     private static string ExtractPureNoteBody(string notes)
@@ -1205,7 +1322,43 @@ public class SyncService : ISyncService
 
             foreach (var item in items)
             {
-                var itemData = await ExtractSecretDataAsync(item);
+                // Secret type selection uses "non-default wins" semantics rather than true last-writer-wins:
+                // Any non-default type (e.g., kubernetes.io/tls) will override default/Opaque, even if it appeared earlier or later.
+                // Examples: A=kubernetes.io/tls then B=Opaque -> kubernetes.io/tls; A=Opaque then B=kubernetes.io/tls -> kubernetes.io/tls
+                var itemSecretType = item.ExtractSecretType();
+                if (itemSecretType != Models.FieldNameConfig.DefaultSecretType)
+                {
+                    // Reject mixed non-default types explicitly
+                    if (secretType != null && secretType != Models.FieldNameConfig.DefaultSecretType && itemSecretType != secretType)
+                    {
+                        var errorMsg = $"Mixed non-default secret types are not allowed: existing type '{secretType}' conflicts with item type '{itemSecretType}' in secret '{secretName}'";
+                        _logger.LogError("SyncSecretAsync: {Error}", errorMsg);
+                        secretSummary.Outcome = ReconcileOutcome.Failed;
+                        secretSummary.Error = errorMsg;
+
+                        // Log failed secret state to database
+                        var itemForState = items.FirstOrDefault();
+                        if (itemForState != null)
+                        {
+                            await _dbLogger.UpsertSecretStateAsync(
+                                namespaceName,
+                                secretName,
+                                itemForState.Id,
+                                itemForState.Name,
+                                SecretStatusConstants.Failed,
+                                0,
+                                errorMsg
+                            );
+                        }
+
+                        return secretSummary;
+                    }
+
+                    secretType = itemSecretType;
+                }
+
+                // Use itemSecretType (the item's own type) for parsing, not the merged secretType
+                var itemData = await ExtractSecretDataAsync(item, itemSecretType);
                 foreach (var kvp in itemData)
                 {
                     // If multiple items have the same key, the last one wins
@@ -1225,15 +1378,6 @@ public class SyncService : ISyncService
                 {
                     // Merge labels (last item wins if there are duplicates)
                     customLabels[kvp.Key] = kvp.Value;
-                }
-                
-                // Secret type selection uses "non-default wins" semantics rather than true last-writer-wins:
-                // Any non-default type (e.g., kubernetes.io/tls) will override default/Opaque, even if it appeared earlier or later.
-                // Examples: A=kubernetes.io/tls then B=Opaque -> kubernetes.io/tls; A=Opaque then B=kubernetes.io/tls -> kubernetes.io/tls
-                var itemSecretType = item.ExtractSecretType();
-                if (itemSecretType != Models.FieldNameConfig.DefaultSecretType)
-                {
-                    secretType = itemSecretType;
                 }
                 
                 // Calculate hash for this item
@@ -1656,21 +1800,25 @@ public class SyncService : ISyncService
         var metadataFields = new[]
         {
             Models.FieldNameConfig.NamespacesFieldName,
-            "namespaces", // Legacy/alternative name
+            "namespaces", 
             Models.FieldNameConfig.SecretNameFieldName,
-            "secret-name", // Legacy/alternative name
+            "secret-name", 
             Models.FieldNameConfig.SecretKeyPasswordFieldName,
-            "secret-key-password", // Legacy/alternative name
-            "secret-key", // Legacy/alternative name for secret-key-password
+            "secret-key-password", 
+            "secret-key",
             Models.FieldNameConfig.SecretKeyUsernameFieldName,
-            "secret-key-username", // Legacy/alternative name
+            "secret-key-username", 
             Models.FieldNameConfig.IgnoreFieldName,
             Models.FieldNameConfig.SecretAnnotationsFieldName,
-            "secret-annotation", // Legacy/alternative name
+            "secret-annotation", 
             Models.FieldNameConfig.SecretLabelsFieldName,
-            "secret-label", // Legacy/alternative name
+            "secret-label", 
             Models.FieldNameConfig.SecretTypeFieldName,
-            "secret-type" // Legacy/alternative name
+            "secret-type", 
+            Models.FieldNameConfig.DockerConfigJsonServerFieldName,
+            "docker-config-json-server", 
+            Models.FieldNameConfig.DockerConfigJsonEmailFieldName,
+            "docker-config-json-email" 
         };
         
         return metadataFields.Any(meta => 

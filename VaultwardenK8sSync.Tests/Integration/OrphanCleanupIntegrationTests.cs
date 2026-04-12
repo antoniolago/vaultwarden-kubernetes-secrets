@@ -5,6 +5,7 @@ using VaultwardenK8sSync.Services;
 using VaultwardenK8sSync.Models;
 using Xunit;
 using FluentAssertions;
+using VaultwardenK8sSync;
 
 namespace VaultwardenK8sSync.Tests.Integration;
 
@@ -107,7 +108,8 @@ public class OrphanCleanupIntegrationTests : IDisposable
             _kubernetesServiceMock.Object,
             _metricsServiceMock.Object,
             _dbLoggerMock.Object,
-            _syncConfig);
+            _syncConfig,
+            new DockerConfigJsonSettings());
 
         // Act
         var result = await syncService.SyncAsync();
@@ -147,7 +149,8 @@ public class OrphanCleanupIntegrationTests : IDisposable
             _kubernetesServiceMock.Object,
             _metricsServiceMock.Object,
             _dbLoggerMock.Object,
-            _syncConfig);
+            _syncConfig,
+            new DockerConfigJsonSettings());
 
         // Act - Call CleanupOrphanedSecretsAsync directly (SyncAsync returns early with no items)
         var result = await syncService.CleanupOrphanedSecretsAsync();
@@ -194,7 +197,8 @@ public class OrphanCleanupIntegrationTests : IDisposable
             _kubernetesServiceMock.Object,
             _metricsServiceMock.Object,
             _dbLoggerMock.Object,
-            _syncConfig);
+            _syncConfig,
+            new DockerConfigJsonSettings());
 
         // Act - Call CleanupOrphanedSecretsAsync directly (SyncAsync returns early with no items)
         var result = await syncService.CleanupOrphanedSecretsAsync();
@@ -231,7 +235,8 @@ public class OrphanCleanupIntegrationTests : IDisposable
             _kubernetesServiceMock.Object,
             _metricsServiceMock.Object,
             _dbLoggerMock.Object,
-            _syncConfig);
+            _syncConfig,
+            new DockerConfigJsonSettings());
 
         // Act - Call CleanupOrphanedSecretsAsync directly (SyncAsync returns early with no items)
         var result = await syncService.CleanupOrphanedSecretsAsync();
@@ -262,7 +267,8 @@ public class OrphanCleanupIntegrationTests : IDisposable
             _kubernetesServiceMock.Object,
             _metricsServiceMock.Object,
             _dbLoggerMock.Object,
-            _syncConfig);
+            _syncConfig,
+            new DockerConfigJsonSettings());
 
         // Act - Call CleanupOrphanedSecretsAsync directly
         // Note: When DeleteOrphans is false, CleanupOrphanedSecretsAsync still runs but
@@ -301,7 +307,8 @@ public class OrphanCleanupIntegrationTests : IDisposable
             _kubernetesServiceMock.Object,
             _metricsServiceMock.Object,
             _dbLoggerMock.Object,
-            _syncConfig);
+            _syncConfig,
+            new DockerConfigJsonSettings());
 
         // Act - Call CleanupOrphanedSecretsAsync directly (SyncAsync returns early with no items)
         var result = await syncService.CleanupOrphanedSecretsAsync();

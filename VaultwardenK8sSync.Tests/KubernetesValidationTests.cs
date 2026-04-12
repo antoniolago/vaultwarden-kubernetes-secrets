@@ -4,6 +4,7 @@ using VaultwardenK8sSync.Models;
 using VaultwardenK8sSync.Services;
 using VaultwardenK8sSync.Configuration;
 using Xunit;
+using VaultwardenK8sSync;
 using System.Text.RegularExpressions;
 
 namespace VaultwardenK8sSync.Tests;
@@ -37,7 +38,8 @@ public class KubernetesValidationTests
             _kubernetesServiceMock.Object,
             _metricsServiceMock.Object,
             _dbLoggerMock.Object,
-            _syncConfig);
+            _syncConfig,
+            new DockerConfigJsonSettings());
     }
 
     [Theory]
@@ -315,6 +317,6 @@ public class KubernetesValidationTests
     {
         var method = typeof(SyncService).GetMethod("ExtractSecretDataAsync", 
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        return (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(_syncService, new object[] { item })!;
+        return (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(_syncService, new object[] { item, "Opaque" })!;
     }
 }
