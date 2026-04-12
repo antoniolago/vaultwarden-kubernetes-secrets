@@ -778,15 +778,22 @@ public class SyncService : ISyncService
         var rawJson = GetLoginPasswordOrSshKey(item);
         if (!string.IsNullOrWhiteSpace(rawJson))
         {
-            // Validate that it's valid JSON
+            // Validate that it's valid JSON AND is a JSON object (not a number, string, array, etc.)
             try
             {
-                JsonDocument.Parse(rawJson);
-                _logger.LogDebug("Using raw registry config JSON from password field");
-                return new Dictionary<string, string>
+                using var doc = JsonDocument.Parse(rawJson);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
                 {
-                    { ".dockerconfigjson", rawJson }
-                };
+                    _logger.LogDebug("Using raw registry config JSON from password field");
+                    return new Dictionary<string, string>
+                    {
+                        { ".dockerconfigjson", rawJson }
+                    };
+                }
+                else
+                {
+                    _logger.LogDebug("Password is JSON but not an object (kind: {ValueKind}), falling back to field-based construction", doc.RootElement.ValueKind);
+                }
             }
             catch (JsonException)
             {
@@ -800,12 +807,15 @@ public class SyncService : ISyncService
         {
             try
             {
-                JsonDocument.Parse(item.Notes);
-                _logger.LogDebug("Using raw registry config JSON from notes field");
-                return new Dictionary<string, string>
+                using var doc = JsonDocument.Parse(item.Notes);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
                 {
-                    { ".dockerconfigjson", item.Notes }
-                };
+                    _logger.LogDebug("Using raw registry config JSON from notes field");
+                    return new Dictionary<string, string>
+                    {
+                        { ".dockerconfigjson", item.Notes }
+                    };
+                }
             }
             catch (JsonException)
             {
@@ -821,6 +831,14 @@ public class SyncService : ISyncService
     {
         var username = GetUsername(item);
         var password = GetLoginPasswordOrSshKey(item);
+        
+        // Validate required fields for dockerconfigjson
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            _logger.LogWarning("Cannot build dockerconfigjson: password/token is required but not found for item '{ItemName}'", item.Name);
+            throw new InvalidOperationException($"Docker registry secret requires a password/token, but none was found for item '{item.Name}'");
+        }
+
         var authEncoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{username}:{password}"));
 
         var registry = item.ExtractDockerConfigJsonServer();
@@ -831,24 +849,26 @@ public class SyncService : ISyncService
         }
         var email = item.ExtractDockerConfigJsonEmail();
 
-        var DockerConfigJson = new
+        var auths = new Dictionary<string, object>
         {
-            auths = new Dictionary<string, object>
+            [registry] = new
             {
-                [registry] = new
-                {
-                    username = username,
-                    password = password,
-                    email = email,
-                    auth = authEncoded
-                }
+                username = username,
+                password = password,
+                email = string.IsNullOrEmpty(email) ? null : email,
+                auth = authEncoded
             }
+        };
+
+        var dockerConfig = new
+        {
+            auths = auths
         };
 
         return new Dictionary<string, string>
         {
             // Create the ".dockerconfigjson" key that is expected by the kubernetes.io/dockerconfigjson secret type
-            { ".dockerconfigjson", JsonSerializer.Serialize(DockerConfigJson, new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull }) }
+            { ".dockerconfigjson", JsonSerializer.Serialize(dockerConfig) }
         };
     }
 

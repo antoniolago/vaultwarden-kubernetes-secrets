@@ -18,7 +18,7 @@ public class DockerConfigJsonSyncTests
         {
             Fields = new List<FieldInfo>
             {
-                new FieldInfo { Name = "registry", Value = "ghcr.io", Type = 0 }
+                new FieldInfo { Name = "docker-config-json-server", Value = "ghcr.io", Type = 0 }
             }
         };
 
@@ -55,7 +55,7 @@ public class DockerConfigJsonSyncTests
         {
             Fields = new List<FieldInfo>
             {
-                new FieldInfo { Name = "REGISTRY", Value = "docker.io", Type = 0 }
+                new FieldInfo { Name = "DOCKER-CONFIG-JSON-SERVER", Value = "docker.io", Type = 0 }
             }
         };
 
@@ -75,7 +75,7 @@ public class DockerConfigJsonSyncTests
         {
             Fields = new List<FieldInfo>
             {
-                new FieldInfo { Name = "registry", Value = "  quay.io  ", Type = 0 }
+                new FieldInfo { Name = "docker-config-json-server", Value = "  quay.io  ", Type = 0 }
             }
         };
 
@@ -99,7 +99,7 @@ public class DockerConfigJsonSyncTests
         {
             Fields = new List<FieldInfo>
             {
-                new FieldInfo { Name = "registry-email", Value = "user@example.com", Type = 0 }
+                new FieldInfo { Name = "docker-config-json-email", Value = "user@example.com", Type = 0 }
             }
         };
 
@@ -136,7 +136,7 @@ public class DockerConfigJsonSyncTests
         {
             Fields = new List<FieldInfo>
             {
-                new FieldInfo { Name = "REGISTRY-EMAIL", Value = "admin@test.com", Type = 0 }
+                new FieldInfo { Name = "DOCKER-CONFIG-JSON-EMAIL", Value = "admin@test.com", Type = 0 }
             }
         };
 

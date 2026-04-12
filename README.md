@@ -165,8 +165,8 @@ or use custom fields:
 - Custom fields:
   - `namespaces` = `production`
   - `secret-type` = `kubernetes.io/dockerconfigjson`
-  - `docker-registry-server` = `ghcr.io`
-  - `docker-registry-email` = `me@example.com`
+  - `docker-config-json-server` = `ghcr.io`
+  - `docker-config-json-email` = `me@example.com`
 
 **Result in Kubernetes:**
 ```yaml
