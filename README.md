@@ -149,17 +149,16 @@ data:
 ```
 
 **Vaultwarden Item (Docker registry credentials):**
-You can store the raw json on password/note field like any other secret: 
-- Name: `my-registry-token`
+You can store the raw Docker config JSON in the password field:
+- Name: `my-ghcr-token`
 - Username: ``
-- Password: `<RAW_DOCKERCONFIG_JSON>`
+- Password: The complete Docker config JSON structure (e.g. `{"auths":{"ghcr.io":{"username":"...","password":"...","auth":"..."}}}`)
 - Custom fields:
   - `namespaces` = `production`
   - `secret-type` = `kubernetes.io/dockerconfigjson`
-  - `secret-key` = `.dockerconfigjson`
 
 or use custom fields:
-- Name: `my-registry-token`
+- Name: `my-ghcr-token`
 - Username: `user`
 - Password: `example-token`
 - Custom fields:
