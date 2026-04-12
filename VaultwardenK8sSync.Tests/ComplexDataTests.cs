@@ -4,6 +4,7 @@ using VaultwardenK8sSync.Models;
 using VaultwardenK8sSync.Services;
 using VaultwardenK8sSync.Configuration;
 using Xunit;
+using VaultwardenK8sSync;
 using System.Reflection;
 using System.Text;
 using FluentAssertions;
@@ -44,14 +45,15 @@ public class ComplexDataTests : IDisposable
             _kubernetesServiceMock.Object,
             _metricsServiceMock.Object,
             _dbLoggerMock.Object,
-            _syncConfig);
+            _syncConfig,
+            new DockerConfigJsonSettings());
     }
 
     private async Task<Dictionary<string, string>> ExtractSecretDataAsync(VaultwardenItem item)
     {
-        var method = typeof(SyncService).GetMethod("ExtractSecretDataAsync", 
+        var method = typeof(SyncService).GetMethod("ExtractSecretDataAsync",
             BindingFlags.NonPublic | BindingFlags.Instance);
-        return (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(_syncService, new object[] { item })!;
+        return (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(_syncService, new object[] { item, "Opaque" })!;
     }
 
     public void Dispose()
@@ -701,15 +703,9 @@ F0bvGdXPRm7iKTBKpT9QmZV5O8Wy6JyLZJKwVGHmxFaG3D4qR8qZzD5W3bKJ5xP9
     public async Task CustomField_WithYAMLValue_ShouldBePreserved()
     {
         // Arrange
-        var yamlValue = @"apiVersion: v1
-kind: Config
-metadata:
-  name: my-config
-data:
-  key: value
-  nested:
-    subkey: subvalue";
-        
+        // Note: Line endings will be normalized to \n by FormatMultilineValue
+        var yamlValue = "apiVersion: v1\nkind: Config\nmetadata:\n  name: my-config\ndata:\n  key: value\n  nested:\n    subkey: subvalue";
+
         var item = new VaultwardenItem
         {
             Id = "test-id",

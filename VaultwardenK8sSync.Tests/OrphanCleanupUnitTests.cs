@@ -54,7 +54,8 @@ public class OrphanCleanupUnitTests
             _kubernetesServiceMock.Object,
             _metricsServiceMock.Object,
             _dbLoggerServiceMock.Object,
-            _syncConfig);
+            _syncConfig,
+            new DockerConfigJsonSettings());
     }
 
     [Fact]
@@ -140,8 +141,9 @@ public class OrphanCleanupUnitTests
             _kubernetesServiceMock.Object,
             _metricsServiceMock.Object,
             _dbLoggerServiceMock.Object,
-            syncConfig);
-        
+            syncConfig,
+            new DockerConfigJsonSettings());
+
         var namespaceName = "test-namespace";
         
         // Override to return a secret that would be orphaned
@@ -171,7 +173,8 @@ public class OrphanCleanupUnitTests
             _kubernetesServiceMock.Object,
             _metricsServiceMock.Object,
             _dbLoggerServiceMock.Object,
-            syncConfig);
+            syncConfig,
+            new DockerConfigJsonSettings());
 
         // Act
         var result = await syncService.CleanupOrphanedSecretsAsync();

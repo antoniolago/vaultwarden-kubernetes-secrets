@@ -19,44 +19,50 @@ public class DatabaseIntegrationTests : IDisposable
     private readonly IDatabaseLoggerService _dbLogger;
     private readonly string _testDbPath;
     private readonly ServiceProvider _serviceProvider;
+    private readonly IServiceScope _scope;
+    private bool _disposed = false;
 
     public DatabaseIntegrationTests()
     {
         // Create a unique test database
         _testDbPath = Path.Combine(Path.GetTempPath(), $"test_sync_{Guid.NewGuid()}.db");
-        
+
         var services = new ServiceCollection();
-        
-        // Configure DbContext
+
+        // Configure DbContext with proper pooling disabled for tests
         services.AddDbContext<SyncDbContext>(options =>
-            options.UseSqlite($"Data Source={_testDbPath}"));
-        
+            options.UseSqlite($"Data Source={_testDbPath}")
+                   .EnableSensitiveDataLogging()
+                   .UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking));
+
         // Register repositories
         services.AddScoped<ISyncLogRepository, SyncLogRepository>();
         services.AddScoped<ISecretStateRepository, SecretStateRepository>();
-        
+
         // Register logging
         services.AddLogging(builder => builder.AddConsole());
-        
+
         _serviceProvider = services.BuildServiceProvider();
+
+        // Create a single scope for the test lifetime
+        _scope = _serviceProvider.CreateScope();
         
         // Initialize database
-        using (var scope = _serviceProvider.CreateScope())
+        using (var initScope = _serviceProvider.CreateScope())
         {
-            _context = scope.ServiceProvider.GetRequiredService<SyncDbContext>();
-            _context.Database.EnsureCreated();
+            var initContext = initScope.ServiceProvider.GetRequiredService<SyncDbContext>();
+            initContext.Database.EnsureCreated();
         }
-        
+
         // Get scoped instances for direct test access
-        var scope2 = _serviceProvider.CreateScope();
-        _context = scope2.ServiceProvider.GetRequiredService<SyncDbContext>();
-        _syncLogRepository = scope2.ServiceProvider.GetRequiredService<ISyncLogRepository>();
-        _secretStateRepository = scope2.ServiceProvider.GetRequiredService<ISecretStateRepository>();
-        
+        _context = _scope.ServiceProvider.GetRequiredService<SyncDbContext>();
+        _syncLogRepository = _scope.ServiceProvider.GetRequiredService<ISyncLogRepository>();
+        _secretStateRepository = _scope.ServiceProvider.GetRequiredService<ISecretStateRepository>();
+
         // Create DatabaseLoggerService with IServiceScopeFactory
         var logger = _serviceProvider.GetRequiredService<ILogger<DatabaseLoggerService>>();
         var scopeFactory = _serviceProvider.GetRequiredService<IServiceScopeFactory>();
-        
+
         _dbLogger = new DatabaseLoggerService(logger, scopeFactory);
     }
 
@@ -213,13 +219,36 @@ public class DatabaseIntegrationTests : IDisposable
 
     public void Dispose()
     {
-        _context?.Dispose();
-        _serviceProvider?.Dispose();
-        
-        // Clean up test database
-        if (File.Exists(_testDbPath))
+        if (!_disposed)
         {
-            File.Delete(_testDbPath);
+            try
+            {
+                // Dispose scope and context properly to release file handles
+                _scope?.Dispose();
+                _context?.Dispose();
+                _serviceProvider?.Dispose();
+
+                // Wait a bit for file handles to be released
+                System.Threading.Thread.Sleep(100);
+
+                // Clean up test database
+                if (File.Exists(_testDbPath))
+                {
+                    try
+                    {
+                        File.Delete(_testDbPath);
+                    }
+                    catch (IOException)
+                    {
+                        // File might still be locked, ignore for now
+                        // The temp file will be cleaned up eventually
+                    }
+                }
+            }
+            finally
+            {
+                _disposed = true;
+            }
         }
     }
 }

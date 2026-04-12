@@ -50,15 +50,6 @@ In Vaultwarden, create a **Login**, **SSH Key** or **Secure Note** item with:
 - Name: `namespaces`
 - Value: `your-namespace` (e.g. `staging,production` for multiple)
 
-**Optional custom fields:**
-- `secret-name`: Set the Kubernetes Secret name (default: sanitized item name)
-- `secret-key-password` or `secret-key`: Key name for the password field (default: sanitized item name)
-- `secret-key-username`: Key name for the username field (default: `<name>-username`)
-- `secret-type`: Set the Kubernetes Secret type (see below)
-- `secret-annotation`: Add custom annotations to the Secret metadata (see examples below)
-- `secret-label`: Add custom labels to the Secret metadata (see examples below)
-- `ignore-field`: Comma-separated list of field names to exclude from sync
-
 **That's it!** The sync service will create the Secret in your specified namespace(s) within the sync interval.
 
 ### Available Custom Fields Reference
@@ -69,10 +60,12 @@ In Vaultwarden, create a **Login**, **SSH Key** or **Secure Note** item with:
 | `secret-name` | Custom name for the Kubernetes Secret | Sanitized item name |
 | `secret-key-password` | Key name for the password/credential value | Sanitized item name |
 | `secret-key-username` | Key name for the username value | `<name>-username` |
-| `secret-type` | Kubernetes Secret type: `Opaque`, `kubernetes.io/basic-auth`, `kubernetes.io/tls` | `Opaque` |
+| `secret-type` | Kubernetes Secret type: `Opaque`, `kubernetes.io/basic-auth`, `kubernetes.io/tls`, `kubernetes.io/dockerconfigjson`  | `Opaque` |
 | `secret-annotation` | Custom annotations (format: `key=value` or `key: value`) | - |
 | `secret-label` | Custom labels (format: `key=value` or `key: value`) | - |
 | `ignore-field` | Comma-separated list of field names to exclude from sync | - |
+| `docker-config-json-server` | URL of the docker registry server when using secret-type `kubernetes.io/dockerconfigjson` | `https://index.docker.io/v1/` |
+| `docker-config-json-email` | User email address when using secret-type `kubernetes.io/dockerconfigjson` (optional) | - |
 
 ---
 
@@ -155,10 +148,47 @@ data:
   tls.key: LS0tLS1CRUdJTi...  # base64 encoded
 ```
 
+**Vaultwarden Item (Docker registry credentials):**
+You can store the raw Docker config JSON in the password field:
+- Name: `my-ghcr-token`
+- Username: ``
+- Password: The complete Docker config JSON structure (e.g. `{"auths":{"ghcr.io":{"username":"...","password":"...","auth":"..."}}}`)
+- Custom fields:
+  - `namespaces` = `production`
+  - `secret-type` = `kubernetes.io/dockerconfigjson`
+
+or use custom fields:
+- Name: `my-ghcr-token`
+- Username: `user`
+- Password: `example-token`
+- Custom fields:
+  - `namespaces` = `production`
+  - `secret-type` = `kubernetes.io/dockerconfigjson`
+  - `docker-config-json-server` = `ghcr.io`
+  - `docker-config-json-email` = `me@example.com`
+
+**Result in Kubernetes:**
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-ghcr-token
+  namespace: production
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: eyJhdXRocyI6eyJnaGNyLmlvIjp7InVzZXJuYW1lIjoidXNlciIsInBhc3N3b3JkIjoiZXhhbXBsZS10b2tlbiIsImVtYWlsIjoibWVAZXhhbXBsZS5jb20iLCJhdXRoIjoiZFhObGNqcGxlYlhBbWNtRmpiMlJsYzJVdCJ9fX0=
+```
+
+Decoded contents of `.dockerconfigjson`:
+```json
+{"auths":{"ghcr.io":{"username":"user","password":"example-token","email":"me@example.com","auth":"dXNlcjpleGFtcGxlLXRva2Vu"}}}
+```
+
 **Supported Secret Types:**
 - `Opaque` (default) - arbitrary user-defined data
 - `kubernetes.io/basic-auth` - credentials for basic authentication
 - `kubernetes.io/tls` - TLS certificate and key
+- `kubernetes.io/dockerconfigjson` - Docker registry credentials
 
 ### With Custom Annotations and Labels
 
@@ -291,7 +321,7 @@ The service uses Serilog for structured logging with environment-aware output:
 - **Namespace requirement**: Items must have a `namespaces` custom field to be synced
 - **Supported item types**: Login, Secure Note, SSH Key (Card/Identity not recommended)
 - **User API keys only**: Organization API keys are not supported by Bitwarden CLI
-- **Secret types**: Supports `Opaque` (default), `kubernetes.io/basic-auth`, and `kubernetes.io/tls` via the `secret-type` custom field
+- **Secret types**: Supports `Opaque` (default), `kubernetes.io/basic-auth`, `kubernetes.io/tls` and `kubernetes.io/dockerconfigjson` via the `secret-type` custom field
 - **Size limit**: Secrets must stay under ~1 MiB (Kubernetes limit)
 
 ---

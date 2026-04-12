@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using VaultwardenK8sSync.Services;
 using VaultwardenK8sSync.Database.Repositories;
 using VaultwardenK8sSync.Models;
+using VaultwardenK8sSync;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -92,9 +93,10 @@ public class ConcurrentSyncTests
             mockKubernetesService.Object,
             mockMetrics.Object,
             mockDbLogger.Object,
-            syncConfig
+            syncConfig,
+            new DockerConfigJsonSettings()
         );
-        
+
         // Act - Start 3 syncs concurrently
         var syncTasks = new List<Task<SyncSummary>>
         {
@@ -192,9 +194,10 @@ public class ConcurrentSyncTests
             mockKubernetesService.Object,
             mockMetrics.Object,
             mockDbLogger.Object,
-            syncConfig
+            syncConfig,
+            new DockerConfigJsonSettings()
         );
-        
+
         // Act - Start 5 syncs concurrently
         var syncTasks = Enumerable.Range(0, 5)
             .Select(_ => Task.Run(() => syncService.SyncAsync()))
