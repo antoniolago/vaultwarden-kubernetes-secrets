@@ -544,6 +544,21 @@ public class VaultwardenService : IVaultwardenService
             }
         }
 
+        // Parse SSH key data (type 5)
+        if (item.Type == 5)
+        {
+            if (cipher.TryGetProperty("sshKey", out var sshKeyProp) || cipher.TryGetProperty("SshKey", out sshKeyProp))
+            {
+                item.SshKey = new SshKeyInfo();
+                if (sshKeyProp.TryGetProperty("privateKey", out var privateKeyProp) || sshKeyProp.TryGetProperty("PrivateKey", out privateKeyProp))
+                    item.SshKey.PrivateKey = (privateKeyProp.ValueKind != JsonValueKind.Null ? DecryptString(privateKeyProp.GetString(), orgId) : null) ?? string.Empty;
+                if (sshKeyProp.TryGetProperty("publicKey", out var publicKeyProp) || sshKeyProp.TryGetProperty("PublicKey", out publicKeyProp))
+                    item.SshKey.PublicKey = (publicKeyProp.ValueKind != JsonValueKind.Null ? DecryptString(publicKeyProp.GetString(), orgId) : null) ?? string.Empty;
+                if (sshKeyProp.TryGetProperty("keyFingerprint", out var keyFingerprintProp) || sshKeyProp.TryGetProperty("KeyFingerprint", out keyFingerprintProp))
+                    item.SshKey.Fingerprint = (keyFingerprintProp.ValueKind != JsonValueKind.Null ? DecryptString(keyFingerprintProp.GetString(), orgId) : null) ?? string.Empty;
+            }
+        }
+
         // Parse fields
         if (cipher.TryGetProperty("fields", out var fieldsProp) || cipher.TryGetProperty("Fields", out fieldsProp))
         {
