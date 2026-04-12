@@ -31,14 +31,11 @@ public class SshKeyVaultwardenServiceParsingTests
     /// 3. The method attempts to parse the sshKey JSON object
     /// 4. The resulting VaultwardenItem has SshKey populated (not null)
     ///
-    /// Note: Since we pass plain text (not encrypted), decryption returns empty strings.
-    /// But the CRITICAL part is that SshKey is NOT null - proving the parsing code executed.
-    ///
-    /// TODO: This test is skipped because passing plain text JSON to ParseAndDecryptCipher
-    /// causes decryption to fail and return null SshKey. Requires encrypted test data or
-    /// a mockable decryption path.
+    /// Note: Plain text values (not starting with "2.") are returned as-is by DecryptString.
+    /// Encrypted values are decrypted using the master password. The test uses plain text
+    /// which passes through unchanged, proving the parsing code executed.
     /// </summary>
-    [Fact(Skip = "Requires encrypted test data - plain text JSON fails decryption")]
+    [Fact]
     [Trait("Category", "SSH Keys")]
     [Trait("Category", "Unit")]
     public void ParseAndDecryptCipher_WithType5SshKey_ShouldPopulateSshKeyObject()
@@ -75,9 +72,9 @@ public class SshKeyVaultwardenServiceParsingTests
 
         // Act - Call the private parsing method via reflection
         var parseMethod = typeof(VaultwardenService).GetMethod(
-            "ParseAndDecryptCipher", 
+            "ParseAndDecryptCipher",
             BindingFlags.NonPublic | BindingFlags.Instance);
-        
+
         Assert.NotNull(parseMethod);
         var result = parseMethod!.Invoke(service, new object[] { cipher }) as VaultwardenItem;
 
@@ -85,13 +82,13 @@ public class SshKeyVaultwardenServiceParsingTests
         Assert.NotNull(result);
         Assert.Equal("ssh-key-123", result.Id);
         Assert.Equal(5, result.Type);
-        
+
         // THIS IS THE KEY ASSERTION:
-        // If the SSH parsing code is missing, SshKey will be null and this test FAILS
+        // If the SSH parsing code is missing, SshKey will be null and this test FAILS.
+        // Values are empty strings because _encryptionKey is null (AuthenticateAsync was not called),
+        // so DecryptString returns null and the ?? string.Empty fallback applies.
+        // The critical point is that SshKey object exists, proving the parsing code executed.
         Assert.NotNull(result.SshKey);
-        
-        // Values will be empty strings because we passed plain text (not encrypted)
-        // but the fact that SshKey object exists proves the parsing code ran
         Assert.Equal(string.Empty, result.SshKey.PrivateKey);
         Assert.Equal(string.Empty, result.SshKey.PublicKey);
         Assert.Equal(string.Empty, result.SshKey.Fingerprint);
@@ -135,9 +132,10 @@ public class SshKeyVaultwardenServiceParsingTests
 
         // Act
         var parseMethod = typeof(VaultwardenService).GetMethod(
-            "ParseAndDecryptCipher", 
+            "ParseAndDecryptCipher",
             BindingFlags.NonPublic | BindingFlags.Instance);
-        
+
+        Assert.NotNull(parseMethod);
         var result = parseMethod!.Invoke(service2, new object[] { cipher }) as VaultwardenItem;
 
         // Assert
@@ -148,13 +146,13 @@ public class SshKeyVaultwardenServiceParsingTests
     }
 
     /// <summary>
-    /// Verifies that SSH items without the sshKey property still get an SshKey object created
-    /// (proving the parsing code path was executed).
+    /// Verifies that SSH items without the sshKey property have SshKey remain null
+    /// (the parsing code handles type 5 but properly checks for the sshKey property).
     /// </summary>
     [Fact]
     [Trait("Category", "SSH Keys")]
     [Trait("Category", "Unit")]
-    public void ParseAndDecryptCipher_WithType5MissingSshKeyProperty_ShouldStillCreateSshKeyObject()
+    public void ParseAndDecryptCipher_Type5MissingSshKeyProperty_ReturnsNullSshKey()
     {
         // Arrange
         var config = new VaultwardenSettings
@@ -186,6 +184,7 @@ public class SshKeyVaultwardenServiceParsingTests
             "ParseAndDecryptCipher",
             BindingFlags.NonPublic | BindingFlags.Instance);
 
+        Assert.NotNull(parseMethod);
         var result = parseMethod!.Invoke(service, new object[] { cipher }) as VaultwardenItem;
 
         // Assert - When the sshKey JSON property is missing, SshKey should remain null
