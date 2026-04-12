@@ -50,15 +50,6 @@ In Vaultwarden, create a **Login**, **SSH Key** or **Secure Note** item with:
 - Name: `namespaces`
 - Value: `your-namespace` (e.g. `staging,production` for multiple)
 
-**Optional custom fields:**
-- `secret-name`: Set the Kubernetes Secret name (default: sanitized item name)
-- `secret-key-password` or `secret-key`: Key name for the password field (default: sanitized item name)
-- `secret-key-username`: Key name for the username field (default: `<name>-username`)
-- `secret-type`: Set the Kubernetes Secret type (see below)
-- `secret-annotation`: Add custom annotations to the Secret metadata (see examples below)
-- `secret-label`: Add custom labels to the Secret metadata (see examples below)
-- `ignore-field`: Comma-separated list of field names to exclude from sync
-
 **That's it!** The sync service will create the Secret in your specified namespace(s) within the sync interval.
 
 ### Available Custom Fields Reference
@@ -73,13 +64,8 @@ In Vaultwarden, create a **Login**, **SSH Key** or **Secure Note** item with:
 | `secret-annotation` | Custom annotations (format: `key=value` or `key: value`) | - |
 | `secret-label` | Custom labels (format: `key=value` or `key: value`) | - |
 | `ignore-field` | Comma-separated list of field names to exclude from sync | - |
-
-Additional custom fields specifically for secrets of type `kubernetes.io/dockerconfigjson`:
-
-| Field Name | Description | Default |
-|------------|-------------|---------|
-| `docker-registry-server` | URL of the docker registry server | `https://index.docker.io/v1/` |
-| `docker-registry-email` | User email address (optional) | - |
+| `docker-config-json-server` | URL of the docker registry server when using secret-type `kubernetes.io/dockerconfigjson` | `https://index.docker.io/v1/` |
+| `docker-config-json-email` | User email address when using secret-type `kubernetes.io/dockerconfigjson` (optional) | - |
 
 ---
 
@@ -163,9 +149,19 @@ data:
 ```
 
 **Vaultwarden Item (Docker registry credentials):**
-- Name: `my-ghcr-token`
-- Username: `githubuser`
-- Password: `ghp_T9xzOy[...]`
+You can store the raw json on password/note field like any other secret: 
+- Name: `my-registry-token`
+- Username: ``
+- Password: `<RAW_DOCKERCONFIG_JSON>`
+- Custom fields:
+  - `namespaces` = `production`
+  - `secret-type` = `kubernetes.io/dockerconfigjson`
+  - `secret-key` = `.dockerconfigjson`
+
+or use custom fields: 
+- Name: `my-registry-token`
+- Username: `user`
+- Password: `xyz_1a2b3c4[...]`
 - Custom fields:
   - `namespaces` = `production`
   - `secret-type` = `kubernetes.io/dockerconfigjson`

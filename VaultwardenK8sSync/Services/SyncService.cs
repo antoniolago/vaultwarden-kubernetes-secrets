@@ -16,7 +16,7 @@ public class SyncService : ISyncService
     private readonly IMetricsService _metricsService;
     private readonly IDatabaseLoggerService _dbLogger;
     private readonly SyncSettings _syncConfig;
-    private readonly DockerRegistrySettings _dockerRegistrySettings;
+    private readonly DockerConfigJsonSettings _dockerConfigJsonSettings;
     private string? _lastItemsHash;
     private string? _currentItemsHash;
     private readonly Dictionary<string, DateTime> _secretExistsCache = new();
@@ -29,7 +29,7 @@ public class SyncService : ISyncService
         IMetricsService metricsService,
         IDatabaseLoggerService dbLogger,
         SyncSettings syncConfig,
-        DockerRegistrySettings dockerRegistrySettings)
+        DockerConfigJsonSettings dockerConfigJsonSettings)
     {
         _logger = logger;
         _vaultwardenService = vaultwardenService;
@@ -37,7 +37,7 @@ public class SyncService : ISyncService
         _metricsService = metricsService;
         _dbLogger = dbLogger;
         _syncConfig = syncConfig;
-        _dockerRegistrySettings = dockerRegistrySettings;
+        _dockerConfigJsonSettings = dockerConfigJsonSettings;
     }
 
     public async Task<SyncSummary> SyncAsync()
@@ -604,7 +604,9 @@ public class SyncService : ISyncService
 
     private async Task<Dictionary<string, string>> ExtractSecretDataAsync(Models.VaultwardenItem item, string secretType)
     {
-        var data = secretType == "kubernetes.io/dockerconfigjson" ? ExtractDockerConfigJson(item) : await ExtractCredentialsAsync(item);
+        var data = secretType == "kubernetes.io/dockerconfigjson" 
+            ? await ExtractDockerConfigJsonJsonAsync(item) 
+            : await ExtractCredentialsAsync(item);
 
         // Get the list of fields that should be ignored for this item
         var ignoredFields = item.ExtractIgnoredFields();
@@ -770,31 +772,74 @@ public class SyncService : ISyncService
         return data;
     }
 
-    private Dictionary<string, string> ExtractDockerConfigJson(Models.VaultwardenItem item)
-    {   
-        // Create a json string containing the docker registry credentials for the kubernetes.io/dockerconfigjson secret type
+    private async Task<Dictionary<string, string>> ExtractDockerConfigJsonJsonAsync(Models.VaultwardenItem item)
+    {
+        // Approach 1: Check if password/notes contain raw JSON directly
+        var rawJson = GetLoginPasswordOrSshKey(item);
+        if (!string.IsNullOrWhiteSpace(rawJson))
+        {
+            // Validate that it's valid JSON
+            try
+            {
+                JsonDocument.Parse(rawJson);
+                _logger.LogDebug("Using raw registry config JSON from password field");
+                return new Dictionary<string, string>
+                {
+                    { ".dockerconfigjson", rawJson }
+                };
+            }
+            catch (JsonException)
+            {
+                // Not valid JSON, fall through to field-based construction
+                _logger.LogDebug("Password is not valid JSON, falling back to field-based construction");
+            }
+        }
 
+        // Also check notes if password didn't have JSON
+        if (string.IsNullOrWhiteSpace(rawJson) && !string.IsNullOrWhiteSpace(item.Notes))
+        {
+            try
+            {
+                JsonDocument.Parse(item.Notes);
+                _logger.LogDebug("Using raw registry config JSON from notes field");
+                return new Dictionary<string, string>
+                {
+                    { ".dockerconfigjson", item.Notes }
+                };
+            }
+            catch (JsonException)
+            {
+                // Notes not valid JSON either, fall through
+            }
+        }
+
+        // Approach 2: Build JSON from individual custom fields (username, password, registry, email)
+        return BuildDockerConfigJsonFromFields(item);
+    }
+
+    private Dictionary<string, string> BuildDockerConfigJsonFromFields(Models.VaultwardenItem item)
+    {
         var username = GetUsername(item);
         var password = GetLoginPasswordOrSshKey(item);
         var authEncoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{username}:{password}"));
 
-        var dockerServer = item.ExtractDockerRegistryServer();
-        if (string.IsNullOrEmpty(dockerServer))
+        var registry = item.ExtractDockerConfigJsonServer();
+        if (string.IsNullOrEmpty(registry))
         {
-            // If the docker registry server is not specified in the item, use the default server from the configuration
-            dockerServer = _dockerRegistrySettings.DefaultServer;
+            // If the registry is not specified in the item, use the default from configuration
+            registry = _dockerConfigJsonSettings.DefaultDockerConfigJsonServer;
         }
-        var dockerEmail = item.ExtractDockerRegistryEmail();
+        var email = item.ExtractDockerConfigJsonEmail();
 
-        var dockerConfig = new
+        var DockerConfigJson = new
         {
             auths = new Dictionary<string, object>
             {
-                [dockerServer] = new
+                [registry] = new
                 {
                     username = username,
                     password = password,
-                    email = dockerEmail,
+                    email = email,
                     auth = authEncoded
                 }
             }
@@ -803,7 +848,7 @@ public class SyncService : ISyncService
         return new Dictionary<string, string>
         {
             // Create the ".dockerconfigjson" key that is expected by the kubernetes.io/dockerconfigjson secret type
-            { ".dockerconfigjson", JsonSerializer.Serialize(dockerConfig, new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull }) }
+            { ".dockerconfigjson", JsonSerializer.Serialize(DockerConfigJson, new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull }) }
         };
     }
 
@@ -1701,25 +1746,25 @@ public class SyncService : ISyncService
         var metadataFields = new[]
         {
             Models.FieldNameConfig.NamespacesFieldName,
-            "namespaces", // Legacy/alternative name
+            "namespaces", 
             Models.FieldNameConfig.SecretNameFieldName,
-            "secret-name", // Legacy/alternative name
+            "secret-name", 
             Models.FieldNameConfig.SecretKeyPasswordFieldName,
-            "secret-key-password", // Legacy/alternative name
-            "secret-key", // Legacy/alternative name for secret-key-password
+            "secret-key-password", 
+            "secret-key",
             Models.FieldNameConfig.SecretKeyUsernameFieldName,
-            "secret-key-username", // Legacy/alternative name
+            "secret-key-username", 
             Models.FieldNameConfig.IgnoreFieldName,
             Models.FieldNameConfig.SecretAnnotationsFieldName,
-            "secret-annotation", // Legacy/alternative name
+            "secret-annotation", 
             Models.FieldNameConfig.SecretLabelsFieldName,
-            "secret-label", // Legacy/alternative name
+            "secret-label", 
             Models.FieldNameConfig.SecretTypeFieldName,
-            "secret-type", // Legacy/alternative name
-            Models.FieldNameConfig.DockerRegistryServerFieldName,
-            "docker-registry-server", // Legacy/alternative name
-            Models.FieldNameConfig.DockerRegistryEmailFieldName,
-            "docker-registry-email", // Legacy/alternative name
+            "secret-type", 
+            Models.FieldNameConfig.DockerConfigJsonServerFieldName,
+            "docker-config-json-server", 
+            Models.FieldNameConfig.DockerConfigJsonEmailFieldName,
+            "docker-config-json-email" 
         };
         
         return metadataFields.Any(meta => 

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using VaultwardenK8sSync.Services;
 using VaultwardenK8sSync.Models;
 using VaultwardenK8sSync.Configuration;
+using VaultwardenK8sSync;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -78,9 +79,10 @@ public class IdempotencyTests : IDisposable
             mockKubernetesService.Object,
             mockMetrics.Object,
             mockDbLogger.Object,
-            syncConfig
+            syncConfig,
+            new DockerConfigJsonSettings()
         );
-        
+
         // Act - Run sync 5 times
         var results = new List<SyncSummary>();
         for (int i = 0; i < 5; i++)
@@ -89,7 +91,7 @@ public class IdempotencyTests : IDisposable
             results.Add(result);
             await Task.Delay(10); // Small delay to ensure different timestamps
         }
-        
+
         // Assert - All runs should produce IDENTICAL results
         for (int i = 0; i < 5; i++)
         {
@@ -135,9 +137,10 @@ public class IdempotencyTests : IDisposable
             mockKubernetesService.Object,
             mockMetrics.Object,
             mockDbLogger.Object,
-            syncConfig
+            syncConfig,
+            new DockerConfigJsonSettings()
         );
-        
+
         // Act - Run sync 5 times
         var results = new List<SyncSummary>();
         for (int i = 0; i < 5; i++)
@@ -145,7 +148,7 @@ public class IdempotencyTests : IDisposable
             var result = await syncService.SyncAsync();
             results.Add(result);
         }
-        
+
         // Assert - Sync numbers should increment sequentially
         for (int i = 0; i < 5; i++)
         {
@@ -187,9 +190,10 @@ public class IdempotencyTests : IDisposable
             mockKubernetesService.Object,
             mockMetrics.Object,
             mockDbLogger.Object,
-            syncConfig
+            syncConfig,
+            new DockerConfigJsonSettings()
         );
-        
+
         // Act - Run sync 5 times with delays
         var results = new List<SyncSummary>();
         for (int i = 0; i < 5; i++)
@@ -198,7 +202,7 @@ public class IdempotencyTests : IDisposable
             results.Add(result);
             await Task.Delay(10); // Ensure different timestamps
         }
-        
+
         // Assert - Each run should have unique start/end times
         var startTimes = results.Select(r => r.StartTime).ToList();
         var endTimes = results.Select(r => r.EndTime).ToList();
@@ -245,9 +249,10 @@ public class IdempotencyTests : IDisposable
             mockKubernetesService.Object,
             mockMetrics.Object,
             mockDbLogger.Object,
-            syncConfig
+            syncConfig,
+            new DockerConfigJsonSettings()
         );
-        
+
         // Act - Run sync 5 times
         var results = new List<SyncSummary>();
         for (int i = 0; i < 5; i++)
@@ -255,7 +260,7 @@ public class IdempotencyTests : IDisposable
             var result = await syncService.SyncAsync();
             results.Add(result);
         }
-        
+
         // Assert - All results should have same success status
         var successStatuses = results.Select(r => r.OverallSuccess).Distinct().ToList();
         Assert.Single(successStatuses);
@@ -294,9 +299,10 @@ public class IdempotencyTests : IDisposable
             mockKubernetesService.Object,
             mockMetrics.Object,
             mockDbLogger.Object,
-            syncConfig
+            syncConfig,
+            new DockerConfigJsonSettings()
         );
-        
+
         // Act - Run sync 5 times
         var results = new List<SyncSummary>();
         for (int i = 0; i < 5; i++)
@@ -304,7 +310,7 @@ public class IdempotencyTests : IDisposable
             var result = await syncService.SyncAsync();
             results.Add(result);
         }
-        
+
         // Assert - All should have same status text
         var statusTexts = results.Select(r => r.GetStatusText()).Distinct().ToList();
         Assert.Single(statusTexts);

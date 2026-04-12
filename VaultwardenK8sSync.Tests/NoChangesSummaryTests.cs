@@ -144,9 +144,10 @@ public class NoChangesSummaryTests
             mockKubernetesService.Object,
             mockMetrics.Object,
             mockDbLogger.Object,
-            syncConfig
+            syncConfig,
+            new DockerConfigJsonSettings()
         );
-        
+
         // Act - Run sync twice (second time should detect no changes)
         var firstSync = await syncService.SyncAsync();
         var secondSync = await syncService.SyncAsync();
@@ -232,13 +233,14 @@ public class NoChangesSummaryTests
             mockKubernetesService.Object,
             mockMetrics.Object,
             mockDbLogger.Object,
-            syncConfig
+            syncConfig,
+            new DockerConfigJsonSettings()
         );
-        
+
         // Act - Run sync twice
         await syncService.SyncAsync();
         var secondSync = await syncService.SyncAsync();
-        
+
         // Assert - Both syncs should succeed
         Assert.True(secondSync.OverallSuccess);
         // Status can be UP-TO-DATE, SUCCESS, or PARTIAL depending on how items were processed
@@ -315,17 +317,18 @@ public class NoChangesSummaryTests
             mockKubernetesService.Object,
             mockMetrics.Object,
             mockDbLogger.Object,
-            syncConfig
+            syncConfig,
+            new DockerConfigJsonSettings()
         );
-        
+
         // Act - Run sync twice
         var firstSync = await syncService.SyncAsync();
         var secondSync = await syncService.SyncAsync();
-        
+
         // Assert - Both syncs should succeed
         Assert.True(firstSync.OverallSuccess);
         Assert.True(secondSync.OverallSuccess);
-        
+
         // Database logger should have been called for both syncs
         mockDbLogger.Verify(
             x => x.StartSyncLogAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool>()),

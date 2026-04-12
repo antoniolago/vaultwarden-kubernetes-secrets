@@ -175,18 +175,18 @@ public class VaultwardenItem
         return null;
     }
 
-    public string? ExtractDockerRegistryServer()
+    public string? ExtractDockerConfigJsonServer()
     {
-        var fromField = GetCustomFieldValue(FieldNameConfig.DockerRegistryServerFieldName, "docker-registry-server");
+        var fromField = GetCustomFieldValue(FieldNameConfig.DockerConfigJsonServerFieldName, "docker-config-json-server");
         if (!string.IsNullOrWhiteSpace(fromField))
             return fromField.Trim();
 
         return null;
     }
 
-    public string? ExtractDockerRegistryEmail()
+    public string? ExtractDockerConfigJsonEmail()
     {
-        var fromField = GetCustomFieldValue(FieldNameConfig.DockerRegistryEmailFieldName, "docker-registry-email");
+        var fromField = GetCustomFieldValue(FieldNameConfig.DockerConfigJsonEmailFieldName, "docker-config-json-email");
         if (!string.IsNullOrWhiteSpace(fromField))
             return fromField.Trim();
 
@@ -222,12 +222,12 @@ public class VaultwardenItem
         // Always add the ignore-field itself to the ignored list to prevent it from being synced
         ignoredFields.Add(FieldNameConfig.IgnoreFieldName);
         
-        // Also add secret-annotation, secret-label, secret-type, and docker registry configuration fields to prevent them from being synced as secret data
+        // Also add secret-annotation, secret-label, secret-type, and registry configuration fields to prevent them from being synced as secret data
         ignoredFields.Add(FieldNameConfig.SecretAnnotationsFieldName);
         ignoredFields.Add(FieldNameConfig.SecretLabelsFieldName);
         ignoredFields.Add(FieldNameConfig.SecretTypeFieldName);
-        ignoredFields.Add(FieldNameConfig.DockerRegistryServerFieldName);
-        ignoredFields.Add(FieldNameConfig.DockerRegistryEmailFieldName);
+        ignoredFields.Add(FieldNameConfig.DockerConfigJsonServerFieldName);
+        ignoredFields.Add(FieldNameConfig.DockerConfigJsonEmailFieldName);
         
         return ignoredFields;
     }
@@ -380,10 +380,10 @@ internal static class FieldNameConfig
         Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETLABELS")?.Trim() ?? "secret-label";
     public static readonly string SecretTypeFieldName =
         Environment.GetEnvironmentVariable("SYNC__FIELD__SECRETTYPE")?.Trim() ?? "secret-type";
-    public static readonly string DockerRegistryServerFieldName =
-        Environment.GetEnvironmentVariable("SYNC__FIELD__DOCKER_REGISTRY_SERVER")?.Trim() ?? "docker-registry-server";
-    public static readonly string DockerRegistryEmailFieldName =
-        Environment.GetEnvironmentVariable("SYNC__FIELD__DOCKER_REGISTRY_EMAIL")?.Trim() ?? "docker-registry-email";
+    public static readonly string DockerConfigJsonServerFieldName =
+        Environment.GetEnvironmentVariable("SYNC__FIELD__DOCKER_CONFIG_JSON_SERVER")?.Trim() ?? "docker-config-json-server";
+    public static readonly string DockerConfigJsonEmailFieldName =
+        Environment.GetEnvironmentVariable("SYNC__FIELD__DOCKER_CONFIG_JSON_EMAIL")?.Trim() ?? "docker-config-json-email";
 
     /// <summary>
     /// Valid Kubernetes secret types that can be specified via the secret-type custom field

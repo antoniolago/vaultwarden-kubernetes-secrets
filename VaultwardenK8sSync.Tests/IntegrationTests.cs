@@ -4,6 +4,7 @@ using VaultwardenK8sSync.Models;
 using VaultwardenK8sSync.Services;
 using VaultwardenK8sSync.Configuration;
 using Xunit;
+using VaultwardenK8sSync;
 using System.Reflection;
 using FieldInfo = VaultwardenK8sSync.Models.FieldInfo;
 
@@ -40,7 +41,8 @@ public class IntegrationTests : IDisposable
             _kubernetesServiceMock.Object,
             _metricsServiceMock.Object,
             _dbLoggerMock.Object,
-            _syncConfig);
+            _syncConfig,
+            new DockerConfigJsonSettings());
     }
 
     // Helper methods to access private methods for testing
@@ -48,7 +50,7 @@ public class IntegrationTests : IDisposable
     {
         var method = typeof(SyncService).GetMethod("ExtractSecretDataAsync", 
             BindingFlags.NonPublic | BindingFlags.Instance);
-        return (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(_syncService, new object[] { item })!;
+        return (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(_syncService, new object[] { item, "Opaque" })!;
     }
 
     [Fact]

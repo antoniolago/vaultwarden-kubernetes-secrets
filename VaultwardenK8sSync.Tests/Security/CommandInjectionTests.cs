@@ -121,9 +121,10 @@ public class CommandInjectionTests
             mockKubernetesService.Object,
             mockMetrics.Object,
             mockDbLogger.Object,
-            syncConfig
+            syncConfig,
+            new DockerConfigJsonSettings()
         );
-        
+
         // Act - Run sync which will sanitize and truncate the name
         await syncService.SyncAsync();
         
