@@ -14,9 +14,9 @@ namespace VaultwardenK8sSync.Tests;
 /// </summary>
 public class SpectreConsoleSummaryDemo
 {
-    private static bool IsNoConsoleEnvironment => 
-        !Console.IsOutputRedirected || 
-        RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Environment.GetEnvironmentVariable("CI") == "true";
+    private static bool IsNoConsoleEnvironment =>
+        Console.IsOutputRedirected ||
+        (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Environment.GetEnvironmentVariable("CI") == "true");
 
     [Fact]
     [Trait("Category", "Demo")]
@@ -24,7 +24,10 @@ public class SpectreConsoleSummaryDemo
     {
         // Skip in CI or non-console environments
         // This test requires a real console and cannot run in test runners
-        return;
+        if (IsNoConsoleEnvironment)
+        {
+            return;
+        }
 
         // Use test console to avoid duplication
         var testConsole = new TestConsole();

@@ -418,7 +418,7 @@ oWQDYgAEa0mWi5HqMjGJOzJ8pN9H9xY7zQk8GQIDAQABAoGAAiCyL8P
             },
             Fields = new List<FieldInfo>
             {
-                new FieldInfo { Name = "namespaces", Value = "production,staking", Type = 0 }
+                new FieldInfo { Name = "namespaces", Value = "production,staging", Type = 0 }
             }
         };
 
@@ -428,7 +428,7 @@ oWQDYgAEa0mWi5HqMjGJOzJ8pN9H9xY7zQk8GQIDAQABAoGAAiCyL8P
         // Assert
         Assert.Equal(2, namespaces.Count);
         Assert.Contains("production", namespaces);
-        Assert.Contains("staking", namespaces);
+        Assert.Contains("staging", namespaces);
     }
 
     [Fact]
