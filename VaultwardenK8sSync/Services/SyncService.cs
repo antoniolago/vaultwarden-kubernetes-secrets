@@ -602,7 +602,7 @@ public class SyncService : ISyncService
         }
     }
 
-    private async Task<Dictionary<string, string>> ExtractSecretDataAsync(Models.VaultwardenItem item, string secretType)
+    private async Task<Dictionary<string, string>> ExtractSecretDataAsync(Models.VaultwardenItem item, string? secretType)
     {
         var data = secretType == "kubernetes.io/dockerconfigjson" 
             ? await ExtractDockerConfigJsonJsonAsync(item) 
@@ -1321,10 +1321,37 @@ public class SyncService : ISyncService
                 var itemSecretType = item.ExtractSecretType();
                 if (itemSecretType != Models.FieldNameConfig.DefaultSecretType)
                 {
+                    // Reject mixed non-default types explicitly
+                    if (secretType != null && secretType != Models.FieldNameConfig.DefaultSecretType && itemSecretType != secretType)
+                    {
+                        var errorMsg = $"Mixed non-default secret types are not allowed: existing type '{secretType}' conflicts with item type '{itemSecretType}' in secret '{secretName}'";
+                        _logger.LogError("SyncSecretAsync: {Error}", errorMsg);
+                        secretSummary.Outcome = ReconcileOutcome.Failed;
+                        secretSummary.Error = errorMsg;
+
+                        // Log failed secret state to database
+                        var itemForState = items.FirstOrDefault();
+                        if (itemForState != null)
+                        {
+                            await _dbLogger.UpsertSecretStateAsync(
+                                namespaceName,
+                                secretName,
+                                itemForState.Id,
+                                itemForState.Name,
+                                SecretStatusConstants.Failed,
+                                0,
+                                errorMsg
+                            );
+                        }
+
+                        return secretSummary;
+                    }
+
                     secretType = itemSecretType;
                 }
-                
-                var itemData = await ExtractSecretDataAsync(item, secretType);
+
+                // Use itemSecretType (the item's own type) for parsing, not the merged secretType
+                var itemData = await ExtractSecretDataAsync(item, itemSecretType);
                 foreach (var kvp in itemData)
                 {
                     // If multiple items have the same key, the last one wins

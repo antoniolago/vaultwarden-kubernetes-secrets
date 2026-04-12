@@ -182,7 +182,7 @@ data:
 
 Decoded contents of `.dockerconfigjson`:
 ```json
-{"auths":{"ghcr.io":{"username":"githubuser","password":"ghp_T9xzOy[...]","email":"me@example.com","auth":"Z2l0aHVidXNlcjpnaHBfVDl4ek95Wy4uLl0="}}}
+{"auths":{"ghcr.io":{"username":"user","password":"xyz_1a2b3c4[...]","email":"me@example.com","auth":"Z2l0aHVidXNlcjpnaHBfVDl4ek95Wy4uLl0="}}}
 ```
 
 **Supported Secret Types:**
