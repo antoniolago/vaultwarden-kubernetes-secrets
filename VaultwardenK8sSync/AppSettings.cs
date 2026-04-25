@@ -43,7 +43,8 @@ public class AppSettings
                 DryRun = bool.TryParse(Environment.GetEnvironmentVariable("SYNC__DRYRUN"), out var dryRun) && dryRun,
                 DeleteOrphans = bool.TryParse(Environment.GetEnvironmentVariable("SYNC__DELETEORPHANS"), out var deleteOrphans) ? deleteOrphans : true,
                 SyncIntervalSeconds = int.TryParse(Environment.GetEnvironmentVariable("SYNC__SYNCINTERVALSECONDS"), out var syncInterval) ? syncInterval : 3600,
-                ContinuousSync = bool.TryParse(Environment.GetEnvironmentVariable("SYNC__CONTINUOUSSYNC"), out var continuousSync) && continuousSync
+                ContinuousSync = bool.TryParse(Environment.GetEnvironmentVariable("SYNC__CONTINUOUSSYNC"), out var continuousSync) && continuousSync,
+                ContextName = Environment.GetEnvironmentVariable("SYNC__CONTEXTNAME")
             },
             Logging = new LoggingSettings
             {
@@ -132,6 +133,7 @@ public class SyncSettings
     public bool DeleteOrphans { get; set; } = true;
     public int SyncIntervalSeconds { get; set; } = 3600; // 60 minutes in seconds
     public bool ContinuousSync { get; set; } = false;
+    public string? ContextName { get; set; }
 }
 
 public class LoggingSettings

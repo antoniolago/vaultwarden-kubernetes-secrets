@@ -138,9 +138,12 @@ public class VaultwardenItem
             }
         }
 
-
-
         return namespaces;
+    }
+
+    public string? ExtractContextName()
+    {
+        return GetCustomFieldValue(FieldNameConfig.ContextNameFieldName, "context-name");
     }
 
     public string? ExtractSecretName()
@@ -234,6 +237,7 @@ public class VaultwardenItem
         ignoredFields.Add(FieldNameConfig.SecretKeyPasswordFieldName);
         ignoredFields.Add(FieldNameConfig.SecretKeyUsernameFieldName);
         ignoredFields.Add(FieldNameConfig.NamespacesFieldName);
+        ignoredFields.Add(FieldNameConfig.ContextNameFieldName);
 
         return ignoredFields;
     }
@@ -390,6 +394,8 @@ internal static class FieldNameConfig
         Environment.GetEnvironmentVariable("SYNC__FIELD__DOCKER_CONFIG_JSON_SERVER")?.Trim() ?? "docker-config-json-server";
     public static readonly string DockerConfigJsonEmailFieldName =
         Environment.GetEnvironmentVariable("SYNC__FIELD__DOCKER_CONFIG_JSON_EMAIL")?.Trim() ?? "docker-config-json-email";
+    public static readonly string ContextNameFieldName =
+        Environment.GetEnvironmentVariable("SYNC__FIELD__CONTEXTNAME")?.Trim() ?? "context-name";
 
     /// <summary>
     /// Valid Kubernetes secret types that can be specified via the secret-type custom field

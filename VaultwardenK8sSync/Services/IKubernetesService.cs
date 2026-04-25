@@ -39,26 +39,12 @@ public interface IKubernetesService
     Task<List<string>> GetSecretsWithManagedKeysAsync(string namespaceName);
 
     /// <summary>
-    /// Gets the full V1Secret object from Kubernetes
+    /// Gets the detected Kubernetes context name
     /// </summary>
-    /// <param name="namespaceName">The namespace containing the secret</param>
-    /// <param name="secretName">The name of the secret</param>
-    /// <returns>The V1Secret object, or null if not found</returns>
-    Task<V1Secret?> GetSecretAsync(string namespaceName, string secretName);
-    
+    string? GetContextName();
+
     /// <summary>
-    /// Exports a secret as properly formatted YAML with literal block style for multiline values
+    /// Exports a secret as YAML string
     /// </summary>
-    /// <param name="namespaceName">The namespace containing the secret</param>
-    /// <param name="secretName">The name of the secret to export</param>
-    /// <returns>The secret formatted as YAML string, or null if not found</returns>
     Task<string?> ExportSecretAsYamlAsync(string namespaceName, string secretName);
-    
-    /// <summary>
-    /// Applies a Kubernetes YAML manifest to the cluster using kubectl apply.
-    /// Supports multi-document YAML (multiple objects separated by ---).
-    /// </summary>
-    /// <param name="yaml">The YAML manifest content to apply</param>
-    /// <returns>OperationResult indicating success or failure with error message</returns>
-    Task<OperationResult> ApplyYamlAsync(string yaml);
-} 
+}

@@ -131,8 +131,33 @@ public class SyncService : ISyncService
             var itemsByNamespace = new Dictionary<string, List<Models.VaultwardenItem>>();
             
             var itemsWithNamespaces = 0;
+            var itemsSkippedByContext = 0;
+            
+            var effectiveContextName = !string.IsNullOrEmpty(_syncConfig.ContextName) 
+                ? _syncConfig.ContextName 
+                : _kubernetesService.GetContextName();
+            
+            if (!string.IsNullOrEmpty(effectiveContextName))
+            {
+                _logger.LogInformation("Using context name for filtering: {ContextName} {Source}", 
+                    effectiveContextName, 
+                    !string.IsNullOrEmpty(_syncConfig.ContextName) ? "(configured)" : "(auto-detected)");
+            }
+            
             foreach (var item in items)
             {
+                var itemContext = item.ExtractContextName();
+                if (!string.IsNullOrEmpty(effectiveContextName) && !string.IsNullOrEmpty(itemContext))
+                {
+                    if (!string.Equals(itemContext, effectiveContextName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        itemsSkippedByContext++;
+                        _logger.LogDebug("Skipping item {ItemName} (ID: {ItemId}) - context '{ItemContext}' does not match '{EffectiveContextName}'", 
+                            item.Name, item.Id, itemContext, effectiveContextName);
+                        continue;
+                    }
+                }
+                
                 var namespaces = item.ExtractNamespaces();
                 if (namespaces.Any())
                 {
@@ -146,6 +171,11 @@ public class SyncService : ISyncService
                     }
                     itemsByNamespace[namespaceName].Add(item);
                 }
+            }
+
+            if (itemsSkippedByContext > 0)
+            {
+                _logger.LogInformation("Skipped {Count} items due to context-name mismatch", itemsSkippedByContext);
             }
 
             summary.TotalNamespaces = itemsByNamespace.Count;
@@ -2088,7 +2118,9 @@ public class SyncService : ISyncService
             Models.FieldNameConfig.DockerConfigJsonServerFieldName,
             "docker-config-json-server", 
             Models.FieldNameConfig.DockerConfigJsonEmailFieldName,
-            "docker-config-json-email" 
+            "docker-config-json-email",
+            Models.FieldNameConfig.ContextNameFieldName,
+            "context-name"
         };
         
         return metadataFields.Any(meta => 

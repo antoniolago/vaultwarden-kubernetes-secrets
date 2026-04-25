@@ -18,6 +18,7 @@ public class KubernetesService : IKubernetesService
     private readonly KubernetesSettings _config;
     private readonly IProcessRunner _processRunner;
     private IKubernetes? _client;
+    private string? _detectedContextName;
 
     public KubernetesService(ILogger<KubernetesService> logger, KubernetesSettings config, IProcessRunner processRunner)
     {
@@ -43,12 +44,15 @@ public class KubernetesService : IKubernetesService
             {
                 config = KubernetesClientConfiguration.InClusterConfig();
                 _logger.LogDebug("Using in-cluster configuration");
+                _detectedContextName = config.Host?.Split("://").LastOrDefault()?.Split('.').FirstOrDefault() ?? "in-cluster";
             }
             else
             {
                 config = !string.IsNullOrEmpty(_config.KubeConfigPath)
                     ? KubernetesClientConfiguration.BuildConfigFromConfigFile(_config.KubeConfigPath, _config.Context)
                     : KubernetesClientConfiguration.BuildDefaultConfig();
+                
+                _detectedContextName = config.CurrentContext ?? "unknown";
                 
                 _logger.LogDebug("Using kubeconfig configuration: {KubeConfigPath}, Context: {Context}, Host: {Host}", 
                     _config.KubeConfigPath ?? "default", 
@@ -1045,5 +1049,10 @@ public class KubernetesService : IKubernetesService
             _logger.LogError(ex, "Exception applying Kubernetes YAML manifest");
             return OperationResult.Failed($"kubectl apply failed: {ex.Message}");
         }
+    }
+
+    public string? GetContextName()
+    {
+        return _detectedContextName;
     }
 } 

@@ -140,8 +140,6 @@ containerSecurityContext:
 
 env:
   config:
-    # Force Node-based Bitwarden CLI to prefer IPv4 DNS results (avoids IPv6 egress timeouts in many clusters)
-    NODE_OPTIONS: "--dns-result-order=ipv4first"
     VAULTWARDEN__SERVERURL: "https://your-vaultwarden-server.com"
     VAULTWARDEN__ORGANIZATIONID: "" #RECOMMENDED
     VAULTWARDEN__ORGANIZATIONNAME: ""
@@ -199,6 +197,14 @@ env:
     # SYNC__FIELD__SECRETLABELS
     # Multiline Note field where each line is "key=value" or "key: value"
     secretLabels: "secret-label"
+    # SYNC__FIELD__CONTEXTNAME
+    # Filter items by cluster context (multi-cluster deployments)
+    contextName: "context-name"
+
+  # Multi-cluster support: auto-detects context name from kubeconfig
+  # Set this to override auto-detection (optional)
+  # When left empty, uses the current Kubernetes context name automatically
+  contextName: ""
 
 podAnnotations: {}
 

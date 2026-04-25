@@ -834,4 +834,196 @@ kind: ConfigMap
             // Ignore errors during cleanup
         }
     }
+
+    #region Context-Name Filtering Tests
+
+    [Fact]
+    public async Task ExtractSecretDataAsync_WithContextNameField_ShouldNotIncludeInSecretData()
+    {
+        var item = new VaultwardenItem
+        {
+            Id = "test-id",
+            Name = "context-test",
+            Type = 1,
+            Login = new LoginInfo
+            {
+                Username = "admin",
+                Password = "secret123"
+            },
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "namespaces", Value = "default", Type = 0 },
+                new FieldInfo { Name = "context-name", Value = "production", Type = 0 }
+            }
+        };
+
+        var result = await ExtractSecretDataAsync(item);
+
+        Assert.DoesNotContain("context-name", result.Keys);
+        Assert.Contains("username", result.Keys);
+        Assert.Contains("password", result.Keys);
+    }
+
+    #endregion
+
+    #region Context Name Extraction Tests
+
+    [Fact]
+    public void ExtractContextName_WithContextNameField_ShouldExtractValue()
+    {
+        var item = new VaultwardenItem
+        {
+            Id = "test-id",
+            Name = "test-item",
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "context-name", Value = "production", Type = 0 }
+            }
+        };
+
+        var result = item.ExtractContextName();
+
+        Assert.Equal("production", result);
+    }
+
+    [Fact]
+    public void ExtractContextName_WithNoContextField_ShouldReturnNull()
+    {
+        var item = new VaultwardenItem
+        {
+            Id = "test-id",
+            Name = "test-item",
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "namespaces", Value = "default", Type = 0 }
+            }
+        };
+
+        var result = item.ExtractContextName();
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ExtractContextName_WithEmptyValue_ShouldReturnNullOrEmpty()
+    {
+        var item = new VaultwardenItem
+        {
+            Id = "test-id",
+            Name = "test-item",
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "context-name", Value = "", Type = 0 }
+            }
+        };
+
+        var result = item.ExtractContextName();
+
+        Assert.True(string.IsNullOrEmpty(result));
+    }
+
+    [Fact]
+    public void ExtractContextName_WithNoFields_ShouldReturnNull()
+    {
+        var item = new VaultwardenItem
+        {
+            Id = "test-id",
+            Name = "test-item"
+        };
+
+        var result = item.ExtractContextName();
+
+        Assert.Null(result);
+    }
+
+    #endregion
+
+    #region Kubernetes Context Detection Tests
+
+    [Fact]
+    public void GetContextName_WhenSet_ShouldReturnDetectedContext()
+    {
+        var k8sServiceMock = new Mock<IKubernetesService>();
+        
+        k8sServiceMock.Setup(x => x.GetContextName())
+            .Returns("production-us-east");
+        
+        var result = k8sServiceMock.Object.GetContextName();
+        
+        Assert.Equal("production-us-east", result);
+    }
+
+    [Fact]
+    public void GetContextName_WhenNull_ShouldReturnNull()
+    {
+        var k8sServiceMock = new Mock<IKubernetesService>();
+        
+        k8sServiceMock.Setup(x => x.GetContextName())
+            .Returns((string?)null);
+        
+        var result = k8sServiceMock.Object.GetContextName();
+        
+        Assert.Null(result);
+    }
+
+    #endregion
+
+    #region Context Filtering Logic Tests
+
+    [Fact]
+    public void SyncService_ShouldFilterByContextName_WhenConfigured()
+    {
+        var syncConfigWithContext = new SyncSettings
+        {
+            ContextName = "production"
+        };
+        
+        _kubernetesServiceMock.Setup(x => x.GetContextName())
+            .Returns("production");
+        
+        var syncServiceWithContext = new SyncService(
+            _loggerMock.Object,
+            _vaultwardenServiceMock.Object,
+            _kubernetesServiceMock.Object,
+            _metricsServiceMock.Object,
+            _dbLoggerMock.Object,
+            syncConfigWithContext,
+            new DockerConfigJsonSettings());
+        
+        var itemWithMatchingContext = new VaultwardenItem
+        {
+            Id = "test-1",
+            Name = "item-1",
+            Type = 1,
+            Login = new LoginInfo { Username = "user", Password = "pass" },
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "context-name", Value = "production", Type = 0 },
+                new FieldInfo { Name = "namespaces", Value = "default", Type = 0 }
+            }
+        };
+        
+        var itemWithDifferentContext = new VaultwardenItem
+        {
+            Id = "test-2",
+            Name = "item-2",
+            Type = 1,
+            Login = new LoginInfo { Username = "user", Password = "pass" },
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "context-name", Value = "staging", Type = 0 },
+                new FieldInfo { Name = "namespaces", Value = "default", Type = 0 }
+            }
+        };
+        
+        var method = typeof(SyncService).GetMethod("ExtractSecretDataAsync", 
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        
+        var result1 = (Dictionary<string, string>)method!.Invoke(syncServiceWithContext, new object[] { itemWithMatchingContext, "Opaque" })!;
+        
+        Assert.Contains("password", result1.Keys);
+    }
+
+    #endregion
+
 }

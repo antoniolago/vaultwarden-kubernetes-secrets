@@ -63,6 +63,7 @@ In Vaultwarden, create a **Login**, **SSH Key** or **Secure Note** item with:
 | `secret-type` | Kubernetes Secret type: `Opaque`, `kubernetes.io/basic-auth`, `kubernetes.io/tls`, `kubernetes.io/dockerconfigjson`  | `Opaque` |
 | `secret-annotation` | Custom annotations (format: `key=value` or `key: value`) | - |
 | `secret-label` | Custom labels (format: `key=value` or `key: value`) | - |
+| `context-name` | Filter by cluster context for multi-cluster deployments | Auto-detected from kubeconfig |
 | `ignore-field` | Comma-separated list of field names to exclude from sync | - |
 | `docker-config-json-server` | URL of the docker registry server when using secret-type `kubernetes.io/dockerconfigjson` | `https://index.docker.io/v1/` |
 | `docker-config-json-email` | User email address when using secret-type `kubernetes.io/dockerconfigjson` (optional) | - |
@@ -394,6 +395,11 @@ The service uses Serilog for structured logging with environment-aware output:
 - **Custom annotations/labels**: Add Kubernetes metadata (annotations and labels) via custom fields
   - Multiple text fields with the same name (one `key=value` per field)
   - Automatically excluded from secret data
+- **Multi-cluster support**: Use `context-name` custom field to filter items per cluster
+  - Context name is auto-detected from your kubeconfig (or cluster host for in-cluster)
+  - Optionally override with `SYNC__CONTEXTNAME` environment variable
+  - Items with `context-name` only sync to matching clusters
+  - Items without `context-name` sync to all clusters
 - **Structured logging**: JSON logs in production for aggregators; colored output in development
 - **Component log levels**: Fine-grained control over logging verbosity per service
 
