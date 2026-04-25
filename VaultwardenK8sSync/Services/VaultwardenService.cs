@@ -1025,7 +1025,7 @@ public class VaultwardenService : IVaultwardenService
     /// <summary>
     /// Downloads the content of an attachment from Vaultwarden
     /// </summary>
-    public async Task<string?> DownloadAttachmentAsync(string attachmentUrl)
+    public async Task<byte[]?> DownloadAttachmentAsync(string attachmentUrl)
     {
         try
         {
@@ -1035,12 +1035,14 @@ public class VaultwardenService : IVaultwardenService
                 return null;
             }
 
-            // Ensure the URL is absolute (may be relative in some cases)
-            var fullUrl = attachmentUrl.StartsWith("http") 
+            var isAbsoluteUrl = Uri.TryCreate(attachmentUrl, UriKind.Absolute, out var uriResult) 
+                && (uriResult.Scheme == Uri.UriSchemeHttp || uriResult.Scheme == Uri.UriSchemeHttps);
+            
+            var fullUrl = isAbsoluteUrl 
                 ? attachmentUrl 
                 : $"{_config.ServerUrl}{attachmentUrl}";
 
-            var response = await _httpClient.GetAsync(fullUrl);
+            using var response = await _httpClient.GetAsync(fullUrl);
             
             if (!response.IsSuccessStatusCode)
             {
@@ -1048,7 +1050,7 @@ public class VaultwardenService : IVaultwardenService
                 return null;
             }
 
-            return await response.Content.ReadAsStringAsync();
+            return await response.Content.ReadAsByteArrayAsync();
         }
         catch (Exception ex)
         {

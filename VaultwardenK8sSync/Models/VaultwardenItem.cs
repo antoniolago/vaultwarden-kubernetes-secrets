@@ -143,7 +143,8 @@ public class VaultwardenItem
 
     public string? ExtractContextName()
     {
-        return GetCustomFieldValue(FieldNameConfig.ContextNameFieldName, "context-name");
+        var value = GetCustomFieldValue(FieldNameConfig.ContextNameFieldName, "context-name");
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
     public string? ExtractSecretName()

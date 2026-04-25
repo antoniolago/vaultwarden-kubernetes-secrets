@@ -87,8 +87,8 @@ metadata:
   name: postgres-credentials
   namespace: production
 data:
-  postgres-credentials: c2VjcmV0MTIz  # password
-  postgres-credentials-username: YWRtaW4=  # username
+  password: c2VjcmV0MTIz  # secret123
+  username: YWRtaW4=  # admin
 ```
 
 ### Custom Key Names
@@ -227,8 +227,6 @@ data:
 
 ---
 
----
-
 ## ⚠️ Breaking Changes (v2.0)
 
 If upgrading from v1.x, be aware of the following changes to default secret key names:
@@ -278,7 +276,7 @@ data:
 Notes starting with `stringData:` are parsed as key-value pairs:
 
 **Vaultwarden Secure Note:**
-```
+```text
 stringData:
 DATABASE_URL=postgres://user:pass@host/db
 API_KEY=secret123

@@ -12,7 +12,7 @@ public interface IVaultwardenService
     Task LogoutAsync();
     Task<Dictionary<string, string>> GetOrganizationsMapAsync();
     Task<string?> GetCurrentUserEmailAsync();
-    Task<string?> DownloadAttachmentAsync(string attachmentUrl);
+    Task<byte[]?> DownloadAttachmentAsync(string attachmentUrl);
 }
 
 public class OrganizationInfo

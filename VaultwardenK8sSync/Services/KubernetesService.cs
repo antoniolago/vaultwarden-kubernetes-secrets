@@ -44,7 +44,7 @@ public class KubernetesService : IKubernetesService
             {
                 config = KubernetesClientConfiguration.InClusterConfig();
                 _logger.LogDebug("Using in-cluster configuration");
-                _detectedContextName = config.Host?.Split("://").LastOrDefault()?.Split('.').FirstOrDefault() ?? "in-cluster";
+                _detectedContextName = "in-cluster";
             }
             else
             {
@@ -630,28 +630,6 @@ public class KubernetesService : IKubernetesService
         }
     }
 
-    public async Task<V1Secret?> GetSecretAsync(string namespaceName, string secretName)
-    {
-        if (_client == null)
-        {
-            throw new InvalidOperationException("Kubernetes client not initialized. Call InitializeAsync first.");
-        }
-
-        try
-        {
-            return await _client.CoreV1.ReadNamespacedSecretAsync(secretName, namespaceName);
-        }
-        catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            return null;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to get secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
-            return null;
-        }
-    }
-
     public async Task<string?> ExportSecretAsYamlAsync(string namespaceName, string secretName)
     {
         if (_client == null)
@@ -1015,10 +993,17 @@ public class KubernetesService : IKubernetesService
         {
             _logger.LogDebug("Applying Kubernetes YAML manifest via kubectl apply");
 
+            var args = "apply -f -";
+            if (!string.IsNullOrEmpty(_config.Context))
+            {
+                args = $"--context {_config.Context} apply -f -";
+                _logger.LogDebug("Using Kubernetes context: {Context}", _config.Context);
+            }
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = "kubectl",
-                Arguments = "apply -f -",
+                Arguments = args,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,

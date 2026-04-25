@@ -475,6 +475,6 @@ public class SanitizationTests
     {
         var method = typeof(SyncService).GetMethod("ExtractSecretDataAsync", 
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        return (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(_syncService, new object[] { item, "Opaque" })!;
+        return (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(_syncService, new object[] { item, "Opaque", null })!;
     }
 }

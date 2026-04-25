@@ -29,9 +29,20 @@ COPY --from=publish /app/publish .
 
 
 # Install kubectl for applying Kubernetes YAML manifests from note items
-RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
-    && install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl \
-    && rm kubectl
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && \
+    KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt) && \
+    case "$(uname -m)" in \
+        x86_64)   ARCH="amd64";; \
+        aarch64)  ARCH="arm64";; \
+        armv7l)   ARCH="arm";; \
+        *)        echo "Unsupported architecture"; exit 1;; \
+    esac && \
+    curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" -o /usr/local/bin/kubectl && \
+    curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl.sha256" -o /tmp/kubectl.sha256 && \
+    echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum --check && \
+    chmod 0755 /usr/local/bin/kubectl && \
+    rm -f /tmp/kubectl.sha256 && \
+    apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 # Change ownership to non-root user
 RUN chown -R appuser:appuser /app

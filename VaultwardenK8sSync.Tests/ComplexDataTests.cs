@@ -53,7 +53,7 @@ public class ComplexDataTests : IDisposable
     {
         var method = typeof(SyncService).GetMethod("ExtractSecretDataAsync",
             BindingFlags.NonPublic | BindingFlags.Instance);
-        return (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(_syncService, new object[] { item, "Opaque" })!;
+        return (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(_syncService, new object[] { item, "Opaque", null })!;
     }
 
     public void Dispose()

@@ -47,4 +47,10 @@ public interface IKubernetesService
     /// Exports a secret as YAML string
     /// </summary>
     Task<string?> ExportSecretAsYamlAsync(string namespaceName, string secretName);
+
+    /// <summary>
+    /// Applies a Kubernetes YAML manifest to the cluster using kubectl apply.
+    /// Supports multi-document YAML (multiple objects separated by ---).
+    /// </summary>
+    Task<OperationResult> ApplyYamlAsync(string yaml);
 }

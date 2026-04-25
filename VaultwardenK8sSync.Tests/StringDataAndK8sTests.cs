@@ -5,6 +5,7 @@ using VaultwardenK8sSync.Services;
 using VaultwardenK8sSync.Configuration;
 using Xunit;
 using VaultwardenK8sSync;
+using System.Text;
 using FieldInfo = VaultwardenK8sSync.Models.FieldInfo;
 
 namespace VaultwardenK8sSync.Tests;
@@ -45,7 +46,7 @@ public class StringDataAndK8sTests : IDisposable
     {
         var method = typeof(SyncService).GetMethod("ExtractSecretDataAsync", 
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        return (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(_syncService, new object[] { item, "Opaque" })!;
+        return (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(_syncService, new object[] { item, "Opaque", null })!;
     }
 
     #region stringData: Mode Tests
@@ -431,7 +432,7 @@ metadata:
     #region Attachment Tests
 
     [Fact]
-    public async Task ExtractSecretDataAsync_WithYamlAttachment_ShouldStoreWithPrefix()
+    public async Task ExtractSecretDataAsync_WithYamlAttachment_ShouldNotExtractSecretData()
     {
         var yamlContent = @"apiVersion: v1
 kind: Secret
@@ -468,13 +469,13 @@ stringData:
         };
 
         _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-1"))
-            .ReturnsAsync(yamlContent);
+            .ReturnsAsync(Encoding.UTF8.GetBytes(yamlContent));
 
         var result = await ExtractSecretDataAsync(item);
 
-        Assert.Contains("__yaml_attachment__config.yaml", result.Keys);
-        Assert.Contains("s1-report-config", result["__yaml_attachment__config.yaml"]);
-        Assert.Contains("kind: Secret", result["__yaml_attachment__config.yaml"]);
+        // Secret YAML attachments are NOT extracted into secret data
+        Assert.DoesNotContain("config.yaml", result.Keys);
+        Assert.DoesNotContain("logging.yaml", result.Keys);
     }
 
     [Fact]
@@ -507,7 +508,7 @@ stringData:
         };
 
         _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-1"))
-            .ReturnsAsync(attachmentContent);
+            .ReturnsAsync(Encoding.UTF8.GetBytes(attachmentContent));
 
         var result = await ExtractSecretDataAsync(item);
 
@@ -540,7 +541,7 @@ stringData:
         };
 
         _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-1"))
-            .ReturnsAsync(fileContent);
+            .ReturnsAsync(Encoding.UTF8.GetBytes(fileContent));
 
         var result = await ExtractSecretDataAsync(item);
 
@@ -574,9 +575,9 @@ stringData:
             }
         };
 
-        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-1")).ReturnsAsync(yamlContent);
-        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-2")).ReturnsAsync(textContent);
-        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-3")).ReturnsAsync(stringDataContent);
+        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-1")).ReturnsAsync(Encoding.UTF8.GetBytes(yamlContent));
+        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-2")).ReturnsAsync(Encoding.UTF8.GetBytes(textContent));
+        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-3")).ReturnsAsync(Encoding.UTF8.GetBytes(stringDataContent));
 
         var result = await ExtractSecretDataAsync(item);
 
@@ -606,7 +607,7 @@ stringData:
         };
 
         _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-1"))
-            .ReturnsAsync((string?)null);
+            .ReturnsAsync((byte[]?)null);
 
         var result = await ExtractSecretDataAsync(item);
 
@@ -637,7 +638,7 @@ stringData:
         };
 
         _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-1"))
-            .ReturnsAsync(yamlContent);
+            .ReturnsAsync(Encoding.UTF8.GetBytes(yamlContent));
 
         var result = await ExtractSecretDataAsync(item);
 

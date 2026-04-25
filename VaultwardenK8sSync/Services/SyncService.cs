@@ -21,6 +21,7 @@ public class SyncService : ISyncService
     private string? _currentItemsHash;
     private readonly Dictionary<string, DateTime> _secretExistsCache = new();
     private int _syncCount;
+    private readonly List<string> _pendingYamlManifests = new();
 
     public SyncService(
         ILogger<SyncService> logger,
@@ -134,8 +135,8 @@ public class SyncService : ISyncService
             var itemsSkippedByContext = 0;
             
             var effectiveContextName = !string.IsNullOrEmpty(_syncConfig.ContextName) 
-                ? _syncConfig.ContextName 
-                : _kubernetesService.GetContextName();
+                ? _syncConfig.ContextName.Trim() 
+                : _kubernetesService.GetContextName()?.Trim();
             
             if (!string.IsNullOrEmpty(effectiveContextName))
             {
@@ -143,10 +144,14 @@ public class SyncService : ISyncService
                     effectiveContextName, 
                     !string.IsNullOrEmpty(_syncConfig.ContextName) ? "(configured)" : "(auto-detected)");
             }
+            else
+            {
+                _logger.LogDebug("No context name configured or auto-detected. Items with context-name field will NOT be filtered.");
+            }
             
             foreach (var item in items)
             {
-                var itemContext = item.ExtractContextName();
+                var itemContext = item.ExtractContextName()?.Trim();
                 if (!string.IsNullOrEmpty(effectiveContextName) && !string.IsNullOrEmpty(itemContext))
                 {
                     if (!string.Equals(itemContext, effectiveContextName, StringComparison.OrdinalIgnoreCase))
@@ -403,6 +408,8 @@ public class SyncService : ISyncService
             SourceItems = items.Count
         };
 
+        _pendingYamlManifests.Clear();
+
         try
         {
             _logger.LogDebug("Reconciling namespace with {Count} source items", items.Count);
@@ -534,6 +541,11 @@ public class SyncService : ISyncService
                 );
             }
 
+            if (_pendingYamlManifests.Count > 0)
+            {
+                await ApplyCollectedYamlManifestsAsync(namespaceName, namespaceSummary);
+            }
+
             return namespaceSummary;
         }
         catch (Exception ex)
@@ -543,6 +555,32 @@ public class SyncService : ISyncService
             namespaceSummary.Errors.Add($"Namespace sync failed: {ex.Message}");
             return namespaceSummary;
         }
+    }
+
+    private async Task ApplyCollectedYamlManifestsAsync(string namespaceName, NamespaceSummary namespaceSummary)
+    {
+        foreach (var yamlContent in _pendingYamlManifests)
+        {
+            try
+            {
+                var result = await _kubernetesService.ApplyYamlAsync(yamlContent);
+                if (result.Success)
+                {
+                    _logger.LogDebug("Applied YAML manifest successfully");
+                }
+                else
+                {
+                    _logger.LogWarning("Failed to apply YAML manifest: {Error}", result.ErrorMessage);
+                    namespaceSummary.Errors.Add($"YAML apply failed: {result.ErrorMessage}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Exception applying YAML manifest");
+                namespaceSummary.Errors.Add($"YAML apply exception: {ex.Message}");
+            }
+        }
+        _pendingYamlManifests.Clear();
     }
 
     private async Task<bool> SyncItemAsync(string namespaceName, Models.VaultwardenItem item)
@@ -556,7 +594,7 @@ public class SyncService : ISyncService
                 : SanitizeSecretName(item.Name);
             
             var secretType = item.ExtractSecretType();
-            var secretData = await ExtractSecretDataAsync(item, secretType);
+            var secretData = await ExtractSecretDataAsync(item, secretType, _pendingYamlManifests);
 
             if (_syncConfig.DryRun)
             {
@@ -632,7 +670,7 @@ public class SyncService : ISyncService
         }
     }
 
-    private async Task<Dictionary<string, string>> ExtractSecretDataAsync(Models.VaultwardenItem item, string? secretType)
+    private async Task<Dictionary<string, string>> ExtractSecretDataAsync(Models.VaultwardenItem item, string? secretType, List<string>? yamlManifests = null)
     {
         var data = secretType == "kubernetes.io/dockerconfigjson" 
             ? await ExtractDockerConfigJsonJsonAsync(item) 
@@ -686,113 +724,34 @@ public class SyncService : ISyncService
                 var fileName = attachment.FileName;
                 try
                 {
-                    var content = await _vaultwardenService.DownloadAttachmentAsync(attachment.Id);
-                    if (string.IsNullOrEmpty(content))
+                    var contentBytes = await _vaultwardenService.DownloadAttachmentAsync(attachment.Id);
+                    if (contentBytes == null || contentBytes.Length == 0)
                         continue;
+                    
+                    var content = System.Text.Encoding.UTF8.GetString(contentBytes);
                     
                     if (fileName.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase) || 
                         fileName.EndsWith(".yml", StringComparison.OrdinalIgnoreCase))
                     {
-                        data[$"__yaml_attachment__{fileName}"] = content;
+                        if (IsKubernetesYaml(content))
+                        {
+                            if (ContainsK8sSecret(content))
+                            {
+                                yamlManifests?.Add(content);
+                            }
+                            else
+                            {
+                                data[$"__yaml_attachment__{fileName}"] = content;
+                            }
+                        }
+                        else
+                        {
+                            data[$"__yaml_attachment__{fileName}"] = content;
+                        }
                     }
                     else if (content.TrimStart().StartsWith("stringData:", StringComparison.OrdinalIgnoreCase))
                     {
-                        var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.None);
-                        var inStringData = false;
-                        string? currentKey = null;
-                        var currentValue = new List<string>();
-                        bool isMultiline = false;
-                        int? baseIndent = null;
-                        
-                        for (int i = 0; i < lines.Length; i++)
-                        {
-                            var line = lines[i];
-                            var trimmedLine = line.Trim();
-                            var leadingSpaces = line.TakeWhile(c => c == ' ').Count();
-                            
-                            if (trimmedLine.StartsWith("stringData:", StringComparison.OrdinalIgnoreCase))
-                            {
-                                inStringData = true;
-                                var afterHeader = trimmedLine.Substring("stringData:".Length).Trim();
-                                if (!string.IsNullOrEmpty(afterHeader))
-                                {
-                                    ParseStringDataLine(afterHeader, data);
-                                }
-                                continue;
-                            }
-                            
-                            if (inStringData)
-                            {
-                                if (isMultiline)
-                                {
-                                    if (baseIndent.HasValue && leadingSpaces > baseIndent.Value)
-                                    {
-                                        currentValue.Add(line.Substring(baseIndent.Value));
-                                        continue;
-                                    }
-                                    else if (baseIndent.HasValue && leadingSpaces == baseIndent.Value && trimmedLine.Contains(':'))
-                                    {
-                                        data[currentKey!] = FormatMultilineValue(string.Join("\n", currentValue).TrimEnd());
-                                        isMultiline = false;
-                                        currentKey = null;
-                                        currentValue.Clear();
-                                    }
-                                    else if (string.IsNullOrWhiteSpace(trimmedLine))
-                                    {
-                                        currentValue.Add("");
-                                        continue;
-                                    }
-                                    else
-                                    {
-                                        data[currentKey!] = FormatMultilineValue(string.Join("\n", currentValue).TrimEnd());
-                                        isMultiline = false;
-                                        currentKey = null;
-                                        currentValue.Clear();
-                                    }
-                                }
-                                
-                                if (string.IsNullOrWhiteSpace(trimmedLine) || trimmedLine.StartsWith("#"))
-                                {
-                                    continue;
-                                }
-                                
-                                if (trimmedLine.EndsWith(":") && !trimmedLine.Contains("=") && !trimmedLine.Contains(" |"))
-                                {
-                                    break;
-                                }
-                                
-                                if (trimmedLine.Contains(':') || trimmedLine.Contains('='))
-                                {
-                                    if (!baseIndent.HasValue)
-                                    {
-                                        baseIndent = leadingSpaces;
-                                    }
-                                    
-                                    if (leadingSpaces == baseIndent.Value)
-                                    {
-                                        var separatorIndex = trimmedLine.IndexOfAny(new[] { ':', '=' });
-                                        var key = trimmedLine.Substring(0, separatorIndex).Trim();
-                                        var value = trimmedLine.Substring(separatorIndex + 1).Trim();
-                                        
-                                        if (value == "|")
-                                        {
-                                            isMultiline = true;
-                                            currentKey = key;
-                                            currentValue.Clear();
-                                        }
-                                        else if (!string.IsNullOrEmpty(key) && !data.ContainsKey(key))
-                                        {
-                                            data[key] = FormatMultilineValue(value);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        
-                        if (isMultiline && currentKey != null)
-                        {
-                            data[currentKey] = FormatMultilineValue(string.Join("\n", currentValue).TrimEnd());
-                        }
+                        ParseStringDataContent(content, data);
                     }
                     else
                     {
@@ -818,102 +777,7 @@ public class SyncService : ISyncService
         var notesContent = ExtractPureNoteBody(item.Notes);
         if (!string.IsNullOrWhiteSpace(notesContent) && notesContent.TrimStart().StartsWith("stringData:", StringComparison.OrdinalIgnoreCase))
         {
-            var lines = notesContent.Split(new[] { '\r', '\n' }, StringSplitOptions.None);
-            var inStringData = false;
-            string? currentKey = null;
-            var currentValue = new List<string>();
-            bool isMultiline = false;
-            int? baseIndent = null;
-            
-            for (int i = 0; i < lines.Length; i++)
-            {
-                var line = lines[i];
-                var trimmedLine = line.Trim();
-                var leadingSpaces = line.TakeWhile(c => c == ' ').Count();
-                
-                if (trimmedLine.StartsWith("stringData:", StringComparison.OrdinalIgnoreCase))
-                {
-                    inStringData = true;
-                    var afterHeader = trimmedLine.Substring("stringData:".Length).Trim();
-                    if (!string.IsNullOrEmpty(afterHeader))
-                    {
-                        ParseStringDataLine(afterHeader, data);
-                    }
-                    continue;
-                }
-                
-                if (inStringData)
-                {
-                    if (isMultiline)
-                    {
-                        if (baseIndent.HasValue && leadingSpaces > baseIndent.Value)
-                        {
-                            currentValue.Add(line.Substring(baseIndent.Value));
-                            continue;
-                        }
-                        else if (baseIndent.HasValue && leadingSpaces == baseIndent.Value && trimmedLine.Contains(':'))
-                        {
-                            data[currentKey!] = FormatMultilineValue(string.Join("\n", currentValue).TrimEnd());
-                            isMultiline = false;
-                            currentKey = null;
-                            currentValue.Clear();
-                        }
-                        else if (string.IsNullOrWhiteSpace(trimmedLine))
-                        {
-                            currentValue.Add("");
-                            continue;
-                        }
-                        else
-                        {
-                            data[currentKey!] = FormatMultilineValue(string.Join("\n", currentValue).TrimEnd());
-                            isMultiline = false;
-                            currentKey = null;
-                            currentValue.Clear();
-                        }
-                    }
-                    
-                    if (string.IsNullOrWhiteSpace(trimmedLine) || trimmedLine.StartsWith("#"))
-                    {
-                        continue;
-                    }
-                    
-                    if (trimmedLine.EndsWith(":") && !trimmedLine.Contains("=") && !trimmedLine.Contains(" |"))
-                    {
-                        break;
-                    }
-                    
-                    if (trimmedLine.Contains(':') || trimmedLine.Contains('='))
-                    {
-                        if (!baseIndent.HasValue)
-                        {
-                            baseIndent = leadingSpaces;
-                        }
-                        
-                        if (leadingSpaces == baseIndent.Value)
-                        {
-                            var separatorIndex = trimmedLine.IndexOfAny(new[] { ':', '=' });
-                            var key = trimmedLine.Substring(0, separatorIndex).Trim();
-                            var value = trimmedLine.Substring(separatorIndex + 1).Trim();
-                            
-                            if (value == "|")
-                            {
-                                isMultiline = true;
-                                currentKey = key;
-                                currentValue.Clear();
-                            }
-                            else if (!string.IsNullOrEmpty(key) && !data.ContainsKey(key))
-                            {
-                                data[key] = FormatMultilineValue(value);
-                            }
-                        }
-                    }
-                }
-            }
-            
-            if (isMultiline && currentKey != null)
-            {
-                data[currentKey] = FormatMultilineValue(string.Join("\n", currentValue).TrimEnd());
-            }
+            ParseStringDataContent(notesContent, data);
         }
 
         // Hydrate SSH Key payload for SSH items if missing from list output
@@ -1161,6 +1025,110 @@ public class SyncService : ISyncService
         }
     }
 
+    /// <summary>
+    /// Parses stringData content from attachments or notes, extracting key-value pairs into the secret data dictionary.
+    /// Handles multi-line values (|), comments, and both colon/equals separators.
+    /// </summary>
+    private static void ParseStringDataContent(string content, Dictionary<string, string> data)
+    {
+        var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.None);
+        var inStringData = false;
+        string? currentKey = null;
+        var currentValue = new List<string>();
+        bool isMultiline = false;
+        int? baseIndent = null;
+        
+        for (int i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            var trimmedLine = line.Trim();
+            var leadingSpaces = line.TakeWhile(c => c == ' ').Count();
+            
+            if (trimmedLine.StartsWith("stringData:", StringComparison.OrdinalIgnoreCase))
+            {
+                inStringData = true;
+                var afterHeader = trimmedLine.Substring("stringData:".Length).Trim();
+                if (!string.IsNullOrEmpty(afterHeader))
+                {
+                    ParseStringDataLine(afterHeader, data);
+                }
+                continue;
+            }
+            
+            if (inStringData)
+            {
+                if (isMultiline)
+                {
+                    if (baseIndent.HasValue && leadingSpaces > baseIndent.Value)
+                    {
+                        currentValue.Add(line.Substring(baseIndent.Value));
+                        continue;
+                    }
+                    else if (baseIndent.HasValue && leadingSpaces == baseIndent.Value && trimmedLine.Contains(':'))
+                    {
+                        data[currentKey!] = FormatMultilineValue(string.Join("\n", currentValue).TrimEnd());
+                        isMultiline = false;
+                        currentKey = null;
+                        currentValue.Clear();
+                    }
+                    else if (string.IsNullOrWhiteSpace(trimmedLine))
+                    {
+                        currentValue.Add("");
+                        continue;
+                    }
+                    else
+                    {
+                        data[currentKey!] = FormatMultilineValue(string.Join("\n", currentValue).TrimEnd());
+                        isMultiline = false;
+                        currentKey = null;
+                        currentValue.Clear();
+                    }
+                }
+                
+                if (string.IsNullOrWhiteSpace(trimmedLine) || trimmedLine.StartsWith("#"))
+                {
+                    continue;
+                }
+                
+                if (trimmedLine.EndsWith(":") && !trimmedLine.Contains("=") && !trimmedLine.Contains(" |"))
+                {
+                    break;
+                }
+                
+                if (trimmedLine.Contains(':') || trimmedLine.Contains('='))
+                {
+                    if (!baseIndent.HasValue)
+                    {
+                        baseIndent = leadingSpaces;
+                    }
+                    
+                    if (leadingSpaces == baseIndent.Value)
+                    {
+                        var separatorIndex = trimmedLine.IndexOfAny(new[] { ':', '=' });
+                        var key = trimmedLine.Substring(0, separatorIndex).Trim();
+                        var value = trimmedLine.Substring(separatorIndex + 1).Trim();
+                        
+                        if (value == "|")
+                        {
+                            isMultiline = true;
+                            currentKey = key;
+                            currentValue.Clear();
+                        }
+                        else if (!string.IsNullOrEmpty(key) && !data.ContainsKey(key))
+                        {
+                            data[key] = FormatMultilineValue(value);
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (isMultiline && currentKey != null)
+        {
+            data[currentKey] = FormatMultilineValue(string.Join("\n", currentValue).TrimEnd());
+        }
+    }
+
     internal static bool IsKubernetesYaml(string content)
     {
         if (string.IsNullOrWhiteSpace(content))
@@ -1172,15 +1140,41 @@ public class SyncService : ISyncService
             if (objects == null || objects.Count == 0)
                 return false;
 
-            foreach (dynamic obj in objects)
+            foreach (var obj in objects)
             {
-                string? apiVersion = obj.ApiVersion;
-                string? kind = obj.Kind;
-                if (string.IsNullOrWhiteSpace(apiVersion) || string.IsNullOrWhiteSpace(kind))
+                if (obj is not k8s.IKubernetesObject k8sObj)
+                    return false;
+
+                if (string.IsNullOrWhiteSpace(k8sObj.ApiVersion) || string.IsNullOrWhiteSpace(k8sObj.Kind))
                     return false;
             }
 
             return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool ContainsK8sSecret(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return false;
+
+        try
+        {
+            var objects = k8s.KubernetesYaml.LoadAllFromString(content);
+            if (objects == null || objects.Count == 0)
+                return false;
+
+            foreach (var obj in objects)
+            {
+                if (obj is k8s.Models.V1Secret)
+                    return true;
+            }
+
+            return false;
         }
         catch
         {
@@ -1658,7 +1652,7 @@ public class SyncService : ISyncService
                 }
 
                 // Use itemSecretType (the item's own type) for parsing, not the merged secretType
-                var itemData = await ExtractSecretDataAsync(item, itemSecretType);
+                var itemData = await ExtractSecretDataAsync(item, itemSecretType, _pendingYamlManifests);
                 foreach (var kvp in itemData)
                 {
                     // If multiple items have the same key, the last one wins
@@ -2217,12 +2211,11 @@ public class SyncService : ISyncService
             }
         }
         
-        // Attachments (could affect secret if processed)
         if (item.Attachments != null)
         {
             foreach (var attachment in item.Attachments.OrderBy(a => a.FileName))
             {
-                contentParts.Add($"attachment:{attachment.FileName}:{attachment.Size}");
+                contentParts.Add($"attachment:{attachment.Id}");
             }
         }
         
