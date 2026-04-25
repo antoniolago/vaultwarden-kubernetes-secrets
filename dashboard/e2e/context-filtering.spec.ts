@@ -27,54 +27,47 @@ test.describe('Context Name Filtering E2E Tests', () => {
   })
 
   test('should sync items without context-name to all clusters', async () => {
-    if (!apiAvailable) {
-      expect(true).toBe(true)
-      return
-    }
+    test.skip(!apiAvailable, 'API not available')
     const allClusterSecrets = secrets.filter(s => s.lastSyncedAt)
-    expect(allClusterSecrets.length).toBeGreaterThanOrEqual(0)
+    expect(allClusterSecrets.length).toBeGreaterThan(0)
   })
 
-  test('should return secrets for current context', async () => {
-    if (!apiAvailable) {
-      expect(true).toBe(true)
-      return
-    }
+  test('should return secrets for current context', async ({ request }) => {
+    test.skip(!apiAvailable, 'API not available')
+    const configResponse = await request.get(`${API_URL}/config`, { timeout: 3000 })
+    expect(configResponse.ok()).toBeTruthy()
+    const config = await configResponse.json()
     const validSecrets = secrets.filter(s => s.secretName && s.namespace)
-    expect(validSecrets.length).toBeGreaterThanOrEqual(0)
+    expect(validSecrets.length).toBeGreaterThan(0)
+    if (config?.contextName) {
+      const contextMatched = validSecrets.filter(s =>
+        s.secretName?.includes(config.contextName) || s.namespace?.includes(config.contextName)
+      )
+      expect(contextMatched.length).toBeGreaterThanOrEqual(0)
+    }
   })
 
   test('should handle context-name custom field', async () => {
-    if (!apiAvailable) {
-      expect(true).toBe(true)
-      return
-    }
+    test.skip(!apiAvailable, 'API not available')
     const contextFiltered = secrets.filter(s =>
       s.data && Object.keys(s.data).some(k => k.includes('context'))
     )
     expect(contextFiltered.length).toBeGreaterThanOrEqual(0)
   })
 
-  test('should support context-name configuration', async () => {
-    if (!apiAvailable) {
-      expect(true).toBe(true)
-      return
-    }
+  test('should support context-name configuration', async ({ request }) => {
+    test.skip(!apiAvailable, 'API not available')
     const configResponse = await request.get(`${API_URL}/config`, { timeout: 3000 })
-    if (configResponse.ok()) {
-      const config = await configResponse.json()
-      const hasContextSetting = config?.contextName !== undefined
-      expect(hasContextSetting || true).toBe(true)
-    } else {
-      expect(true).toBe(true)
-    }
+    expect(configResponse.ok()).toBeTruthy()
+    const config = await configResponse.json()
+    expect(config?.contextName).toBeDefined()
   })
 
-  test('should allow env var override for context name', async () => {
-    if (!apiAvailable) {
-      expect(true).toBe(true)
-      return
-    }
-    expect(apiAvailable).toBe(true)
+  test('should allow env var override for context name', async ({ request }) => {
+    test.skip(!apiAvailable, 'API not available')
+    const configResponse = await request.get(`${API_URL}/config`, { timeout: 3000 })
+    expect(configResponse.ok()).toBeTruthy()
+    const config = await configResponse.json()
+    expect(config?.contextName).toBeDefined()
   })
 })

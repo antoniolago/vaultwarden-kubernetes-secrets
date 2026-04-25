@@ -27,71 +27,53 @@ test.describe('Default Field Names E2E Tests', () => {
   })
 
   test('should use username as default key name', async () => {
-    if (!apiAvailable) {
-      expect(true).toBe(true)
-      return
-    }
+    test.skip(!apiAvailable, 'API not available')
     const usernameSecrets = secrets.filter(s =>
       s.data && Object.keys(s.data).some(k => k === 'username')
     )
-    expect(usernameSecrets.length).toBeGreaterThanOrEqual(0)
+    expect(usernameSecrets.length).toBeGreaterThan(0)
   })
 
   test('should use password as default key name', async () => {
-    if (!apiAvailable) {
-      expect(true).toBe(true)
-      return
-    }
+    test.skip(!apiAvailable, 'API not available')
     const passwordSecrets = secrets.filter(s =>
       s.data && Object.keys(s.data).some(k => k === 'password')
     )
-    expect(passwordSecrets.length).toBeGreaterThanOrEqual(0)
+    expect(passwordSecrets.length).toBeGreaterThan(0)
   })
 
   test('should use private-key for SSH items', async () => {
-    if (!apiAvailable) {
-      expect(true).toBe(true)
-      return
-    }
+    test.skip(!apiAvailable, 'API not available')
     const privateKeySecrets = secrets.filter(s =>
       s.data && Object.keys(s.data).some(k => k === 'private-key')
     )
-    expect(privateKeySecrets.length).toBeGreaterThanOrEqual(0)
+    expect(privateKeySecrets.length).toBeGreaterThan(0)
   })
 
   test('should use public-key for SSH items', async () => {
-    if (!apiAvailable) {
-      expect(true).toBe(true)
-      return
-    }
+    test.skip(!apiAvailable, 'API not available')
     const publicKeySecrets = secrets.filter(s =>
       s.data && Object.keys(s.data).some(k => k === 'public-key')
     )
-    expect(publicKeySecrets.length).toBeGreaterThanOrEqual(0)
+    expect(publicKeySecrets.length).toBeGreaterThan(0)
   })
 
   test('should use fingerprint for SSH items', async () => {
-    if (!apiAvailable) {
-      expect(true).toBe(true)
-      return
-    }
+    test.skip(!apiAvailable, 'API not available')
     const fingerprintSecrets = secrets.filter(s =>
       s.data && Object.keys(s.data).some(k => k === 'fingerprint')
     )
-    expect(fingerprintSecrets.length).toBeGreaterThanOrEqual(0)
+    expect(fingerprintSecrets.length).toBeGreaterThan(0)
   })
 
   test('should support custom field overrides', async () => {
-    if (!apiAvailable) {
-      expect(true).toBe(true)
-      return
-    }
+    test.skip(!apiAvailable, 'API not available')
     const customFieldSecrets = secrets.filter(s =>
       s.data && (
         Object.keys(s.data).some(k => k !== 'username' && k !== 'password' &&
           k !== 'private-key' && k !== 'public-key' && k !== 'fingerprint')
       )
     )
-    expect(customFieldSecrets.length).toBeGreaterThanOrEqual(0)
+    expect(customFieldSecrets.length).toBeGreaterThan(0)
   })
 })

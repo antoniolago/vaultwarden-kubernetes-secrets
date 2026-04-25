@@ -183,6 +183,8 @@ public class SyncService : ISyncService
                 _logger.LogInformation("Skipped {Count} items due to context-name mismatch", itemsSkippedByContext);
             }
 
+            var filteredItems = itemsByNamespace.Values.SelectMany(x => x).DistinctBy(i => i.Id).ToList();
+
             summary.TotalNamespaces = itemsByNamespace.Count;
             _logger.LogInformation("Found {ItemsWithNamespaces}/{TotalItems} items with namespace tags across {NamespaceCount} namespaces", 
                 itemsWithNamespaces, items.Count, itemsByNamespace.Count);
@@ -247,7 +249,7 @@ public class SyncService : ISyncService
                 progress.SetPhase("Cleaning up orphaned secrets");
                 try
                 {
-                    var orphanSummary = await CleanupOrphanedSecretsAsync(items);
+                    var orphanSummary = await CleanupOrphanedSecretsAsync(filteredItems);
                     summary.OrphanCleanup = orphanSummary;
                 }
                 catch (Exception ex)
@@ -269,7 +271,7 @@ public class SyncService : ISyncService
             // Cleanup stale secret states (database entries for secrets that no longer exist in Vaultwarden)
             try
             {
-                var staleCount = await _dbLogger.CleanupStaleSecretStatesAsync(items);
+                var staleCount = await _dbLogger.CleanupStaleSecretStatesAsync(filteredItems);
                 if (staleCount > 0)
                 {
                     _logger.LogInformation("Cleaned up {Count} stale secret state entries", staleCount);
@@ -674,7 +676,7 @@ public class SyncService : ISyncService
     {
         var data = secretType == "kubernetes.io/dockerconfigjson" 
             ? await ExtractDockerConfigJsonJsonAsync(item) 
-            : await ExtractCredentialsAsync(item);
+            : await ExtractCredentialsAsync(item, yamlManifests);
 
         // Get the list of fields that should be ignored for this item
         var ignoredFields = item.ExtractIgnoredFields();
@@ -735,14 +737,7 @@ public class SyncService : ISyncService
                     {
                         if (IsKubernetesYaml(content))
                         {
-                            if (ContainsK8sSecret(content))
-                            {
-                                yamlManifests?.Add(content);
-                            }
-                            else
-                            {
-                                data[$"__yaml_attachment__{fileName}"] = content;
-                            }
+                            yamlManifests?.Add(content);
                         }
                         else
                         {
@@ -751,7 +746,14 @@ public class SyncService : ISyncService
                     }
                     else if (content.TrimStart().StartsWith("stringData:", StringComparison.OrdinalIgnoreCase))
                     {
-                        ParseStringDataContent(content, data);
+                        if (IsKubernetesYaml(content))
+                        {
+                            yamlManifests?.Add(content);
+                        }
+                        else
+                        {
+                            ParseStringDataContent(content, data);
+                        }
                     }
                     else
                     {
@@ -771,13 +773,20 @@ public class SyncService : ISyncService
         return data;
     }
 
-    private async Task<Dictionary<string, string>> ExtractCredentialsAsync(Models.VaultwardenItem item) {
+    private async Task<Dictionary<string, string>> ExtractCredentialsAsync(Models.VaultwardenItem item, List<string>? yamlManifests = null) {
         var data = new Dictionary<string, string>();
 
         var notesContent = ExtractPureNoteBody(item.Notes);
         if (!string.IsNullOrWhiteSpace(notesContent) && notesContent.TrimStart().StartsWith("stringData:", StringComparison.OrdinalIgnoreCase))
         {
-            ParseStringDataContent(notesContent, data);
+            if (IsKubernetesYaml(notesContent))
+            {
+                yamlManifests?.Add(notesContent);
+            }
+            else
+            {
+                ParseStringDataContent(notesContent, data);
+            }
         }
 
         // Hydrate SSH Key payload for SSH items if missing from list output
@@ -1150,31 +1159,6 @@ public class SyncService : ISyncService
             }
 
             return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static bool ContainsK8sSecret(string content)
-    {
-        if (string.IsNullOrWhiteSpace(content))
-            return false;
-
-        try
-        {
-            var objects = k8s.KubernetesYaml.LoadAllFromString(content);
-            if (objects == null || objects.Count == 0)
-                return false;
-
-            foreach (var obj in objects)
-            {
-                if (obj is k8s.Models.V1Secret)
-                    return true;
-            }
-
-            return false;
         }
         catch
         {

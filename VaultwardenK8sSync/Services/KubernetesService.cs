@@ -983,56 +983,138 @@ public class KubernetesService : IKubernetesService
         return System.Text.Json.JsonSerializer.Serialize(keyNames.OrderBy(k => k).ToList());
     }
 
-    /// <summary>
-    /// Applies a Kubernetes YAML manifest to the cluster using kubectl apply.
-    /// Supports multi-document YAML (multiple objects separated by ---).
-    /// </summary>
     public async Task<OperationResult> ApplyYamlAsync(string yaml)
     {
+        if (_client == null)
+        {
+            return OperationResult.Failed("Kubernetes client not initialized");
+        }
+
         try
         {
-            _logger.LogDebug("Applying Kubernetes YAML manifest via kubectl apply");
+            _logger.LogDebug("Applying Kubernetes YAML manifest via IKubernetes client");
 
-            var args = "apply -f -";
-            if (!string.IsNullOrEmpty(_config.Context))
+            var objects = KubernetesYaml.LoadAllFromString(yaml);
+            if (objects == null || objects.Count == 0)
             {
-                args = $"--context {_config.Context} apply -f -";
-                _logger.LogDebug("Using Kubernetes context: {Context}", _config.Context);
+                return OperationResult.Failed("No valid Kubernetes objects found in YAML");
             }
 
-            var startInfo = new ProcessStartInfo
+            foreach (var obj in objects)
             {
-                FileName = "kubectl",
-                Arguments = args,
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+                var result = obj switch
+                {
+                    V1Secret secret => await ApplySecretAsync(secret),
+                    V1ConfigMap cm => await ApplyConfigMapAsync(cm),
+                    V1Namespace ns => await ApplyNamespaceAsync(ns),
+                    _ => OperationResult.Failed($"Unsupported resource type: {obj.GetType().Name}")
+                };
 
-            using var process = new Process { StartInfo = startInfo };
-            var result = await _processRunner.RunAsync(process, input: yaml);
+                if (!result.Success)
+                {
+                    return result;
+                }
+            }
 
-            if (result.Success)
-            {
-                _logger.LogInformation("Successfully applied Kubernetes YAML manifest. Output: {Output}", 
-                    result.Output.TrimEnd());
-                return OperationResult.Successful();
-            }
-            else
-            {
-                var errorMsg = !string.IsNullOrEmpty(result.Error) 
-                    ? result.Error.TrimEnd() 
-                    : result.Output.TrimEnd();
-                _logger.LogError("Failed to apply Kubernetes YAML manifest: {Error}", errorMsg);
-                return OperationResult.Failed(errorMsg);
-            }
+            _logger.LogInformation("Successfully applied Kubernetes YAML manifest ({Count} objects)", objects.Count);
+            return OperationResult.Successful();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception applying Kubernetes YAML manifest");
-            return OperationResult.Failed($"kubectl apply failed: {ex.Message}");
+            return OperationResult.Failed($"Apply failed: {ex.Message}");
+        }
+    }
+
+    private async Task<OperationResult> ApplySecretAsync(V1Secret secret)
+    {
+        var name = secret.Metadata?.Name;
+        var ns = secret.Metadata?.NamespaceProperty;
+        if (string.IsNullOrEmpty(name))
+            return OperationResult.Failed("Secret missing metadata.name");
+
+        try
+        {
+            if (!string.IsNullOrEmpty(ns))
+            {
+                try
+                {
+                    await _client.CoreV1.ReadNamespacedSecretAsync(name, ns);
+                    await _client.CoreV1.ReplaceNamespacedSecretAsync(secret, name, ns);
+                    _logger.LogDebug("Replaced Secret {Name} in namespace {Namespace}", name, ns);
+                }
+                catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    await _client.CoreV1.CreateNamespacedSecretAsync(secret, ns);
+                    _logger.LogDebug("Created Secret {Name} in namespace {Namespace}", name, ns);
+                }
+            }
+            else
+            {
+                return OperationResult.Failed("Secret must have a namespace");
+            }
+            return OperationResult.Successful();
+        }
+        catch (Exception ex)
+        {
+            return OperationResult.Failed($"Failed to apply Secret {name}: {ex.Message}");
+        }
+    }
+
+    private async Task<OperationResult> ApplyConfigMapAsync(V1ConfigMap cm)
+    {
+        var name = cm.Metadata?.Name;
+        var ns = cm.Metadata?.NamespaceProperty;
+        if (string.IsNullOrEmpty(name))
+            return OperationResult.Failed("ConfigMap missing metadata.name");
+        if (string.IsNullOrEmpty(ns))
+            return OperationResult.Failed("ConfigMap must have a namespace");
+
+        try
+        {
+            try
+            {
+                await _client.CoreV1.ReadNamespacedConfigMapAsync(name, ns);
+                await _client.CoreV1.ReplaceNamespacedConfigMapAsync(cm, name, ns);
+                _logger.LogDebug("Replaced ConfigMap {Name} in namespace {Namespace}", name, ns);
+            }
+            catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                await _client.CoreV1.CreateNamespacedConfigMapAsync(cm, ns);
+                _logger.LogDebug("Created ConfigMap {Name} in namespace {Namespace}", name, ns);
+            }
+            return OperationResult.Successful();
+        }
+        catch (Exception ex)
+        {
+            return OperationResult.Failed($"Failed to apply ConfigMap {name}: {ex.Message}");
+        }
+    }
+
+    private async Task<OperationResult> ApplyNamespaceAsync(V1Namespace ns)
+    {
+        var name = ns.Metadata?.Name;
+        if (string.IsNullOrEmpty(name))
+            return OperationResult.Failed("Namespace missing metadata.name");
+
+        try
+        {
+            try
+            {
+                await _client.CoreV1.ReadNamespaceAsync(name);
+                await _client.CoreV1.ReplaceNamespaceAsync(ns, name);
+                _logger.LogDebug("Replaced Namespace {Name}", name);
+            }
+            catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                await _client.CoreV1.CreateNamespaceAsync(ns);
+                _logger.LogDebug("Created Namespace {Name}", name);
+            }
+            return OperationResult.Successful();
+        }
+        catch (Exception ex)
+        {
+            return OperationResult.Failed($"Failed to apply Namespace {name}: {ex.Message}");
         }
     }
 

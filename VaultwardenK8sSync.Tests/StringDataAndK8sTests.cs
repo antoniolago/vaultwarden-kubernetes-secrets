@@ -581,7 +581,7 @@ stringData:
 
         var result = await ExtractSecretDataAsync(item);
 
-        Assert.Contains("__yaml_attachment__config.yaml", result.Keys);
+        Assert.DoesNotContain("__yaml_attachment__config.yaml", result.Keys);
         Assert.Contains("readme.txt", result.Keys);
         Assert.Contains("KEY", result.Keys);
     }
@@ -616,7 +616,7 @@ stringData:
     }
 
     [Fact]
-    public async Task ExtractSecretDataAsync_WithYmlAttachment_ShouldStoreWithPrefix()
+    public async Task ExtractSecretDataAsync_WithYmlAttachment_ShouldNotStoreInData()
     {
         var yamlContent = "apiVersion: v1\nkind: ConfigMap";
 
@@ -642,7 +642,7 @@ stringData:
 
         var result = await ExtractSecretDataAsync(item);
 
-        Assert.Contains("__yaml_attachment__config.yml", result.Keys);
+        Assert.DoesNotContain("__yaml_attachment__config.yml", result.Keys);
     }
 
     #endregion
@@ -972,7 +972,7 @@ kind: ConfigMap
     #region Context Filtering Logic Tests
 
     [Fact]
-    public void SyncService_ShouldFilterByContextName_WhenConfigured()
+    public async Task SyncService_ShouldFilterByContextName_WhenConfigured()
     {
         var syncConfigWithContext = new SyncSettings
         {
@@ -1020,7 +1020,7 @@ kind: ConfigMap
         var method = typeof(SyncService).GetMethod("ExtractSecretDataAsync", 
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
         
-        var result1 = (Dictionary<string, string>)method!.Invoke(syncServiceWithContext, new object[] { itemWithMatchingContext, "Opaque" })!;
+        var result1 = (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(syncServiceWithContext, new object[] { itemWithMatchingContext, "Opaque", null })!;
         
         Assert.Contains("password", result1.Keys);
     }

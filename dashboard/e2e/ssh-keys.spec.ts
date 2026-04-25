@@ -68,7 +68,7 @@ test.describe('SSH Keys E2E Tests', () => {
       s.secretName?.toLowerCase().includes('ssh') ||
       s.secretName?.toLowerCase().includes('key')
     )
-    expect(sshKeys.length).toBeGreaterThanOrEqual(0)
+    expect(sshKeySecrets.length).toBeGreaterThanOrEqual(0)
   })
 
   test('should handle SSH key with multiple keys', async () => {
