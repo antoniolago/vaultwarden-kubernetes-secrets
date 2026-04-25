@@ -9,6 +9,10 @@ test.describe('Context Name Filtering E2E Tests', () => {
     secretName: string
     data: Record<string, string>
     lastSyncedAt?: string
+    metadata?: {
+      annotations?: Record<string, string>
+      contextName?: string
+    }
   }
 
   let secrets: SecretData[] = []
@@ -26,14 +30,16 @@ test.describe('Context Name Filtering E2E Tests', () => {
     }
   })
 
+  test('should verify API is available for context filtering tests', async () => {
+    expect(apiAvailable).toBeTruthy()
+  })
+
   test('should sync items without context-name to all clusters', async () => {
-    test.skip(!apiAvailable, 'API not available')
     const allClusterSecrets = secrets.filter(s => s.lastSyncedAt)
     expect(allClusterSecrets.length).toBeGreaterThan(0)
   })
 
   test('should return secrets for current context', async ({ request }) => {
-    test.skip(!apiAvailable, 'API not available')
     const configResponse = await request.get(`${API_URL}/config`, { timeout: 3000 })
     expect(configResponse.ok()).toBeTruthy()
     const config = await configResponse.json()
@@ -41,33 +47,33 @@ test.describe('Context Name Filtering E2E Tests', () => {
     expect(validSecrets.length).toBeGreaterThan(0)
     if (config?.contextName) {
       const contextMatched = validSecrets.filter(s =>
-        s.secretName?.includes(config.contextName) || s.namespace?.includes(config.contextName)
+        s.metadata?.annotations?.['context-name'] === config.contextName ||
+        s.metadata?.contextName === config.contextName
       )
       expect(contextMatched.length).toBeGreaterThanOrEqual(0)
     }
   })
 
   test('should handle context-name custom field', async () => {
-    test.skip(!apiAvailable, 'API not available')
     const contextFiltered = secrets.filter(s =>
-      s.data && Object.keys(s.data).some(k => k.includes('context'))
+      s.metadata?.annotations?.['context-name'] || s.metadata?.contextName
     )
     expect(contextFiltered.length).toBeGreaterThanOrEqual(0)
   })
 
   test('should support context-name configuration', async ({ request }) => {
-    test.skip(!apiAvailable, 'API not available')
     const configResponse = await request.get(`${API_URL}/config`, { timeout: 3000 })
     expect(configResponse.ok()).toBeTruthy()
     const config = await configResponse.json()
-    expect(config?.contextName).toBeDefined()
+    const expectedContext = process.env.EXPECTED_CONTEXT_NAME || 'production'
+    expect(config.contextName).toEqual(expectedContext)
   })
 
   test('should allow env var override for context name', async ({ request }) => {
-    test.skip(!apiAvailable, 'API not available')
     const configResponse = await request.get(`${API_URL}/config`, { timeout: 3000 })
     expect(configResponse.ok()).toBeTruthy()
     const config = await configResponse.json()
-    expect(config?.contextName).toBeDefined()
+    const expectedOverride = process.env.EXPECTED_CONTEXT_NAME || 'production'
+    expect(config.contextName).toEqual(expectedOverride)
   })
 })

@@ -21,7 +21,6 @@ public class SyncService : ISyncService
     private string? _currentItemsHash;
     private readonly Dictionary<string, DateTime> _secretExistsCache = new();
     private int _syncCount;
-    private readonly List<string> _pendingYamlManifests = new();
 
     public SyncService(
         ILogger<SyncService> logger,
@@ -128,15 +127,7 @@ public class SyncService : ISyncService
 
             _logger.LogDebug("Proceeding with reconciliation (hash changed: {HashChanged})", !shouldSkipReconciliation);
 
-            // Group items by namespace (supporting multiple namespaces per item)
-            var itemsByNamespace = new Dictionary<string, List<Models.VaultwardenItem>>();
-            
-            var itemsWithNamespaces = 0;
-            var itemsSkippedByContext = 0;
-            
-            var effectiveContextName = !string.IsNullOrEmpty(_syncConfig.ContextName) 
-                ? _syncConfig.ContextName.Trim() 
-                : _kubernetesService.GetContextName()?.Trim();
+            var effectiveContextName = GetEffectiveContextName();
             
             if (!string.IsNullOrEmpty(effectiveContextName))
             {
@@ -148,42 +139,14 @@ public class SyncService : ISyncService
             {
                 _logger.LogDebug("No context name configured or auto-detected. Items with context-name field will NOT be filtered.");
             }
-            
-            foreach (var item in items)
-            {
-                var itemContext = item.ExtractContextName()?.Trim();
-                if (!string.IsNullOrEmpty(effectiveContextName) && !string.IsNullOrEmpty(itemContext))
-                {
-                    if (!string.Equals(itemContext, effectiveContextName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        itemsSkippedByContext++;
-                        _logger.LogDebug("Skipping item {ItemName} (ID: {ItemId}) - context '{ItemContext}' does not match '{EffectiveContextName}'", 
-                            item.Name, item.Id, itemContext, effectiveContextName);
-                        continue;
-                    }
-                }
-                
-                var namespaces = item.ExtractNamespaces();
-                if (namespaces.Any())
-                {
-                    itemsWithNamespaces++;
-                }
-                foreach (var namespaceName in namespaces)
-                {
-                    if (!itemsByNamespace.ContainsKey(namespaceName))
-                    {
-                        itemsByNamespace[namespaceName] = new List<Models.VaultwardenItem>();
-                    }
-                    itemsByNamespace[namespaceName].Add(item);
-                }
-            }
+
+            var (itemsByNamespace, itemsWithNamespaces, itemsSkippedByContext, filteredItems) =
+                FilterAndGroupByNamespace(items, effectiveContextName, _logger);
 
             if (itemsSkippedByContext > 0)
             {
                 _logger.LogInformation("Skipped {Count} items due to context-name mismatch", itemsSkippedByContext);
             }
-
-            var filteredItems = itemsByNamespace.Values.SelectMany(x => x).DistinctBy(i => i.Id).ToList();
 
             summary.TotalNamespaces = itemsByNamespace.Count;
             _logger.LogInformation("Found {ItemsWithNamespaces}/{TotalItems} items with namespace tags across {NamespaceCount} namespaces", 
@@ -379,9 +342,24 @@ public class SyncService : ISyncService
     public async Task<bool> SyncNamespaceAsync(string namespaceName)
     {
         var items = await _vaultwardenService.GetItemsAsync();
-        var namespaceItems = items
-            .Where(item => item.ExtractNamespaces().Contains(namespaceName))
-            .ToList();
+        var effectiveContextName = GetEffectiveContextName();
+        
+        if (!string.IsNullOrEmpty(effectiveContextName))
+        {
+            _logger.LogInformation("Using context name for filtering: {ContextName} {Source}",
+                effectiveContextName,
+                !string.IsNullOrEmpty(_syncConfig.ContextName) ? "(configured)" : "(auto-detected)");
+        }
+
+        var (itemsByNamespace, _, itemsSkippedByContext, _) =
+            FilterAndGroupByNamespace(items, effectiveContextName, _logger);
+
+        if (itemsSkippedByContext > 0)
+        {
+            _logger.LogInformation("Skipped {Count} items due to context-name mismatch", itemsSkippedByContext);
+        }
+
+        var namespaceItems = itemsByNamespace.GetValueOrDefault(namespaceName, new List<Models.VaultwardenItem>());
 
         // Create a temporary summary for the single namespace sync
         var tempSummary = new SyncSummary { SyncNumber = GetSyncCount() };
@@ -410,7 +388,7 @@ public class SyncService : ISyncService
             SourceItems = items.Count
         };
 
-        _pendingYamlManifests.Clear();
+        var yamlManifests = new List<string>();
 
         try
         {
@@ -433,7 +411,7 @@ public class SyncService : ISyncService
                 {
                     // progress?.UpdateItem(key, "Processing...", $"Items: {secretItems.Count}");
                     
-                    var secretSummary = await SyncSecretAsync(namespaceName, secretName, secretItems, syncLogId);
+                    var secretSummary = await SyncSecretAsync(namespaceName, secretName, secretItems, syncLogId, yamlManifests);
                     namespaceSummary.AddSecret(secretSummary);
                     
                     _logger.LogDebug("SyncNamespaceAsync: Secret {SecretName} in namespace {Namespace} completed with outcome: {Outcome}", 
@@ -543,9 +521,9 @@ public class SyncService : ISyncService
                 );
             }
 
-            if (_pendingYamlManifests.Count > 0)
+            if (yamlManifests.Count > 0)
             {
-                await ApplyCollectedYamlManifestsAsync(namespaceName, namespaceSummary);
+                await ApplyCollectedYamlManifestsAsync(namespaceName, namespaceSummary, yamlManifests);
             }
 
             return namespaceSummary;
@@ -559,9 +537,9 @@ public class SyncService : ISyncService
         }
     }
 
-    private async Task ApplyCollectedYamlManifestsAsync(string namespaceName, NamespaceSummary namespaceSummary)
+    private async Task ApplyCollectedYamlManifestsAsync(string namespaceName, NamespaceSummary namespaceSummary, List<string> yamlManifests)
     {
-        foreach (var yamlContent in _pendingYamlManifests)
+        foreach (var yamlContent in yamlManifests)
         {
             try
             {
@@ -582,10 +560,9 @@ public class SyncService : ISyncService
                 namespaceSummary.Errors.Add($"YAML apply exception: {ex.Message}");
             }
         }
-        _pendingYamlManifests.Clear();
     }
 
-    private async Task<bool> SyncItemAsync(string namespaceName, Models.VaultwardenItem item)
+    private async Task<bool> SyncItemAsync(string namespaceName, Models.VaultwardenItem item, List<string> yamlManifests)
     {
         try
         {
@@ -596,7 +573,7 @@ public class SyncService : ISyncService
                 : SanitizeSecretName(item.Name);
             
             var secretType = item.ExtractSecretType();
-            var secretData = await ExtractSecretDataAsync(item, secretType, _pendingYamlManifests);
+            var secretData = await ExtractSecretDataAsync(item, secretType, yamlManifests);
 
             if (_syncConfig.DryRun)
             {
@@ -775,17 +752,20 @@ public class SyncService : ISyncService
 
     private async Task<Dictionary<string, string>> ExtractCredentialsAsync(Models.VaultwardenItem item, List<string>? yamlManifests = null) {
         var data = new Dictionary<string, string>();
+        var noteHandled = false;
 
         var notesContent = ExtractPureNoteBody(item.Notes);
-        if (!string.IsNullOrWhiteSpace(notesContent) && notesContent.TrimStart().StartsWith("stringData:", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(notesContent))
         {
             if (IsKubernetesYaml(notesContent))
             {
                 yamlManifests?.Add(notesContent);
+                noteHandled = true;
             }
-            else
+            else if (notesContent.TrimStart().StartsWith("stringData:", StringComparison.OrdinalIgnoreCase))
             {
                 ParseStringDataContent(notesContent, data);
+                noteHandled = true;
             }
         }
 
@@ -848,12 +828,11 @@ public class SyncService : ISyncService
         else
         {
             var noteBody = ExtractPureNoteBody(item.Notes);
-            if (!string.IsNullOrWhiteSpace(noteBody))
+            if (!noteHandled && !string.IsNullOrWhiteSpace(noteBody))
             {
-                // Store note content when present
                 data[passwordKeyResolved] = FormatMultilineValue(noteBody);
             }
-            else
+            else if (!noteHandled)
             {
                 // Only add the fallback key if the item has no custom fields that would
                 // provide data. Otherwise we'd create a spurious key with the item name
@@ -1548,7 +1527,7 @@ public class SyncService : ISyncService
         return itemsBySecretName;
     }
 
-    private async Task<SecretSummary> SyncSecretAsync(string namespaceName, string secretName, List<Models.VaultwardenItem> items, long syncLogId)
+    private async Task<SecretSummary> SyncSecretAsync(string namespaceName, string secretName, List<Models.VaultwardenItem> items, long syncLogId, List<string> yamlManifests)
     {
         // Begin secret-level logging scope (include first item's ID for correlation)
         var primaryItemId = items.FirstOrDefault()?.Id;
@@ -1636,7 +1615,7 @@ public class SyncService : ISyncService
                 }
 
                 // Use itemSecretType (the item's own type) for parsing, not the merged secretType
-                var itemData = await ExtractSecretDataAsync(item, itemSecretType, _pendingYamlManifests);
+                var itemData = await ExtractSecretDataAsync(item, itemSecretType, yamlManifests);
                 foreach (var kvp in itemData)
                 {
                     // If multiple items have the same key, the last one wins
@@ -2474,5 +2453,52 @@ public class SyncService : ISyncService
             chunks.Add(text.Substring(i, len));
         }
         return string.Join("\n", chunks);
+    }
+
+    private (Dictionary<string, List<Models.VaultwardenItem>> ItemsByNamespace, int ItemsWithNamespaces, int ItemsSkippedByContext, List<Models.VaultwardenItem> FilteredItems)
+        FilterAndGroupByNamespace(IEnumerable<Models.VaultwardenItem> items, string? effectiveContextName, ILogger logger)
+    {
+        var itemsByNamespace = new Dictionary<string, List<Models.VaultwardenItem>>();
+        var itemsWithNamespaces = 0;
+        var itemsSkippedByContext = 0;
+
+        foreach (var item in items)
+        {
+            var itemContext = item.ExtractContextName()?.Trim();
+            if (!string.IsNullOrEmpty(effectiveContextName) && !string.IsNullOrEmpty(itemContext))
+            {
+                if (!string.Equals(itemContext, effectiveContextName, StringComparison.OrdinalIgnoreCase))
+                {
+                    itemsSkippedByContext++;
+                    logger.LogDebug("Skipping item {ItemName} (ID: {ItemId}) - context '{ItemContext}' does not match '{EffectiveContextName}'",
+                        item.Name, item.Id, itemContext, effectiveContextName);
+                    continue;
+                }
+            }
+
+            var namespaces = item.ExtractNamespaces();
+            if (namespaces.Any())
+            {
+                itemsWithNamespaces++;
+            }
+            foreach (var namespaceName in namespaces)
+            {
+                if (!itemsByNamespace.ContainsKey(namespaceName))
+                {
+                    itemsByNamespace[namespaceName] = new List<Models.VaultwardenItem>();
+                }
+                itemsByNamespace[namespaceName].Add(item);
+            }
+        }
+
+        var filteredItems = itemsByNamespace.Values.SelectMany(x => x).DistinctBy(i => i.Id).ToList();
+        return (itemsByNamespace, itemsWithNamespaces, itemsSkippedByContext, filteredItems);
+    }
+
+    private string? GetEffectiveContextName()
+    {
+        return !string.IsNullOrEmpty(_syncConfig.ContextName)
+            ? _syncConfig.ContextName.Trim()
+            : _kubernetesService.GetContextName()?.Trim();
     }
 }

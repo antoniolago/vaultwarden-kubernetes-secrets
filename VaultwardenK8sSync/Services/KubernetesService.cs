@@ -1039,7 +1039,8 @@ public class KubernetesService : IKubernetesService
             {
                 try
                 {
-                    await _client.CoreV1.ReadNamespacedSecretAsync(name, ns);
+                    var live = await _client.CoreV1.ReadNamespacedSecretAsync(name, ns);
+                    secret.Metadata.ResourceVersion = live.Metadata.ResourceVersion;
                     await _client.CoreV1.ReplaceNamespacedSecretAsync(secret, name, ns);
                     _logger.LogDebug("Replaced Secret {Name} in namespace {Namespace}", name, ns);
                 }
@@ -1074,7 +1075,8 @@ public class KubernetesService : IKubernetesService
         {
             try
             {
-                await _client.CoreV1.ReadNamespacedConfigMapAsync(name, ns);
+                var live = await _client.CoreV1.ReadNamespacedConfigMapAsync(name, ns);
+                cm.Metadata.ResourceVersion = live.Metadata.ResourceVersion;
                 await _client.CoreV1.ReplaceNamespacedConfigMapAsync(cm, name, ns);
                 _logger.LogDebug("Replaced ConfigMap {Name} in namespace {Namespace}", name, ns);
             }
@@ -1101,7 +1103,8 @@ public class KubernetesService : IKubernetesService
         {
             try
             {
-                await _client.CoreV1.ReadNamespaceAsync(name);
+                var live = await _client.CoreV1.ReadNamespaceAsync(name);
+                ns.Metadata.ResourceVersion = live.Metadata.ResourceVersion;
                 await _client.CoreV1.ReplaceNamespaceAsync(ns, name);
                 _logger.LogDebug("Replaced Namespace {Name}", name);
             }
