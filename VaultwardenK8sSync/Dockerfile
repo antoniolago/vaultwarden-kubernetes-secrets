@@ -27,17 +27,11 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 # Copy published application
 COPY --from=publish /app/publish .
 
-# Install Bitwarden CLI via npm for all architectures so NODE_OPTIONS is honored by Node runtime
-# Update Node.js to version 20+ to fix ES module compatibility issues
-RUN apt-get update && apt-get install -y \
-    curl \
-    unzip \
-    ca-certificates \
-    gnupg \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/* \
-    && npm install -g @bitwarden/cli@2025.12.0
+
+# Install kubectl for applying Kubernetes YAML manifests from note items
+RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+    && install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl \
+    && rm kubectl
 
 # Change ownership to non-root user
 RUN chown -R appuser:appuser /app

@@ -3,8 +3,10 @@ using k8s.Models;
 using Microsoft.Extensions.Logging;
 using VaultwardenK8sSync.Models;
 using VaultwardenK8sSync.Configuration;
+using VaultwardenK8sSync.Infrastructure;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -14,12 +16,14 @@ public class KubernetesService : IKubernetesService
 {
     private readonly ILogger<KubernetesService> _logger;
     private readonly KubernetesSettings _config;
+    private readonly IProcessRunner _processRunner;
     private IKubernetes? _client;
 
-    public KubernetesService(ILogger<KubernetesService> logger, KubernetesSettings config)
+    public KubernetesService(ILogger<KubernetesService> logger, KubernetesSettings config, IProcessRunner processRunner)
     {
         _logger = logger;
         _config = config;
+        _processRunner = processRunner;
     }
 
     public async Task<bool> InitializeAsync()
@@ -995,5 +999,51 @@ public class KubernetesService : IKubernetesService
     internal static string SerializeManagedKeysAnnotation(IEnumerable<string> keyNames)
     {
         return System.Text.Json.JsonSerializer.Serialize(keyNames.OrderBy(k => k).ToList());
+    }
+
+    /// <summary>
+    /// Applies a Kubernetes YAML manifest to the cluster using kubectl apply.
+    /// Supports multi-document YAML (multiple objects separated by ---).
+    /// </summary>
+    public async Task<OperationResult> ApplyYamlAsync(string yaml)
+    {
+        try
+        {
+            _logger.LogDebug("Applying Kubernetes YAML manifest via kubectl apply");
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "kubectl",
+                Arguments = "apply -f -",
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = new Process { StartInfo = startInfo };
+            var result = await _processRunner.RunAsync(process, input: yaml);
+
+            if (result.Success)
+            {
+                _logger.LogInformation("Successfully applied Kubernetes YAML manifest. Output: {Output}", 
+                    result.Output.TrimEnd());
+                return OperationResult.Successful();
+            }
+            else
+            {
+                var errorMsg = !string.IsNullOrEmpty(result.Error) 
+                    ? result.Error.TrimEnd() 
+                    : result.Output.TrimEnd();
+                _logger.LogError("Failed to apply Kubernetes YAML manifest: {Error}", errorMsg);
+                return OperationResult.Failed(errorMsg);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception applying Kubernetes YAML manifest");
+            return OperationResult.Failed($"kubectl apply failed: {ex.Message}");
+        }
     }
 } 

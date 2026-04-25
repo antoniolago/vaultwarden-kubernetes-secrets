@@ -1022,6 +1022,41 @@ public class VaultwardenService : IVaultwardenService
 
     #endregion
 
+    /// <summary>
+    /// Downloads the content of an attachment from Vaultwarden
+    /// </summary>
+    public async Task<string?> DownloadAttachmentAsync(string attachmentUrl)
+    {
+        try
+        {
+            if (!_isAuthenticated || string.IsNullOrEmpty(_accessToken))
+            {
+                _logger.LogWarning("Cannot download attachment - not authenticated");
+                return null;
+            }
+
+            // Ensure the URL is absolute (may be relative in some cases)
+            var fullUrl = attachmentUrl.StartsWith("http") 
+                ? attachmentUrl 
+                : $"{_config.ServerUrl}{attachmentUrl}";
+
+            var response = await _httpClient.GetAsync(fullUrl);
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Failed to download attachment: {StatusCode}", response.StatusCode);
+                return null;
+            }
+
+            return await response.Content.ReadAsStringAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception downloading attachment: {Url}", attachmentUrl);
+            return null;
+        }
+    }
+
     private static bool IsValidServerUrl(string url)
     {
         if (string.IsNullOrWhiteSpace(url))

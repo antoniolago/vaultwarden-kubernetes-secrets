@@ -12,6 +12,10 @@ image:
   tag: ""  # Leave empty to use global.imageTag or Chart.AppVersion
   pullPolicy: IfNotPresent
 
+# Image pull secrets for private registries
+imagePullSecrets: []
+# - name: my-registry-secret
+
 rbac:
   create: true
   clusterWide: true

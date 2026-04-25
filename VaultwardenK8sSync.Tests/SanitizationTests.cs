@@ -268,10 +268,10 @@ public class SanitizationTests
         var result = ExtractSecretDataAsync(item).Result;
 
         // Assert
-        Assert.Contains("test-se-cret-default", result.Keys);
-        Assert.Contains("test-se-cret-default-username", result.Keys);
-        Assert.Equal("testpass", result["test-se-cret-default"]);
-        Assert.Equal("testuser", result["test-se-cret-default-username"]);
+        Assert.Contains("password", result.Keys);
+        Assert.Contains("username", result.Keys);
+        Assert.Equal("testpass", result["password"]);
+        Assert.Equal("testuser", result["username"]);
     }
 
     [Fact]
@@ -299,10 +299,10 @@ public class SanitizationTests
         var result = ExtractSecretDataAsync(item).Result;
 
         // Assert
-        Assert.Contains("my-custom-secret", result.Keys);
-        Assert.Contains("my-custom-secret-username", result.Keys);
-        Assert.Equal("testpass", result["my-custom-secret"]);
-        Assert.Equal("testuser", result["my-custom-secret-username"]);
+        Assert.Contains("password", result.Keys);
+        Assert.Contains("username", result.Keys);
+        Assert.Equal("testpass", result["password"]);
+        Assert.Equal("testuser", result["username"]);
     }
 
     [Fact]
@@ -330,12 +330,12 @@ public class SanitizationTests
         var result = ExtractSecretDataAsync(item).Result;
 
         // Assert
-        Assert.Contains("my-ssh-key", result.Keys);
-        Assert.Contains("my-ssh-key-public-key", result.Keys);
-        Assert.Contains("my-ssh-key-fingerprint", result.Keys);
-        Assert.Equal("private-key-content", result["my-ssh-key"]);
-        Assert.Equal("public-key-content", result["my-ssh-key-public-key"]);
-        Assert.Equal("fingerprint-content", result["my-ssh-key-fingerprint"]);
+        Assert.Contains("private-key", result.Keys);
+        Assert.Contains("public-key", result.Keys);
+        Assert.Contains("fingerprint", result.Keys);
+        Assert.Equal("private-key-content", result["private-key"]);
+        Assert.Equal("public-key-content", result["public-key"]);
+        Assert.Equal("fingerprint-content", result["fingerprint"]);
     }
 
     [Fact]
@@ -397,8 +397,8 @@ public class SanitizationTests
 
         // Assert
         Assert.DoesNotContain("SMTP_PASSWORD", result.Keys);
-        Assert.Contains("Test-Item", result.Keys); // Default password key (sanitized)
-        Assert.Contains("test-item-username", result.Keys); // Default username key (sanitized)
+        Assert.Contains("password", result.Keys); // Default password key
+        Assert.Contains("username", result.Keys); // Default username key
     }
 
     [Fact]

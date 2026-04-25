@@ -226,6 +226,89 @@ data:
 
 ---
 
+---
+
+## ⚠️ Breaking Changes (v2.0)
+
+If upgrading from v1.x, be aware of the following changes to default secret key names:
+
+### Default Key Names Changed
+
+**Before (v1.x):**
+- Username key: `<item-name>-username` (e.g., `my-secret-username`)
+- Password key: `<item-name>` (e.g., `my-secret`)
+- SSH public key: `<item-name>-public-key`
+- SSH fingerprint: `<item-name>-fingerprint`
+
+**After (v2.0):**
+- Username key: `username`
+- Password key: `password`
+- SSH private key: `private-key`
+- SSH public key: `public-key`
+- SSH fingerprint: `fingerprint`
+
+**Migration:** Update your applications to use the new static key names, or use custom field overrides:
+- `secret-key-username` = your preferred username key
+- `secret-key-password` = your preferred password key
+
+---
+
+## New Features (v2.0)
+
+### Kubernetes YAML from Notes
+
+Secure Note items containing valid Kubernetes YAML are automatically applied via `kubectl apply`:
+
+**Vaultwarden Secure Note:**
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-config
+  namespace: default
+data:
+  key: value
+```
+
+**Result:** ConfigMap is created/updated in the cluster (not a Secret).
+
+### stringData: Mode
+
+Notes starting with `stringData:` are parsed as key-value pairs:
+
+**Vaultwarden Secure Note:**
+```
+stringData:
+DATABASE_URL=postgres://user:pass@host/db
+API_KEY=secret123
+ENABLE_FEATURE=true
+```
+
+**Result in Kubernetes Secret:**
+```yaml
+data:
+  DATABASE_URL: cG9zdGdyZXM6Ly91c2VyOnBhc3NAaG9zdC9kYg==
+  API_KEY: c2VjcmV0MTIz
+  ENABLE_FEATURE: dHJ1ZQ==
+```
+
+### Attachment Support
+
+File attachments on Vaultwarden items are processed:
+- **YAML files** → Applied via `kubectl apply`
+- **stringData: files** → Parsed as key-value pairs
+- **Other files** → Stored with filename as key
+
+### Private Registry Support
+
+Use `imagePullSecrets` in Helm values for private registries:
+
+```yaml
+imagePullSecrets:
+  - name: my-registry-secret
+```
+
+---
 ## Configuration Options
 
 ### Helm Values

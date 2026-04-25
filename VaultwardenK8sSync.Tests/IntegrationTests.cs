@@ -594,7 +594,7 @@ public class IntegrationTests : IDisposable
         Assert.Equal("https://api.example.com", result["API_ENDPOINT"]);
         Assert.Equal("v1", result["API_VERSION"]);
         Assert.Equal("30", result["API_TIMEOUT"]);
-        Assert.Equal("This is a secure note with API configuration", result["API-Configuration"]); // Default key from item name
+        Assert.Equal("This is a secure note with API configuration", result["password"]); // Default password key
     }
 
     [Fact]
@@ -1181,8 +1181,8 @@ public class IntegrationTests : IDisposable
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        Assert.True(result.ContainsKey("my-config"), "Should contain my-config key from notes");
-        Assert.Equal("some important configuration content", result["my-config"]);
+        Assert.True(result.ContainsKey("password"), "Should contain password key from notes");
+        Assert.Equal("some important configuration content", result["password"]);
         Assert.True(result.ContainsKey("EXTRA_KEY"), "Should contain EXTRA_KEY custom field");
     }
 
@@ -1213,10 +1213,10 @@ public class IntegrationTests : IDisposable
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        Assert.True(result.ContainsKey("my-secret"), "Should contain my-secret key for password");
-        Assert.Equal("supersecret", result["my-secret"]);
-        Assert.True(result.ContainsKey("my-secret-username"), "Should contain my-secret-username key");
-        Assert.Equal("admin", result["my-secret-username"]);
+        Assert.True(result.ContainsKey("password"), "Should contain password key");
+        Assert.Equal("supersecret", result["password"]);
+        Assert.True(result.ContainsKey("username"), "Should contain username key");
+        Assert.Equal("admin", result["username"]);
         Assert.True(result.ContainsKey("API_KEY"), "Should contain API_KEY custom field");
     }
 
@@ -1246,8 +1246,8 @@ public class IntegrationTests : IDisposable
         var result = await ExtractSecretDataAsync(item);
 
         // Assert - with no data at all, fallback is acceptable
-        Assert.True(result.ContainsKey("empty-item"), "Should contain fallback key when no data exists");
-        Assert.Equal("empty-item", result["empty-item"]);
+        Assert.True(result.ContainsKey("password"), "Should contain fallback key when no data exists");
+        Assert.Equal("empty-item", result["password"]);
     }
 
     [Fact]
