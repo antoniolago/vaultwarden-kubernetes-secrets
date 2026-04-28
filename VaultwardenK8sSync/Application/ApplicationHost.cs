@@ -85,6 +85,26 @@ public class ApplicationHost
                     _logger.LogDebug("ContinuousSync column added");
                 }
                 
+                // Run migrations: Add ContentHash column to SecretStates table
+                using var checkSsCmd = connection.CreateCommand();
+                checkSsCmd.CommandText = "PRAGMA table_info(SecretStates);";
+                var ssReader = checkSsCmd.ExecuteReader();
+                var ssColumns = new List<string>();
+                while (ssReader.Read())
+                {
+                    ssColumns.Add(ssReader.GetString(1));
+                }
+                ssReader.Close();
+                
+                if (!ssColumns.Contains("ContentHash"))
+                {
+                    _logger.LogDebug("Adding ContentHash column to SecretStates");
+                    using var addSsCmd = connection.CreateCommand();
+                    addSsCmd.CommandText = "ALTER TABLE SecretStates ADD COLUMN ContentHash TEXT NULL;";
+                    addSsCmd.ExecuteNonQuery();
+                    _logger.LogDebug("ContentHash column added to SecretStates");
+                }
+                
                 connection.Close();
             }
             catch (Exception migEx)

@@ -11,4 +11,6 @@ public interface ISecretStateRepository
     Task<List<SecretState>> GetActiveSecretsAsync();
     Task<(int ActiveSecretsCount, int TotalNamespaces)> GetOverviewStatsAsync();
     Task DeleteAsync(long id);
+    Task<string?> GetSecretHashAsync(string namespaceName, string secretName);
+    Task UpdateSecretHashAsync(string namespaceName, string secretName, string contentHash);
 }

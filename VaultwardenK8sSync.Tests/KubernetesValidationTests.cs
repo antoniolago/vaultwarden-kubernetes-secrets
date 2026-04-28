@@ -24,6 +24,7 @@ public class KubernetesValidationTests
         _loggerMock = new Mock<ILogger<SyncService>>();
         _vaultwardenServiceMock = new Mock<IVaultwardenService>();
         _kubernetesServiceMock = new Mock<IKubernetesService>();
+            _kubernetesServiceMock.Setup(x => x.IsInitialized).Returns(true);
         _metricsServiceMock = new Mock<IMetricsService>();
         _dbLoggerMock = new Mock<IDatabaseLoggerService>();
         _syncConfig = new SyncSettings();

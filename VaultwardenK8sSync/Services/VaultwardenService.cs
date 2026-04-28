@@ -217,7 +217,7 @@ public class VaultwardenService : IVaultwardenService
             if (profile.TryGetProperty("privateKey", out var privKeyProp) || profile.TryGetProperty("PrivateKey", out privKeyProp))
                 encryptedPrivateKey = privKeyProp.ValueKind != JsonValueKind.Null ? privKeyProp.GetString() : null;
 
-            _logger.LogInformation("Profile KDF settings: type={KdfType}, iterations={Iterations}, hasPrivateKey={HasPrivKey}",
+            _logger.LogDebug("Profile KDF settings: type={KdfType}, iterations={Iterations}, hasPrivateKey={HasPrivKey}",
                 kdfType, kdfIterations, !string.IsNullOrEmpty(encryptedPrivateKey));
 
             if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(encryptedKey))
@@ -292,7 +292,7 @@ public class VaultwardenService : IVaultwardenService
                 }
             }
             
-            _logger.LogInformation("Key derivation: KDF={KdfType}, iterations={Iterations}, method={Method}", 
+            _logger.LogDebug("Key derivation: KDF={KdfType}, iterations={Iterations}, method={Method}", 
                 kdfType, kdfIterations, keyMethod);
             
             if (symKey == null || symKey.Length < 64)
@@ -309,8 +309,7 @@ public class VaultwardenService : IVaultwardenService
             // Decrypt user's private key and organization keys from profile
             await DecryptOrgKeysFromProfile(profile, encryptedPrivateKey);
 
-            _logger.LogInformation("Vault unlocked successfully (enc key first 4 hex: {EncHex}, org keys: {OrgCount})", 
-                Convert.ToHexString(_encryptionKey[..4]), _orgKeys.Count);
+            _logger.LogInformation("Vault unlocked successfully");
             return true;
         }
         catch (Exception ex)
@@ -586,6 +585,48 @@ public class VaultwardenService : IVaultwardenService
             }
         }
 
+        // Parse attachments
+        if (cipher.TryGetProperty("attachments", out var attachmentsProp) || cipher.TryGetProperty("Attachments", out attachmentsProp))
+        {
+            if (attachmentsProp.ValueKind == JsonValueKind.Array)
+            {
+                item.Attachments = new List<AttachmentInfo>();
+                foreach (var att in attachmentsProp.EnumerateArray())
+                {
+                    var attInfo = new AttachmentInfo();
+
+                    if (att.TryGetProperty("id", out var attIdProp) || att.TryGetProperty("Id", out attIdProp))
+                        attInfo.Id = attIdProp.GetString() ?? string.Empty;
+
+                    if (att.TryGetProperty("fileName", out var attNameProp) || att.TryGetProperty("FileName", out attNameProp))
+                    {
+                        var encryptedFileName = attNameProp.ValueKind != JsonValueKind.Null ? (attNameProp.GetString() ?? string.Empty) : string.Empty;
+                        attInfo.FileName = DecryptString(encryptedFileName, orgId) ?? encryptedFileName;
+                    }
+
+                    if (att.TryGetProperty("size", out var attSizeProp) || att.TryGetProperty("Size", out attSizeProp))
+                    {
+                        if (attSizeProp.ValueKind == JsonValueKind.Number)
+                            attInfo.Size = attSizeProp.GetInt64();
+                        else if (attSizeProp.ValueKind == JsonValueKind.String && long.TryParse(attSizeProp.GetString(), out var sizeVal))
+                            attInfo.Size = sizeVal;
+                    }
+
+                    if (att.TryGetProperty("sizeName", out var attSizeNameProp) || att.TryGetProperty("SizeName", out attSizeNameProp))
+                        attInfo.SizeName = attSizeNameProp.ValueKind != JsonValueKind.Null ? (attSizeNameProp.GetString() ?? string.Empty) : string.Empty;
+
+                    if (att.TryGetProperty("url", out var attUrlProp) || att.TryGetProperty("Url", out attUrlProp))
+                        attInfo.Url = attUrlProp.ValueKind != JsonValueKind.Null ? (attUrlProp.GetString() ?? string.Empty) : string.Empty;
+
+                    if (att.TryGetProperty("key", out var attKeyProp) || att.TryGetProperty("Key", out attKeyProp))
+                        attInfo.Key = attKeyProp.ValueKind != JsonValueKind.Null ? attKeyProp.GetString() : null;
+
+                    _logger.LogDebug("Parsed attachment: id='{Id}', fileName='{FileName}'", attInfo.Id, attInfo.FileName);
+                    item.Attachments.Add(attInfo);
+                }
+            }
+        }
+
         return item;
     }
 
@@ -851,7 +892,7 @@ public class VaultwardenService : IVaultwardenService
             if (decryptedOrgKey != null && decryptedOrgKey.Length >= 64)
             {
                 _orgKeys[orgId] = (decryptedOrgKey[..32], decryptedOrgKey[32..64]);
-                _logger.LogInformation("Decrypted org key for {OrgId}: {Len} bytes, first4hex={First4}", 
+                _logger.LogDebug("Decrypted org key for {OrgId}: {Len} bytes, first4hex={First4}", 
                     orgId, decryptedOrgKey.Length, Convert.ToHexString(decryptedOrgKey[..4]));
             }
             else
@@ -1055,6 +1096,113 @@ public class VaultwardenService : IVaultwardenService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception downloading attachment: {Url}", attachmentUrl);
+            return null;
+        }
+    }
+
+    public byte[]? DecryptAttachmentContent(byte[] encryptedContent, string encryptedKey, string? orgId = null)
+    {
+        try
+        {
+            var decryptedKey = DecryptToBytesWithOrgKey(encryptedKey, orgId);
+            if (decryptedKey == null || decryptedKey.Length < 32)
+            {
+                _logger.LogWarning("Failed to decrypt attachment key");
+                return null;
+            }
+
+            byte[] encKey;
+            byte[]? macKey = null;
+            if (decryptedKey.Length >= 64)
+            {
+                encKey = decryptedKey[..32];
+                macKey = decryptedKey[32..64];
+            }
+            else
+            {
+                encKey = decryptedKey;
+            }
+
+            var contentStr = Encoding.UTF8.GetString(encryptedContent);
+            if (!contentStr.StartsWith("2."))
+            {
+                _logger.LogDebug("Attachment content does not appear to be encrypted, returning as-is");
+                return encryptedContent;
+            }
+
+            var parts = contentStr[2..].Split('|');
+            if (parts.Length < 2)
+            {
+                _logger.LogWarning("Invalid encrypted content format for attachment");
+                return null;
+            }
+
+            var iv = Convert.FromBase64String(parts[0]);
+            var data = Convert.FromBase64String(parts[1]);
+
+            if (parts.Length > 2 && !string.IsNullOrEmpty(parts[2]) && macKey != null)
+            {
+                var mac = Convert.FromBase64String(parts[2]);
+                using var hmac = new HMACSHA256(macKey);
+                var macData = new byte[iv.Length + data.Length];
+                iv.CopyTo(macData, 0);
+                data.CopyTo(macData, iv.Length);
+                var computedMac = hmac.ComputeHash(macData);
+                if (!computedMac.SequenceEqual(mac))
+                {
+                    _logger.LogWarning("Attachment content MAC verification failed");
+                    return null;
+                }
+            }
+
+            using var aes = Aes.Create();
+            aes.Key = encKey;
+            aes.IV = iv;
+            aes.Mode = CipherMode.CBC;
+            aes.Padding = PaddingMode.PKCS7;
+
+            using var decryptor = aes.CreateDecryptor();
+            return decryptor.TransformFinalBlock(data, 0, data.Length);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to decrypt attachment content");
+            return null;
+        }
+    }
+
+    private byte[]? DecryptToBytesWithOrgKey(string? encrypted, string? orgId = null)
+    {
+        byte[]? encKey = _encryptionKey;
+        if (!string.IsNullOrEmpty(orgId) && _orgKeys.TryGetValue(orgId, out var orgKeyPair))
+            encKey = orgKeyPair.encKey;
+
+        if (string.IsNullOrEmpty(encrypted) || encKey == null)
+            return null;
+
+        try
+        {
+            if (!encrypted.StartsWith("2."))
+                return null;
+
+            var parts = encrypted[2..].Split('|');
+            if (parts.Length < 2)
+                return null;
+
+            var iv = Convert.FromBase64String(parts[0]);
+            var data = Convert.FromBase64String(parts[1]);
+
+            using var aes = Aes.Create();
+            aes.Key = encKey;
+            aes.IV = iv;
+            aes.Mode = CipherMode.CBC;
+            aes.Padding = PaddingMode.PKCS7;
+
+            using var decryptor = aes.CreateDecryptor();
+            return decryptor.TransformFinalBlock(data, 0, data.Length);
+        }
+        catch
+        {
             return null;
         }
     }

@@ -13,6 +13,7 @@ public interface IVaultwardenService
     Task<Dictionary<string, string>> GetOrganizationsMapAsync();
     Task<string?> GetCurrentUserEmailAsync();
     Task<byte[]?> DownloadAttachmentAsync(string attachmentUrl);
+    byte[]? DecryptAttachmentContent(byte[] encryptedContent, string encryptedKey, string? orgId = null);
 }
 
 public class OrganizationInfo

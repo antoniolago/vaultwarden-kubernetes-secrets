@@ -563,4 +563,7 @@ public class AttachmentInfo
 
     [JsonPropertyName("url")]
     public string Url { get; set; } = string.Empty;
+
+    [JsonPropertyName("key")]
+    public string? Key { get; set; }
 } 

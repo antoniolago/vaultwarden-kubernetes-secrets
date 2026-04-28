@@ -3,24 +3,28 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Extensions.Logging;
 using VaultwardenK8sSync.Models;
+using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace VaultwardenK8sSync.Services;
 
 /// <summary>
-/// Dynamic real-time progress display for sync operations
-/// Shows all items and their current status in a live-updating format
+/// Dynamic real-time progress display for sync operations.
+/// Buffers output during sync and only emits when changes are detected
+/// compared to the previous sync summary.
 /// </summary>
 public class DynamicSyncProgressDisplay : IDisposable
 {
     private readonly object _lock = new();
     private readonly ConcurrentDictionary<string, SyncItemStatus> _items = new();
     private readonly ILogger? _logger;
+    private readonly SyncSummary? _previousSummary;
+    private readonly List<(string Message, LogLevel Level)> _buffer = new();
     private bool _disposed;
     private bool _isActive;
+    private bool _hasEmitted;
     private DateTime _startTime;
     private string _currentPhase = "";
 
-    // Sync statistics
     private int _totalItems;
     private int _processedItems;
     private int _createdSecrets;
@@ -28,9 +32,10 @@ public class DynamicSyncProgressDisplay : IDisposable
     private int _skippedSecrets;
     private int _failedSecrets;
 
-    public DynamicSyncProgressDisplay(ILogger? logger = null)
+    public DynamicSyncProgressDisplay(ILogger? logger = null, SyncSummary? previousSummary = null)
     {
         _logger = logger;
+        _previousSummary = previousSummary;
     }
 
     public void Start(string phase, int totalItems = 0)
@@ -38,6 +43,7 @@ public class DynamicSyncProgressDisplay : IDisposable
         lock (_lock)
         {
             _isActive = true;
+            _hasEmitted = false;
             _startTime = DateTime.UtcNow;
             _currentPhase = phase;
             _totalItems = totalItems;
@@ -47,11 +53,12 @@ public class DynamicSyncProgressDisplay : IDisposable
             _skippedSecrets = 0;
             _failedSecrets = 0;
             _items.Clear();
+            _buffer.Clear();
 
-            WriteLine($"=== Sync started: {phase} ===");
+            BufferLine($"=== Sync started: {phase} ===");
             if (totalItems > 0)
             {
-                WriteLine($"Total items to process: {totalItems}");
+                BufferLine($"Total items to process: {totalItems}");
             }
         }
     }
@@ -61,7 +68,7 @@ public class DynamicSyncProgressDisplay : IDisposable
         lock (_lock)
         {
             _currentPhase = phase;
-            WriteLine($"--- Phase: {phase}");
+            BufferLine($"--- Phase: {phase}");
         }
     }
 
@@ -114,11 +121,6 @@ public class DynamicSyncProgressDisplay : IDisposable
             updatedItem.Details = details;
             updatedItem.Outcome = outcome ?? updatedItem.Outcome;
 
-            if (!string.IsNullOrWhiteSpace(updatedItem.Name))
-            {
-                // Preserve stored name; AddItem may have set it earlier.
-            }
-
             if (outcome.HasValue && !updatedItem.Counted)
             {
                 updatedItem.Counted = true;
@@ -155,12 +157,15 @@ public class DynamicSyncProgressDisplay : IDisposable
             var duration = DateTime.UtcNow - _startTime;
             var durationText = $"({duration.TotalSeconds:F1}s)";
             
-            // Calculate final statistics
             var totalProcessed = _processedItems;
             var hasErrors = _failedSecrets > 0;
             var hasChanges = _createdSecrets > 0 || _updatedSecrets > 0;
             
-            // Determine final status
+            if (_previousSummary != null && !hasErrors && !hasChanges)
+            {
+                _buffer.Clear();
+                return;
+            }
             string statusIcon;
             string statusText;
             
@@ -180,7 +185,7 @@ public class DynamicSyncProgressDisplay : IDisposable
                 statusText = "COMPLETED - NO CHANGES";
             }
             
-            WriteLine($"\n{statusIcon} {statusText} {durationText}");
+            BufferLine($"\n{statusIcon} {statusText} {durationText}");
 
             var summaryParts = new List<string>();
             if (_totalItems > 0)
@@ -199,7 +204,7 @@ public class DynamicSyncProgressDisplay : IDisposable
 
             if (summaryParts.Any())
             {
-                WriteLine($"   Summary: {string.Join(", ", summaryParts)}");
+                BufferLine($"   Summary: {string.Join(", ", summaryParts)}");
             }
 
             var failedItems = _items.Values
@@ -209,23 +214,36 @@ public class DynamicSyncProgressDisplay : IDisposable
 
             if (failedItems.Any())
             {
-                WriteLine("   Failed items:");
+                BufferLine("   Failed items:");
                 foreach (var item in failedItems)
                 {
                     var name = string.IsNullOrWhiteSpace(item.Name) ? item.Key : item.Name;
                     var details = string.IsNullOrWhiteSpace(item.Details) ? "No additional details" : item.Details;
-                    WriteLine($"     • {name}: {details}");
+                    BufferLine($"     • {name}: {details}");
                 }
             }
 
             if (!string.IsNullOrEmpty(finalMessage))
             {
-                WriteLine($"   {finalMessage}");
+                BufferLine($"   {finalMessage}");
             }
             
-            WriteLine(string.Empty);
+            BufferLine(string.Empty);
+
+            foreach (var (message, level) in _buffer)
+            {
+                WriteLine(message, level);
+            }
+            _hasEmitted = true;
+            _buffer.Clear();
         }
     }
+
+    private void BufferLine(string message, LogLevel level = LogLevel.Information)
+    {
+        _buffer.Add((message, level));
+    }
+
     private string GetOutcomeIcon(SyncItemOutcome? outcome)
     {
         return outcome switch
@@ -246,7 +264,16 @@ public class DynamicSyncProgressDisplay : IDisposable
         var keySuffix = !string.IsNullOrWhiteSpace(item.Key) && item.Key != name ? $" [{item.Key}]" : string.Empty;
         var detailText = string.IsNullOrWhiteSpace(details) ? string.Empty : $" - {details}";
 
-        WriteLine($"[{timestamp}] {icon} {name}{keySuffix}: {status}{detailText}");
+        // Only log Skipped/Debug — log Created/Updated/Failed at Info level so changed items are visible
+        var level = item.Outcome switch
+        {
+            SyncItemOutcome.Created => LogLevel.Information,
+            SyncItemOutcome.Updated => LogLevel.Information,
+            SyncItemOutcome.Failed => LogLevel.Information,
+            SyncItemOutcome.Skipped => LogLevel.Debug,
+            _ => LogLevel.Debug
+        };
+        BufferLine($"[{timestamp}] {icon} {name}{keySuffix}: {status}{detailText}", level);
     }
 
     private string GetStatusIcon(SyncItemStatus item)
@@ -259,11 +286,11 @@ public class DynamicSyncProgressDisplay : IDisposable
         return "•";
     }
 
-    private void WriteLine(string message)
+    private void WriteLine(string message, LogLevel level = LogLevel.Information)
     {
         if (_logger != null)
         {
-            _logger.LogInformation("{Message}", message);
+            _logger.Log(level, "{Message}", message);
         }
         else
         {

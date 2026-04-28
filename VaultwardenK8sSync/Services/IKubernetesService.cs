@@ -9,6 +9,7 @@ namespace VaultwardenK8sSync.Services;
 public interface IKubernetesService
 {
     Task<bool> InitializeAsync();
+    bool IsInitialized { get; }
     Task<List<string>> GetAllNamespacesAsync();
     Task<bool> NamespaceExistsAsync(string namespaceName);
     Task<List<string>> GetExistingSecretNamesAsync(string namespaceName);

@@ -6,6 +6,7 @@ using VaultwardenK8sSync.Configuration;
 using Xunit;
 using VaultwardenK8sSync;
 using System.Text;
+using FluentAssertions;
 using FieldInfo = VaultwardenK8sSync.Models.FieldInfo;
 
 namespace VaultwardenK8sSync.Tests;
@@ -25,6 +26,7 @@ public class StringDataAndK8sTests : IDisposable
         _loggerMock = new Mock<ILogger<SyncService>>();
         _vaultwardenServiceMock = new Mock<IVaultwardenService>();
         _kubernetesServiceMock = new Mock<IKubernetesService>();
+            _kubernetesServiceMock.Setup(x => x.IsInitialized).Returns(true);
         _metricsServiceMock = new Mock<IMetricsService>();
         _dbLoggerMock = new Mock<IDatabaseLoggerService>();
         _syncConfig = new SyncSettings();
@@ -47,6 +49,15 @@ public class StringDataAndK8sTests : IDisposable
         var method = typeof(SyncService).GetMethod("ExtractSecretDataAsync", 
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
         return (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(_syncService, new object[] { item, "Opaque", null })!;
+    }
+
+    private async Task<(Dictionary<string, string> data, List<string> yamlManifests)> ExtractSecretDataWithYamlAsync(VaultwardenItem item)
+    {
+        var yamlManifests = new List<string>();
+        var method = typeof(SyncService).GetMethod("ExtractSecretDataAsync", 
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var data = (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(_syncService, new object[] { item, "Opaque", yamlManifests })!;
+        return (data, yamlManifests);
     }
 
     #region stringData: Mode Tests
@@ -464,11 +475,11 @@ stringData:
             },
             Attachments = new List<AttachmentInfo>
             {
-                new AttachmentInfo { Id = "attach-1", FileName = "config.yaml", Size = yamlContent.Length }
+                new AttachmentInfo { Id = "attach-1", FileName = "config.yaml", Size = yamlContent.Length, Url = "/api/ciphers/test-id/attachment/attach-1" }
             }
         };
 
-        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-1"))
+        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("/api/ciphers/test-id/attachment/attach-1"))
             .ReturnsAsync(Encoding.UTF8.GetBytes(yamlContent));
 
         var result = await ExtractSecretDataAsync(item);
@@ -503,11 +514,11 @@ stringData:
             },
             Attachments = new List<AttachmentInfo>
             {
-                new AttachmentInfo { Id = "attach-1", FileName = "data.txt", Size = attachmentContent.Length }
+                new AttachmentInfo { Id = "attach-1", FileName = "data.txt", Size = attachmentContent.Length, Url = "/api/ciphers/test-id/attachment/attach-1" }
             }
         };
 
-        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-1"))
+        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("/api/ciphers/test-id/attachment/attach-1"))
             .ReturnsAsync(Encoding.UTF8.GetBytes(attachmentContent));
 
         var result = await ExtractSecretDataAsync(item);
@@ -536,11 +547,11 @@ stringData:
             },
             Attachments = new List<AttachmentInfo>
             {
-                new AttachmentInfo { Id = "attach-1", FileName = "readme.txt", Size = fileContent.Length }
+                new AttachmentInfo { Id = "attach-1", FileName = "readme.txt", Size = fileContent.Length, Url = "/api/ciphers/test-id/attachment/attach-1" }
             }
         };
 
-        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-1"))
+        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("/api/ciphers/test-id/attachment/attach-1"))
             .ReturnsAsync(Encoding.UTF8.GetBytes(fileContent));
 
         var result = await ExtractSecretDataAsync(item);
@@ -569,15 +580,15 @@ stringData:
             },
             Attachments = new List<AttachmentInfo>
             {
-                new AttachmentInfo { Id = "attach-1", FileName = "config.yaml", Size = yamlContent.Length },
-                new AttachmentInfo { Id = "attach-2", FileName = "readme.txt", Size = textContent.Length },
-                new AttachmentInfo { Id = "attach-3", FileName = "data.txt", Size = stringDataContent.Length }
+                new AttachmentInfo { Id = "attach-1", FileName = "config.yaml", Size = yamlContent.Length, Url = "/api/ciphers/test-id/attachment/attach-1" },
+                new AttachmentInfo { Id = "attach-2", FileName = "readme.txt", Size = textContent.Length, Url = "/api/ciphers/test-id/attachment/attach-2" },
+                new AttachmentInfo { Id = "attach-3", FileName = "data.txt", Size = stringDataContent.Length, Url = "/api/ciphers/test-id/attachment/attach-3" }
             }
         };
 
-        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-1")).ReturnsAsync(Encoding.UTF8.GetBytes(yamlContent));
-        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-2")).ReturnsAsync(Encoding.UTF8.GetBytes(textContent));
-        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-3")).ReturnsAsync(Encoding.UTF8.GetBytes(stringDataContent));
+        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("/api/ciphers/test-id/attachment/attach-1")).ReturnsAsync(Encoding.UTF8.GetBytes(yamlContent));
+        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("/api/ciphers/test-id/attachment/attach-2")).ReturnsAsync(Encoding.UTF8.GetBytes(textContent));
+        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("/api/ciphers/test-id/attachment/attach-3")).ReturnsAsync(Encoding.UTF8.GetBytes(stringDataContent));
 
         var result = await ExtractSecretDataAsync(item);
 
@@ -602,11 +613,11 @@ stringData:
             },
             Attachments = new List<AttachmentInfo>
             {
-                new AttachmentInfo { Id = "attach-1", FileName = "failed.yaml", Size = 100 }
+                new AttachmentInfo { Id = "attach-1", FileName = "failed.yaml", Size = 100, Url = "/api/ciphers/test-id/attachment/attach-1" }
             }
         };
 
-        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-1"))
+        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("/api/ciphers/test-id/attachment/attach-1"))
             .ReturnsAsync((byte[]?)null);
 
         var result = await ExtractSecretDataAsync(item);
@@ -633,16 +644,54 @@ stringData:
             },
             Attachments = new List<AttachmentInfo>
             {
-                new AttachmentInfo { Id = "attach-1", FileName = "config.yml", Size = yamlContent.Length }
+                new AttachmentInfo { Id = "attach-1", FileName = "config.yml", Size = yamlContent.Length, Url = "/api/ciphers/test-id/attachment/attach-1" }
             }
         };
 
-        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("attach-1"))
+        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("/api/ciphers/test-id/attachment/attach-1"))
             .ReturnsAsync(Encoding.UTF8.GetBytes(yamlContent));
 
         var result = await ExtractSecretDataAsync(item);
 
         Assert.DoesNotContain("__yaml_attachment__config.yml", result.Keys);
+    }
+
+    [Fact]
+    public async Task ExtractSecretDataAsync_WithTxtAttachmentContainingK8sYaml_ShouldApplyAsManifest()
+    {
+        var yamlContent = @"apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-config
+  namespace: default
+data:
+  key: value";
+
+        var item = new VaultwardenItem
+        {
+            Id = "test-id",
+            Name = "txt-yaml-test",
+            Type = 2,
+            SecureNote = new SecureNoteInfo { Type = 0 },
+            Notes = "Some notes",
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "namespaces", Value = "default", Type = 0 }
+            },
+            Attachments = new List<AttachmentInfo>
+            {
+                new AttachmentInfo { Id = "attach-1", FileName = "teste.txt", Size = yamlContent.Length, Url = "/api/ciphers/test-id/attachment/attach-1" }
+            }
+        };
+
+        _vaultwardenServiceMock.Setup(x => x.DownloadAttachmentAsync("/api/ciphers/test-id/attachment/attach-1"))
+            .ReturnsAsync(Encoding.UTF8.GetBytes(yamlContent));
+
+        var (result, yamlManifests) = await ExtractSecretDataWithYamlAsync(item);
+
+        Assert.Single(yamlManifests);
+        Assert.Equal(yamlContent, yamlManifests[0]);
+        Assert.DoesNotContain("teste.txt", result.Keys);
     }
 
     #endregion
@@ -932,6 +981,7 @@ kind: ConfigMap
     public void GetContextName_WhenSet_ShouldReturnDetectedContext()
     {
         var k8sServiceMock = new Mock<IKubernetesService>();
+            k8sServiceMock.Setup(x => x.IsInitialized).Returns(true);
         
         k8sServiceMock.Setup(x => x.GetContextName())
             .Returns("production-us-east");
@@ -945,6 +995,7 @@ kind: ConfigMap
     public void GetContextName_WhenNull_ShouldReturnNull()
     {
         var k8sServiceMock = new Mock<IKubernetesService>();
+            k8sServiceMock.Setup(x => x.IsInitialized).Returns(true);
         
         k8sServiceMock.Setup(x => x.GetContextName())
             .Returns((string?)null);
@@ -1005,6 +1056,131 @@ kind: ConfigMap
         };
         
         Assert.True(true);
+    }
+
+    #endregion
+
+    #region Hash Stability Tests
+
+    [Fact]
+    public void CalculateItemHash_SameItem_ShouldProduceIdenticalHash()
+    {
+        // Arrange
+        var item = new VaultwardenItem
+        {
+            Id = "test-1",
+            Name = "test-secret",
+            Type = 1,
+            RevisionDate = new DateTime(2024, 1, 1, 12, 0, 0, DateTimeKind.Utc),
+            Password = "secret-password",
+            Login = new LoginInfo { Username = "user", Password = "pass" },
+            Notes = "some notes",
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "custom-field", Value = "custom-value", Type = 0 }
+            },
+            Attachments = new List<AttachmentInfo>
+            {
+                new AttachmentInfo { Id = "att-1", FileName = "config.yaml", Size = 1024 }
+            }
+        };
+
+        // Act - compute hash twice
+        var hash1 = ComputeItemHash(item);
+        var hash2 = ComputeItemHash(item);
+
+        // Assert
+        hash1.Should().Be(hash2, "hash should be deterministic for the same item");
+    }
+
+    [Fact]
+    public void CalculateItemHash_SameItemWithAttachments_ShouldProduceIdenticalHash()
+    {
+        var item = new VaultwardenItem
+        {
+            Id = "test-2",
+            Name = "test-secret-2",
+            Type = 2, // Secure note
+            RevisionDate = new DateTime(2024, 6, 15, 10, 30, 0, DateTimeKind.Utc),
+            Notes = "stringData:\n  key1: value1\n  key2: value2",
+            Attachments = new List<AttachmentInfo>
+            {
+                new AttachmentInfo { Id = "att-1", FileName = "config.yaml", Size = 512 },
+                new AttachmentInfo { Id = "att-2", FileName = "data.txt", Size = 256 }
+            }
+        };
+
+        var hash1 = ComputeItemHash(item);
+        var hash2 = ComputeItemHash(item);
+        var hash3 = ComputeItemHash(item);
+
+        hash1.Should().Be(hash2);
+        hash2.Should().Be(hash3);
+    }
+
+    [Fact]
+    public void CalculateItemHash_NullAttachmentsVsEmptyList_ShouldProduceSameHash()
+    {
+        var itemWithNull = new VaultwardenItem
+        {
+            Id = "test-3",
+            Name = "test-secret-3",
+            Type = 1,
+            RevisionDate = new DateTime(2024, 1, 1, 12, 0, 0, DateTimeKind.Utc),
+            Password = "pass",
+            Attachments = null
+        };
+
+        var itemWithEmpty = new VaultwardenItem
+        {
+            Id = "test-3",
+            Name = "test-secret-3",
+            Type = 1,
+            RevisionDate = new DateTime(2024, 1, 1, 12, 0, 0, DateTimeKind.Utc),
+            Password = "pass",
+            Attachments = new List<AttachmentInfo>()
+        };
+
+        var hashNull = ComputeItemHash(itemWithNull);
+        var hashEmpty = ComputeItemHash(itemWithEmpty);
+
+        hashNull.Should().Be(hashEmpty, "null vs empty attachments should produce same hash");
+    }
+
+    [Fact]
+    public void CalculateItemHash_SameContentDifferentRevisionDate_ShouldProduceSameHash()
+    {
+        // RevisionDate is intentionally excluded from hashing because Vaultwarden
+        // updates it on metadata changes even when secret content hasn't changed.
+        // Two items with identical content but different RevisionDate should hash the same.
+        var item1 = new VaultwardenItem
+        {
+            Id = "test-4",
+            Name = "test-secret-4",
+            Type = 1,
+            RevisionDate = new DateTime(2024, 1, 1, 12, 0, 0, DateTimeKind.Utc),
+            Password = "pass"
+        };
+
+        var item2 = new VaultwardenItem
+        {
+            Id = "test-4",
+            Name = "test-secret-4",
+            Type = 1,
+            RevisionDate = new DateTime(2024, 1, 1, 12, 0, 1, DateTimeKind.Utc), // 1 second later
+            Password = "pass"
+        };
+
+        var hash1 = ComputeItemHash(item1);
+        var hash2 = ComputeItemHash(item2);
+
+        hash1.Should().Be(hash2, "identical content with different revision dates should produce the same hash");
+    }
+
+    private static string ComputeItemHash(VaultwardenItem item)
+    {
+        var method = typeof(SyncService).GetMethod("CalculateItemHash", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        return (string)method!.Invoke(null, new object[] { item })!;
     }
 
     #endregion

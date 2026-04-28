@@ -33,9 +33,9 @@ public class ValkeySyncOutputPublisher : IValkeySyncOutputPublisher, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to connect to Valkey. Sync output publishing disabled.");
+                //_logger.LogWarning(ex, "Failed to connect to Valkey. Sync output publishing disabled.");
                 _enabled = false;
-            }
+            }   
         }
         else
         {

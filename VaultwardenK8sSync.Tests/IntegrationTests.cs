@@ -27,6 +27,7 @@ public class IntegrationTests : IDisposable
         _loggerMock = new Mock<ILogger<SyncService>>();
         _vaultwardenServiceMock = new Mock<IVaultwardenService>();
         _kubernetesServiceMock = new Mock<IKubernetesService>();
+            _kubernetesServiceMock.Setup(x => x.IsInitialized).Returns(true);
         _metricsServiceMock = new Mock<IMetricsService>();
         _dbLoggerMock = new Mock<IDatabaseLoggerService>();
         _syncConfig = new SyncSettings();
@@ -721,17 +722,13 @@ public class IntegrationTests : IDisposable
         var secondSync = await _syncService.SyncAsync(progressMock.Object);
 
         // Assert - After first sync stores annotations, second sync should skip
-        // First sync may update (no annotations), second sync should detect no changes via hash
         Assert.True(firstSync.OverallSuccess);
         Assert.True(secondSync.OverallSuccess);
         
-        // Second sync should either skip (if hashes match) or have same results as first
-        // The key is that both syncs succeed and process all items
-        Assert.Equal(3, secondSync.TotalSecretsProcessed);
+        // Second sync detects no hash change and skips full reconciliation
+        Assert.False(secondSync.HasChanges);
+        Assert.Equal(0, secondSync.TotalSecretsProcessed);
         Assert.Equal(0, secondSync.TotalSecretsFailed);
-        
-        // Either all skipped (hash match) or all updated (first run after annotation storage)
-        Assert.True(secondSync.TotalSecretsSkipped == 3 || secondSync.TotalSecretsUpdated == 3 || secondSync.TotalSecretsCreated == 3);
     }
 
     [Fact]
@@ -877,13 +874,12 @@ public class IntegrationTests : IDisposable
         // All runs should succeed
         Assert.All(results, r => Assert.True(r.OverallSuccess));
         
-        // All runs after the first should process all items successfully
+        // All runs after the first should skip reconciliation (no changes detected)
         for (int i = 1; i < results.Count; i++)
         {
-            Assert.Equal(2, results[i].TotalSecretsProcessed); // All items processed  
-            Assert.Equal(0, results[i].TotalSecretsFailed); // No failures
-            // Items may be skipped (hash match) or updated (annotations being set)
-            Assert.True(results[i].TotalSecretsSkipped + results[i].TotalSecretsUpdated + results[i].TotalSecretsCreated == 2);
+            Assert.False(results[i].HasChanges);
+            Assert.Equal(0, results[i].TotalSecretsProcessed);
+            Assert.Equal(0, results[i].TotalSecretsFailed);
         }
     }
 
@@ -1286,19 +1282,5 @@ public class IntegrationTests : IDisposable
 
     public void Dispose()
     {
-        // Clean up lock file after each test
-        var lockFilePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "vaultwarden-sync-operation.lock");
-        System.Threading.Thread.Sleep(100); // Give lock time to release
-        try
-        {
-            if (System.IO.File.Exists(lockFilePath))
-            {
-                System.IO.File.Delete(lockFilePath);
-            }
-        }
-        catch
-        {
-            // Ignore errors during cleanup
-        }
     }
 }
