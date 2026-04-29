@@ -1,10 +1,14 @@
 using k8s;
 using k8s.Models;
+using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Logging;
 using VaultwardenK8sSync.Models;
 using VaultwardenK8sSync.Configuration;
+using VaultwardenK8sSync.Infrastructure;
+using VaultwardenK8sSync.Policies;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -14,12 +18,17 @@ public class KubernetesService : IKubernetesService
 {
     private readonly ILogger<KubernetesService> _logger;
     private readonly KubernetesSettings _config;
+    private readonly IProcessRunner _processRunner;
     private IKubernetes? _client;
+    private string? _detectedContextName;
 
-    public KubernetesService(ILogger<KubernetesService> logger, KubernetesSettings config)
+    public bool IsInitialized => _client != null;
+
+    public KubernetesService(ILogger<KubernetesService> logger, KubernetesSettings config, IProcessRunner processRunner)
     {
         _logger = logger;
         _config = config;
+        _processRunner = processRunner;
     }
 
     public async Task<bool> InitializeAsync()
@@ -39,6 +48,7 @@ public class KubernetesService : IKubernetesService
             {
                 config = KubernetesClientConfiguration.InClusterConfig();
                 _logger.LogDebug("Using in-cluster configuration");
+                _detectedContextName = "in-cluster";
             }
             else
             {
@@ -46,13 +56,20 @@ public class KubernetesService : IKubernetesService
                     ? KubernetesClientConfiguration.BuildConfigFromConfigFile(_config.KubeConfigPath, _config.Context)
                     : KubernetesClientConfiguration.BuildDefaultConfig();
                 
+                _detectedContextName = config.CurrentContext ?? "unknown";
+                
                 _logger.LogDebug("Using kubeconfig configuration: {KubeConfigPath}, Context: {Context}, Host: {Host}", 
                     _config.KubeConfigPath ?? "default", 
                     _config.Context ?? "current", 
                     config.Host);
             }
 
-            _client = new Kubernetes(config);
+            // Wire resilience policies as DelegatingHandlers in the K8s client's HTTP pipeline.
+            // Order: retry (outer) → circuit breaker → timeout (inner) → auth → HttpClientHandler.
+            var retryHandler = new PolicyHttpMessageHandler(ResiliencePolicies.GetRetryPolicy(_logger));
+            var circuitBreakerHandler = new PolicyHttpMessageHandler(ResiliencePolicies.GetCircuitBreakerPolicy(_logger));
+            var timeoutHandler = new PolicyHttpMessageHandler(ResiliencePolicies.GetTimeoutPolicy());
+            _client = new Kubernetes(config, retryHandler, circuitBreakerHandler, timeoutHandler);
 
             // Test the connection
             var version = await _client.Version.GetCodeAsync();
@@ -95,13 +112,12 @@ public class KubernetesService : IKubernetesService
 
         try
         {
-            await _client.CoreV1.ReadNamespaceAsync(namespaceName);
-            return true;
-        }
-        catch (k8s.Autorest.HttpOperationException httpEx) when (httpEx.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            _logger.LogDebug("Namespace {Namespace} does not exist", namespaceName);
-            return false;
+            // Use ListNamespaceAsync with field selector instead of ReadNamespaceAsync to avoid
+            // throwing HttpOperationException (404) for non-existent namespaces.
+            // ReadNamespaceAsync throws on 404 even though we catch it, causing noisy "Exception thrown" 
+            // first-chance exception notifications from the .NET runtime.
+            var namespaces = await _client.CoreV1.ListNamespaceAsync(fieldSelector: $"metadata.name={namespaceName}");
+            return namespaces.Items.Any();
         }
         catch (Exception ex)
         {
@@ -247,25 +263,27 @@ public class KubernetesService : IKubernetesService
             };
 
             await _client.CoreV1.CreateNamespacedSecretAsync(secret, namespaceName);
-            _logger.LogInformation("Created secret {SecretName} in namespace {Namespace} with {KeyCount} managed keys (type: {SecretType})", secretName, namespaceName, data.Count, secret.Type);
+            _logger.LogDebug("Created secret {SecretName} in namespace {Namespace} with {KeyCount} managed keys (type: {SecretType})", secretName, namespaceName, data.Count, secret.Type);
             return OperationResult.Successful();
         }
-        catch (k8s.Autorest.HttpOperationException httpEx)
+catch (k8s.Autorest.HttpOperationException httpEx)
         {
             var status = httpEx.Response?.StatusCode;
-            if (status == System.Net.HttpStatusCode.NotFound)
+            if (status == System.Net.HttpStatusCode.Conflict)
             {
-                // Try to parse the Kubernetes error message from the response
+                _logger.LogDebug("Secret {SecretName} already exists in namespace {Namespace}, falling back to update", secretName, namespaceName);
+                return await UpdateSecretAsync(namespaceName, secretName, data, annotations, customLabels);
+            }
+            else if (status == System.Net.HttpStatusCode.NotFound)
+            {
                 var errorMessage = ParseKubernetesErrorMessage(httpEx.Response?.Content);
                 if (!string.IsNullOrEmpty(errorMessage))
                 {
-                    // _logger.LogWarning("Cannot create secret {SecretName}: {ErrorMessage}", secretName, errorMessage);
                     return OperationResult.Failed(errorMessage);
                 }
                 else
                 {
                     var message = $"Namespace '{namespaceName}' does not exist";
-                    // _logger.LogWarning("Cannot create secret {SecretName} - namespace {Namespace} does not exist", secretName, namespaceName);
                     return OperationResult.Failed(message);
                 }
             }
@@ -386,6 +404,7 @@ public class KubernetesService : IKubernetesService
             {
                 Name = secretName,
                 NamespaceProperty = namespaceName,
+                ResourceVersion = existingSecret.Metadata?.ResourceVersion,
                 Labels = labels,
                 Annotations = mergedAnnotations
             };
@@ -400,7 +419,7 @@ public class KubernetesService : IKubernetesService
             };
 
             await _client.CoreV1.ReplaceNamespacedSecretAsync(secret, secretName, namespaceName);
-            _logger.LogInformation("Updated secret {SecretName} in namespace {Namespace} (merged {NewKeyCount} keys, preserved {ExternalKeyCount} external keys)",
+            _logger.LogDebug("Updated secret {SecretName} in namespace {Namespace} (merged {NewKeyCount} keys, preserved {ExternalKeyCount} external keys)",
                 secretName, namespaceName, newManagedKeys.Count, mergedData.Count - newManagedKeys.Count);
             return OperationResult.Successful();
         }
@@ -454,7 +473,7 @@ public class KubernetesService : IKubernetesService
         try
         {
             await _client.CoreV1.DeleteNamespacedSecretAsync(secretName, namespaceName);
-            _logger.LogInformation("Deleted secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
+            _logger.LogDebug("Deleted secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
             return true;
         }
         catch (k8s.Autorest.HttpOperationException httpEx)
@@ -502,12 +521,13 @@ public class KubernetesService : IKubernetesService
 
         try
         {
-            var secret = await _client.CoreV1.ReadNamespacedSecretAsync(secretName, namespaceName);
-            return secret != null;
-        }
-        catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            return false;
+            // Use ListNamespacedSecretAsync with field selector instead of ReadNamespacedSecretAsync
+            // to avoid throwing HttpOperationException (404) for non-existent secrets.
+            var secrets = await _client.CoreV1.ListNamespacedSecretAsync(
+                namespaceName,
+                fieldSelector: $"metadata.name={secretName}"
+            );
+            return secrets.Items.Any();
         }
         catch (System.Net.Http.HttpRequestException httpEx)
         {
@@ -539,7 +559,13 @@ public class KubernetesService : IKubernetesService
 
         try
         {
-            var secret = await _client.CoreV1.ReadNamespacedSecretAsync(secretName, namespaceName);
+            // Use ListNamespacedSecretAsync with field selector instead of ReadNamespacedSecretAsync
+            // to avoid throwing HttpOperationException (404) for non-existent secrets.
+            var secrets = await _client.CoreV1.ListNamespacedSecretAsync(
+                namespaceName,
+                fieldSelector: $"metadata.name={secretName}"
+            );
+            var secret = secrets.Items.FirstOrDefault();
             if (secret?.Data == null)
                 return null;
 
@@ -550,10 +576,6 @@ public class KubernetesService : IKubernetesService
             }
             
             return data;
-        }
-        catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            return null;
         }
         catch (k8s.Autorest.HttpOperationException httpEx)
         {
@@ -608,38 +630,17 @@ public class KubernetesService : IKubernetesService
 
         try
         {
-            var secret = await _client.CoreV1.ReadNamespacedSecretAsync(secretName, namespaceName);
-            return secret.Type;
-        }
-        catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            return null;
+            // Use ListNamespacedSecretAsync with field selector instead of ReadNamespacedSecretAsync
+            // to avoid throwing HttpOperationException (404) for non-existent secrets.
+            var secrets = await _client.CoreV1.ListNamespacedSecretAsync(
+                namespaceName,
+                fieldSelector: $"metadata.name={secretName}"
+            );
+            return secrets.Items.FirstOrDefault()?.Type;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get type for secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
-            return null;
-        }
-    }
-
-    public async Task<V1Secret?> GetSecretAsync(string namespaceName, string secretName)
-    {
-        if (_client == null)
-        {
-            throw new InvalidOperationException("Kubernetes client not initialized. Call InitializeAsync first.");
-        }
-
-        try
-        {
-            return await _client.CoreV1.ReadNamespacedSecretAsync(secretName, namespaceName);
-        }
-        catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            return null;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to get secret {SecretName} in namespace {Namespace}", secretName, namespaceName);
             return null;
         }
     }
@@ -850,6 +851,7 @@ public class KubernetesService : IKubernetesService
             {
                 Name = secretName,
                 NamespaceProperty = namespaceName,
+                ResourceVersion = existingSecret.Metadata?.ResourceVersion,
                 Labels = updatedLabels,
                 Annotations = updatedAnnotations
             };
@@ -864,7 +866,7 @@ public class KubernetesService : IKubernetesService
             };
 
             await _client.CoreV1.ReplaceNamespacedSecretAsync(updatedSecret, secretName, namespaceName);
-            _logger.LogInformation("Removed {KeysRemoved} managed keys from secret {SecretName} in namespace {Namespace}, preserving {ExternalKeysCount} external keys", 
+            _logger.LogDebug("Removed {KeysRemoved} managed keys from secret {SecretName} in namespace {Namespace}, preserving {ExternalKeysCount} external keys",
                 secretName, namespaceName, keysRemoved, updatedData.Count);
             return true;
         }
@@ -995,5 +997,169 @@ public class KubernetesService : IKubernetesService
     internal static string SerializeManagedKeysAnnotation(IEnumerable<string> keyNames)
     {
         return System.Text.Json.JsonSerializer.Serialize(keyNames.OrderBy(k => k).ToList());
+    }
+
+    public async Task<OperationResult> ApplyYamlAsync(string yaml)
+    {
+        if (_client == null)
+        {
+            return OperationResult.Failed("Kubernetes client not initialized");
+        }
+
+        try
+        {
+            _logger.LogDebug("Applying Kubernetes YAML manifest via IKubernetes client");
+
+            var objects = KubernetesYaml.LoadAllFromString(yaml);
+            if (objects == null || objects.Count == 0)
+            {
+                return OperationResult.Failed("No valid Kubernetes objects found in YAML");
+            }
+
+            foreach (var obj in objects)
+            {
+                var result = obj switch
+                {
+                    V1Secret secret => await ApplySecretAsync(secret),
+                    V1ConfigMap cm => await ApplyConfigMapAsync(cm),
+                    V1Namespace ns => await ApplyNamespaceAsync(ns),
+                    _ => OperationResult.Failed($"Unsupported resource type: {obj.GetType().Name}")
+                };
+
+                if (!result.Success)
+                {
+                    return result;
+                }
+            }
+
+            _logger.LogDebug("Successfully applied Kubernetes YAML manifest ({Count} objects)", objects.Count);
+            return OperationResult.Successful();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception applying Kubernetes YAML manifest");
+            return OperationResult.Failed($"Apply failed: {ex.Message}");
+        }
+    }
+
+    private async Task<OperationResult> ApplySecretAsync(V1Secret secret)
+    {
+        var name = secret.Metadata?.Name;
+        var ns = secret.Metadata?.NamespaceProperty;
+        if (string.IsNullOrEmpty(name))
+            return OperationResult.Failed("Secret missing metadata.name");
+
+        try
+        {
+            if (!string.IsNullOrEmpty(ns))
+            {
+                try
+                {
+                    var live = await _client.CoreV1.ReadNamespacedSecretAsync(name, ns);
+                    secret.Metadata.ResourceVersion = live.Metadata.ResourceVersion;
+                    await _client.CoreV1.ReplaceNamespacedSecretAsync(secret, name, ns);
+                    _logger.LogDebug("Replaced Secret {Name} in namespace {Namespace}", name, ns);
+                }
+                catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    await _client.CoreV1.CreateNamespacedSecretAsync(secret, ns);
+                    _logger.LogDebug("Created Secret {Name} in namespace {Namespace}", name, ns);
+                }
+                catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.Conflict)
+                {
+                    var live = await _client.CoreV1.ReadNamespacedSecretAsync(name, ns);
+                    secret.Metadata.ResourceVersion = live.Metadata.ResourceVersion;
+                    await _client.CoreV1.ReplaceNamespacedSecretAsync(secret, name, ns);
+                    _logger.LogDebug("Replaced Secret {Name} in namespace {Namespace} after conflict retry", name, ns);
+                }
+            }
+            else
+            {
+                return OperationResult.Failed("Secret must have a namespace");
+            }
+            return OperationResult.Successful();
+        }
+        catch (Exception ex)
+        {
+            return OperationResult.Failed($"Failed to apply Secret {name}: {ex.Message}");
+        }
+    }
+
+    private async Task<OperationResult> ApplyConfigMapAsync(V1ConfigMap cm)
+    {
+        var name = cm.Metadata?.Name;
+        var ns = cm.Metadata?.NamespaceProperty;
+        if (string.IsNullOrEmpty(name))
+            return OperationResult.Failed("ConfigMap missing metadata.name");
+        if (string.IsNullOrEmpty(ns))
+            return OperationResult.Failed("ConfigMap must have a namespace");
+
+        try
+        {
+            try
+            {
+                var live = await _client.CoreV1.ReadNamespacedConfigMapAsync(name, ns);
+                cm.Metadata.ResourceVersion = live.Metadata.ResourceVersion;
+                await _client.CoreV1.ReplaceNamespacedConfigMapAsync(cm, name, ns);
+                _logger.LogDebug("Replaced ConfigMap {Name} in namespace {Namespace}", name, ns);
+            }
+            catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                await _client.CoreV1.CreateNamespacedConfigMapAsync(cm, ns);
+                _logger.LogDebug("Created ConfigMap {Name} in namespace {Namespace}", name, ns);
+            }
+            catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var live = await _client.CoreV1.ReadNamespacedConfigMapAsync(name, ns);
+                cm.Metadata.ResourceVersion = live.Metadata.ResourceVersion;
+                await _client.CoreV1.ReplaceNamespacedConfigMapAsync(cm, name, ns);
+                _logger.LogDebug("Replaced ConfigMap {Name} in namespace {Namespace} after conflict retry", name, ns);
+            }
+            return OperationResult.Successful();
+        }
+        catch (Exception ex)
+        {
+            return OperationResult.Failed($"Failed to apply ConfigMap {name}: {ex.Message}");
+        }
+    }
+
+    private async Task<OperationResult> ApplyNamespaceAsync(V1Namespace ns)
+    {
+        var name = ns.Metadata?.Name;
+        if (string.IsNullOrEmpty(name))
+            return OperationResult.Failed("Namespace missing metadata.name");
+
+        try
+        {
+            try
+            {
+                var live = await _client.CoreV1.ReadNamespaceAsync(name);
+                ns.Metadata.ResourceVersion = live.Metadata.ResourceVersion;
+                await _client.CoreV1.ReplaceNamespaceAsync(ns, name);
+                _logger.LogDebug("Replaced Namespace {Name}", name);
+            }
+            catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                await _client.CoreV1.CreateNamespaceAsync(ns);
+                _logger.LogDebug("Created Namespace {Name}", name);
+            }
+            catch (k8s.Autorest.HttpOperationException ex) when (ex.Response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var live = await _client.CoreV1.ReadNamespaceAsync(name);
+                ns.Metadata.ResourceVersion = live.Metadata.ResourceVersion;
+                await _client.CoreV1.ReplaceNamespaceAsync(ns, name);
+                _logger.LogDebug("Replaced Namespace {Name} after conflict retry", name);
+            }
+            return OperationResult.Successful();
+        }
+        catch (Exception ex)
+        {
+            return OperationResult.Failed($"Failed to apply Namespace {name}: {ex.Message}");
+        }
+    }
+
+    public string? GetContextName()
+    {
+        return _detectedContextName;
     }
 } 

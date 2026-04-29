@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Moq;
 using VaultwardenK8sSync.Configuration;
+using VaultwardenK8sSync.Infrastructure;
 using VaultwardenK8sSync.Models;
 using VaultwardenK8sSync.Services;
 using Xunit;
@@ -18,7 +19,7 @@ public class KubernetesServiceTests
     {
         _loggerMock = new Mock<ILogger<KubernetesService>>();
         _config = new KubernetesSettings();
-        _service = new KubernetesService(_loggerMock.Object, _config);
+        _service = new KubernetesService(_loggerMock.Object, _config, new ProcessRunner(new Mock<ILogger<ProcessRunner>>().Object));
     }
 
     #region ParseManagedKeysAnnotation Tests
@@ -166,7 +167,7 @@ public class KubernetesServiceTests
     public void Constructor_WithNullConfig_ShouldCreateInstance()
     {
         // Act & Assert
-        var service = new KubernetesService(_loggerMock.Object, null);
+        var service = new KubernetesService(_loggerMock.Object, null, new ProcessRunner(new Mock<ILogger<ProcessRunner>>().Object));
         service.Should().NotBeNull();
     }
 
@@ -227,7 +228,7 @@ public class KubernetesServiceTests
         _config.KubeConfigPath = "test-config";
 
         // Act
-        var service = new KubernetesService(_loggerMock.Object, _config);
+        var service = new KubernetesService(_loggerMock.Object, _config, new ProcessRunner(new Mock<ILogger<ProcessRunner>>().Object));
 
         // Assert
         service.Should().NotBeNull();
@@ -245,7 +246,7 @@ public class KubernetesServiceTests
         _config.KubeConfigPath = "";
 
         // Act
-        var service = new KubernetesService(_loggerMock.Object, _config);
+        var service = new KubernetesService(_loggerMock.Object, _config, new ProcessRunner(new Mock<ILogger<ProcessRunner>>().Object));
 
         // Assert
         service.Should().NotBeNull();
@@ -258,7 +259,7 @@ public class KubernetesServiceTests
     public void Constructor_WithNullConfig_ShouldHandleNull()
     {
         // Arrange & Act
-        var service = new KubernetesService(_loggerMock.Object, null);
+        var service = new KubernetesService(_loggerMock.Object, null, new ProcessRunner(new Mock<ILogger<ProcessRunner>>().Object));
 
         // Assert
         service.Should().NotBeNull();

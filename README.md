@@ -63,6 +63,7 @@ In Vaultwarden, create a **Login**, **SSH Key** or **Secure Note** item with:
 | `secret-type` | Kubernetes Secret type: `Opaque`, `kubernetes.io/basic-auth`, `kubernetes.io/tls`, `kubernetes.io/dockerconfigjson`  | `Opaque` |
 | `secret-annotation` | Custom annotations (format: `key=value` or `key: value`) | - |
 | `secret-label` | Custom labels (format: `key=value` or `key: value`) | - |
+| `context-name` | Filter by cluster context for multi-cluster deployments | Auto-detected from kubeconfig |
 | `ignore-field` | Comma-separated list of field names to exclude from sync | - |
 | `docker-config-json-server` | URL of the docker registry server when using secret-type `kubernetes.io/dockerconfigjson` | `https://index.docker.io/v1/` |
 | `docker-config-json-email` | User email address when using secret-type `kubernetes.io/dockerconfigjson` (optional) | - |
@@ -86,8 +87,8 @@ metadata:
   name: postgres-credentials
   namespace: production
 data:
-  postgres-credentials: c2VjcmV0MTIz  # password
-  postgres-credentials-username: YWRtaW4=  # username
+  password: c2VjcmV0MTIz  # secret123
+  username: YWRtaW4=  # admin
 ```
 
 ### Custom Key Names
@@ -226,6 +227,87 @@ data:
 
 ---
 
+## ⚠️ Breaking Changes (v2.0)
+
+If upgrading from v1.x, be aware of the following changes to default secret key names:
+
+### Default Key Names Changed
+
+**Before (v1.x):**
+- Username key: `<item-name>-username` (e.g., `my-secret-username`)
+- Password key: `<item-name>` (e.g., `my-secret`)
+- SSH public key: `<item-name>-public-key`
+- SSH fingerprint: `<item-name>-fingerprint`
+
+**After (v2.0):**
+- Username key: `username`
+- Password key: `password`
+- SSH private key: `private-key`
+- SSH public key: `public-key`
+- SSH fingerprint: `fingerprint`
+
+**Migration:** Update your applications to use the new static key names, or use custom field overrides:
+- `secret-key-username` = your preferred username key
+- `secret-key-password` = your preferred password key
+
+---
+
+## New Features (v2.0)
+
+### Kubernetes YAML from Notes
+
+Secure Note items containing valid Kubernetes YAML are automatically applied via `kubectl apply`:
+
+**Vaultwarden Secure Note:**
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-config
+  namespace: default
+data:
+  key: value
+```
+
+**Result:** ConfigMap is created/updated in the cluster (not a Secret).
+
+### stringData: Mode
+
+Notes starting with `stringData:` are parsed as key-value pairs:
+
+**Vaultwarden Secure Note:**
+```text
+stringData:
+DATABASE_URL=postgres://user:pass@host/db
+API_KEY=secret123
+ENABLE_FEATURE=true
+```
+
+**Result in Kubernetes Secret:**
+```yaml
+data:
+  DATABASE_URL: cG9zdGdyZXM6Ly91c2VyOnBhc3NAaG9zdC9kYg==
+  API_KEY: c2VjcmV0MTIz
+  ENABLE_FEATURE: dHJ1ZQ==
+```
+
+### Attachment Support
+
+File attachments on Vaultwarden items are processed:
+- **YAML files** → Applied via `kubectl apply`
+- **stringData: files** → Parsed as key-value pairs
+- **Other files** → Stored with filename as key
+
+### Private Registry Support
+
+Use `imagePullSecrets` in Helm values for private registries:
+
+```yaml
+imagePullSecrets:
+  - name: my-registry-secret
+```
+
+---
 ## Configuration Options
 
 ### Helm Values
@@ -311,6 +393,11 @@ The service uses Serilog for structured logging with environment-aware output:
 - **Custom annotations/labels**: Add Kubernetes metadata (annotations and labels) via custom fields
   - Multiple text fields with the same name (one `key=value` per field)
   - Automatically excluded from secret data
+- **Multi-cluster support**: Use `context-name` custom field to filter items per cluster
+  - Context name is auto-detected from your kubeconfig (or cluster host for in-cluster)
+  - Optionally override with `SYNC__CONTEXTNAME` environment variable
+  - Items with `context-name` only sync to matching clusters
+  - Items without `context-name` sync to all clusters
 - **Structured logging**: JSON logs in production for aggregators; colored output in development
 - **Component log levels**: Fine-grained control over logging verbosity per service
 

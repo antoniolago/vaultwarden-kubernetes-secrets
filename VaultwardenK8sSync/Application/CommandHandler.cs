@@ -70,10 +70,9 @@ public class CommandHandler : ICommandHandler
                 syncSummary = await _syncService.SyncAsync(progressReporter);
             }
             
-                                // Show detailed summary
-                    var summaryText = Services.SyncSummaryFormatter.FormatSummary(syncSummary, _appSettings.Sync.DryRun);
-                    // Write directly to console to avoid logging framework truncation
-                    Console.WriteLine(summaryText);
+// Show full summary (single-run mode always shows full output)
+            var summaryText = Services.SyncSummaryFormatter.FormatSummary(syncSummary, _appSettings.Sync.DryRun);
+            Console.WriteLine(summaryText);
             
             return syncSummary.OverallSuccess;
         }
@@ -199,6 +198,7 @@ public class CommandHandler : ICommandHandler
         try
         {
             var runCount = 0;
+            SyncSummary? previousSummary = null;
             while (!cancellationTokenSource.Token.IsCancellationRequested)
             {
                 runCount++;
@@ -207,8 +207,8 @@ public class CommandHandler : ICommandHandler
                 // This ensures consistent interval between sync START times
                 if (runCount > 1 && !cancellationTokenSource.Token.IsCancellationRequested)
                 {
-                    _logger.LogInformation("Waiting {Interval} seconds before next sync...", 
-                        _appSettings.Sync.SyncIntervalSeconds);
+                    //_logger.LogInformation("Waiting {Interval} seconds before next sync...",
+                    //    _appSettings.Sync.SyncIntervalSeconds);
                     try
                     {
                         await Task.Delay(TimeSpan.FromSeconds(_appSettings.Sync.SyncIntervalSeconds), 
@@ -229,22 +229,25 @@ public class CommandHandler : ICommandHandler
                 
                 try
                 {
-                    _logger.LogInformation("Starting sync run #{RunCount}...", runCount);
+                    _logger.LogDebug("Starting sync run #{RunCount}...", runCount);
                     
                     SyncSummary syncSummary;
                     
                     // Use dynamic progress display for real-time updates
-                    using (var progressDisplay = new Services.DynamicSyncProgressDisplay(_logger))
+                    using (var progressDisplay = new Services.DynamicSyncProgressDisplay(_logger, previousSummary))
                     using (var progressReporter = new Services.DynamicProgressReporter(progressDisplay))
                     {
                         // Perform sync with dynamic progress reporting
                         syncSummary = await _syncService.SyncAsync(progressReporter);
                     }
                     
-                    // Show detailed summary
-                    var summaryText = Services.SyncSummaryFormatter.FormatSummary(syncSummary, _appSettings.Sync.DryRun);
-                    // Write directly to console to avoid logging framework truncation
-                    Console.WriteLine(summaryText);
+                    if (syncSummary.HasChanges || syncSummary.TotalSecretsFailed > 0 || syncSummary.Errors.Any())
+                    {
+                        var summaryText = Services.SyncSummaryFormatter.FormatSummary(syncSummary, _appSettings.Sync.DryRun);
+                        Console.WriteLine(summaryText);
+                    }
+                    if (syncSummary.HasChanges || syncSummary.Namespaces.Count > 0)
+                        previousSummary = syncSummary;
                 }
                 catch (Exception ex)
                 {
@@ -269,35 +272,6 @@ public class CommandHandler : ICommandHandler
             _logger.LogError(ex, "Continuous sync failed with exception");
             return false;
         }
-    }
-
-    private string GetSyncCompletionMessage(SyncSummary summary, int? runNumber = null)
-    {
-        var prefix = runNumber.HasValue ? $"Sync #{runNumber} " : "Sync ";
-        var duration = $"({summary.Duration.TotalSeconds:F1}s)";
-        
-        // First, check if no changes were detected (regardless of success/failure)
-        if (!summary.HasChanges)
-        {
-            return $"⭕ {prefix}completed - no changes detected {duration}";
-        }
-        
-        // If changes were detected, check if sync failed
-        if (!summary.OverallSuccess)
-        {
-            var failedCount = summary.TotalSecretsFailed;
-            return $"❌ {prefix}completed with errors - {failedCount} secrets failed {duration}";
-        }
-        
-        // If changes detected and sync succeeded
-        if (summary.TotalSecretsCreated > 0 || summary.TotalSecretsUpdated > 0)
-        {
-            var changed = summary.TotalSecretsCreated + summary.TotalSecretsUpdated;
-            return $"✅ {prefix}completed successfully - {changed} secrets processed {duration}";
-        }
-        
-        // Fallback (shouldn't normally reach here if logic is correct)
-        return $"✅ {prefix}completed {duration}";
     }
 
     private static void ShowHelp()

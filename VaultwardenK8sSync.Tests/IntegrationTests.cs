@@ -27,6 +27,7 @@ public class IntegrationTests : IDisposable
         _loggerMock = new Mock<ILogger<SyncService>>();
         _vaultwardenServiceMock = new Mock<IVaultwardenService>();
         _kubernetesServiceMock = new Mock<IKubernetesService>();
+            _kubernetesServiceMock.Setup(x => x.IsInitialized).Returns(true);
         _metricsServiceMock = new Mock<IMetricsService>();
         _dbLoggerMock = new Mock<IDatabaseLoggerService>();
         _syncConfig = new SyncSettings();
@@ -50,7 +51,7 @@ public class IntegrationTests : IDisposable
     {
         var method = typeof(SyncService).GetMethod("ExtractSecretDataAsync", 
             BindingFlags.NonPublic | BindingFlags.Instance);
-        return (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(_syncService, new object[] { item, "Opaque" })!;
+        return (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(_syncService, new object[] { item, "Opaque", null })!;
     }
 
     [Fact]
@@ -594,7 +595,7 @@ public class IntegrationTests : IDisposable
         Assert.Equal("https://api.example.com", result["API_ENDPOINT"]);
         Assert.Equal("v1", result["API_VERSION"]);
         Assert.Equal("30", result["API_TIMEOUT"]);
-        Assert.Equal("This is a secure note with API configuration", result["API-Configuration"]); // Default key from item name
+        Assert.Equal("This is a secure note with API configuration", result["password"]); // Default password key
     }
 
     [Fact]
@@ -721,17 +722,13 @@ public class IntegrationTests : IDisposable
         var secondSync = await _syncService.SyncAsync(progressMock.Object);
 
         // Assert - After first sync stores annotations, second sync should skip
-        // First sync may update (no annotations), second sync should detect no changes via hash
         Assert.True(firstSync.OverallSuccess);
         Assert.True(secondSync.OverallSuccess);
         
-        // Second sync should either skip (if hashes match) or have same results as first
-        // The key is that both syncs succeed and process all items
-        Assert.Equal(3, secondSync.TotalSecretsProcessed);
+        // Second sync detects no hash change and skips full reconciliation
+        Assert.False(secondSync.HasChanges);
+        Assert.Equal(0, secondSync.TotalSecretsProcessed);
         Assert.Equal(0, secondSync.TotalSecretsFailed);
-        
-        // Either all skipped (hash match) or all updated (first run after annotation storage)
-        Assert.True(secondSync.TotalSecretsSkipped == 3 || secondSync.TotalSecretsUpdated == 3 || secondSync.TotalSecretsCreated == 3);
     }
 
     [Fact]
@@ -877,13 +874,12 @@ public class IntegrationTests : IDisposable
         // All runs should succeed
         Assert.All(results, r => Assert.True(r.OverallSuccess));
         
-        // All runs after the first should process all items successfully
+        // All runs after the first should skip reconciliation (no changes detected)
         for (int i = 1; i < results.Count; i++)
         {
-            Assert.Equal(2, results[i].TotalSecretsProcessed); // All items processed  
-            Assert.Equal(0, results[i].TotalSecretsFailed); // No failures
-            // Items may be skipped (hash match) or updated (annotations being set)
-            Assert.True(results[i].TotalSecretsSkipped + results[i].TotalSecretsUpdated + results[i].TotalSecretsCreated == 2);
+            Assert.False(results[i].HasChanges);
+            Assert.Equal(0, results[i].TotalSecretsProcessed);
+            Assert.Equal(0, results[i].TotalSecretsFailed);
         }
     }
 
@@ -1181,8 +1177,8 @@ public class IntegrationTests : IDisposable
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        Assert.True(result.ContainsKey("my-config"), "Should contain my-config key from notes");
-        Assert.Equal("some important configuration content", result["my-config"]);
+        Assert.True(result.ContainsKey("password"), "Should contain password key from notes");
+        Assert.Equal("some important configuration content", result["password"]);
         Assert.True(result.ContainsKey("EXTRA_KEY"), "Should contain EXTRA_KEY custom field");
     }
 
@@ -1213,10 +1209,10 @@ public class IntegrationTests : IDisposable
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        Assert.True(result.ContainsKey("my-secret"), "Should contain my-secret key for password");
-        Assert.Equal("supersecret", result["my-secret"]);
-        Assert.True(result.ContainsKey("my-secret-username"), "Should contain my-secret-username key");
-        Assert.Equal("admin", result["my-secret-username"]);
+        Assert.True(result.ContainsKey("password"), "Should contain password key");
+        Assert.Equal("supersecret", result["password"]);
+        Assert.True(result.ContainsKey("username"), "Should contain username key");
+        Assert.Equal("admin", result["username"]);
         Assert.True(result.ContainsKey("API_KEY"), "Should contain API_KEY custom field");
     }
 
@@ -1246,8 +1242,8 @@ public class IntegrationTests : IDisposable
         var result = await ExtractSecretDataAsync(item);
 
         // Assert - with no data at all, fallback is acceptable
-        Assert.True(result.ContainsKey("empty-item"), "Should contain fallback key when no data exists");
-        Assert.Equal("empty-item", result["empty-item"]);
+        Assert.True(result.ContainsKey("password"), "Should contain fallback key when no data exists");
+        Assert.Equal("empty-item", result["password"]);
     }
 
     [Fact]
@@ -1286,19 +1282,5 @@ public class IntegrationTests : IDisposable
 
     public void Dispose()
     {
-        // Clean up lock file after each test
-        var lockFilePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "vaultwarden-sync-operation.lock");
-        System.Threading.Thread.Sleep(100); // Give lock time to release
-        try
-        {
-            if (System.IO.File.Exists(lockFilePath))
-            {
-                System.IO.File.Delete(lockFilePath);
-            }
-        }
-        catch
-        {
-            // Ignore errors during cleanup
-        }
     }
 }

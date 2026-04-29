@@ -24,6 +24,7 @@ public class SecretStateRepository : ISecretStateRepository
             existing.Status = secretState.Status;
             existing.DataKeysCount = secretState.DataKeysCount;
             existing.LastError = secretState.LastError;
+            if (secretState.ContentHash != null) existing.ContentHash = secretState.ContentHash;
             
             _context.SecretStates.Update(existing);
         }
@@ -89,6 +90,25 @@ public class SecretStateRepository : ISecretStateRepository
         if (entity != null)
         {
             _context.SecretStates.Remove(entity);
+            await _context.SaveChangesAsync();
+        }
+    }
+
+    public async Task<string?> GetSecretHashAsync(string namespaceName, string secretName)
+    {
+        var secretState = await _context.SecretStates
+            .FirstOrDefaultAsync(s => s.Namespace == namespaceName && s.SecretName == secretName);
+        return secretState?.ContentHash;
+    }
+
+    public async Task UpdateSecretHashAsync(string namespaceName, string secretName, string contentHash)
+    {
+        var secretState = await _context.SecretStates
+            .AsTracking()
+            .FirstOrDefaultAsync(s => s.Namespace == namespaceName && s.SecretName == secretName);
+        if (secretState != null)
+        {
+            secretState.ContentHash = contentHash;
             await _context.SaveChangesAsync();
         }
     }

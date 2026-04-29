@@ -29,9 +29,11 @@ public class E2ETestFixture : IAsyncLifetime
     
     private readonly string _projectRoot;
     private bool _clusterCreated;
+    private Process? _apiPortForwardProcess;
     
     public IKubernetes? KubernetesClient { get; private set; }
     public string VaultwardenUrl { get; private set; } = "https://localhost:30443";
+    public string ApiUrl { get; private set; } = "http://localhost:9090";
     public TestCredentials? Credentials { get; private set; }
     public List<TestResult> TestResults { get; } = new();
     
@@ -57,6 +59,7 @@ public class E2ETestFixture : IAsyncLifetime
         await SetupTestUser();
         await CreateTestItems();
         await DeployOperator();
+        await SetupApiPortForward();
         
         AnsiConsole.MarkupLine("[green]✓ E2E environment ready[/]");
         AnsiConsole.WriteLine();
@@ -64,6 +67,13 @@ public class E2ETestFixture : IAsyncLifetime
     
     public async Task DisposeAsync()
     {
+        if (_apiPortForwardProcess != null && !_apiPortForwardProcess.HasExited)
+        {
+            _apiPortForwardProcess.Kill(entireProcessTree: true);
+            _apiPortForwardProcess.Dispose();
+            _apiPortForwardProcess = null;
+        }
+        
         if (_clusterCreated && Environment.GetEnvironmentVariable("E2E_KEEP_CLUSTER") != "true")
         {
             AnsiConsole.MarkupLine("[yellow]Cleaning up cluster...[/]");
@@ -582,9 +592,29 @@ nodes:
                     await RunCommand("docker", $"build -f {_projectRoot}/VaultwardenK8sSync/Dockerfile -t vaultwarden-kubernetes-secrets:e2e-test {_projectRoot}");
                 }
                 
-                // Load into kind
-                ctx.Status("Loading image into Kind...");
+                // Build API Docker image
+                ctx.Status("Checking for pre-built API image...");
+                var apiImageExists = false;
+                try
+                {
+                    await RunCommand("docker", "image inspect vaultwarden-kubernetes-secrets-api:e2e-test", throwOnError: false);
+                    apiImageExists = true;
+                    AnsiConsole.MarkupLine("[green]✓ Using pre-built API image[/]");
+                }
+                catch { /* Image doesn't exist, will build */ }
+                
+                if (!apiImageExists)
+                {
+                    ctx.Status("Building API Docker image...");
+                    await RunCommand("docker", $"build -f {_projectRoot}/VaultwardenK8sSync.Api/Dockerfile -t vaultwarden-kubernetes-secrets-api:e2e-test {_projectRoot}");
+                }
+                
+                // Load images into kind
+                ctx.Status("Loading operator image into Kind...");
                 await RunCommand("kind", $"load docker-image vaultwarden-kubernetes-secrets:e2e-test --name {ClusterName}");
+                
+                ctx.Status("Loading API image into Kind...");
+                await RunCommand("kind", $"load docker-image vaultwarden-kubernetes-secrets-api:e2e-test --name {ClusterName}");
                 
                 // Create secrets
                 ctx.Status("Creating operator secrets...");
@@ -611,7 +641,10 @@ nodes:
                     "--set env.config.SYNC__DELETEORPHANS=true " +
                     $"--set env.config.KUBERNETES__DEFAULTNAMESPACE={TestNamespace1} " +
                     "--set env.config.NODE_TLS_REJECT_UNAUTHORIZED=0 " +
-                    "--set api.enabled=false " +
+                    "--set api.enabled=true " +
+                    "--set api.image.repository=vaultwarden-kubernetes-secrets-api " +
+                    "--set api.image.tag=e2e-test " +
+                    "--set api.image.pullPolicy=Never " +
                     "--set dashboard.enabled=false " +
                     "--wait --timeout 2m");
                 
@@ -622,6 +655,44 @@ nodes:
             });
         
         AnsiConsole.MarkupLine("[green]✓ Operator deployed[/]");
+    }
+    
+    private async Task SetupApiPortForward()
+    {
+        await AnsiConsole.Status()
+            .StartAsync("Setting up API port-forward...", async ctx =>
+            {
+                ctx.Status("Getting API service...");
+                var services = await RunCommand("kubectl",
+                    $"get svc -n {OperatorNamespace} -l app.kubernetes.io/component=api -o name",
+                    throwOnError: false);
+                var apiServiceName = services.Trim().Split('\n').FirstOrDefault()?.Replace("service/", "");
+                
+                if (string.IsNullOrEmpty(apiServiceName))
+                {
+                    AnsiConsole.MarkupLine("[yellow]⚠ API service not found, skipping port-forward[/]");
+                    return;
+                }
+                
+                ctx.Status($"Starting port-forward to {apiServiceName}...");
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "kubectl",
+                    Arguments = $"port-forward -n {OperatorNamespace} service/{apiServiceName} 9090:8080",
+                    RedirectStandardOutput = false,
+                    RedirectStandardError = false,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                
+                _apiPortForwardProcess = Process.Start(psi);
+                
+                // Wait for port-forward to establish
+                await Task.Delay(3000);
+                
+                ApiUrl = "http://localhost:9090";
+                AnsiConsole.MarkupLine($"[green]✓ API port-forward ready at {ApiUrl}[/]");
+            });
     }
     
     private List<TestItemDefinition> GetTestItemDefinitions()

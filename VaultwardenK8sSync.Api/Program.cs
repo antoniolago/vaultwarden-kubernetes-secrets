@@ -146,9 +146,11 @@ try
         {
             using var loggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
                 builder.AddSerilog(Log.Logger, dispose: false));
+            var processRunner = new ProcessRunner(loggerFactory.CreateLogger<ProcessRunner>());
             var kubernetesService = new KubernetesService(
                 loggerFactory.CreateLogger<KubernetesService>(),
-                appSettings.Kubernetes
+                appSettings.Kubernetes,
+                processRunner
             );
 
             if (await kubernetesService.InitializeAsync())

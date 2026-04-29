@@ -15,4 +15,5 @@ public class SecretState
     public string Status { get; set; } = string.Empty; // Active, Deleted, Failed
     public int DataKeysCount { get; set; }
     public string? LastError { get; set; }
+    public string? ContentHash { get; set; } // Hash of secret content for change detection
 }

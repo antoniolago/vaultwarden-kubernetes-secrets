@@ -28,7 +28,7 @@ class Program
                 return 1;
             }
 
-            Log.Information("Process lock acquired - this is the only running sync service instance");
+            //Log.Information("Process lock acquired - this is the only running sync service instance");
 
             var host = new ApplicationHost();
             return await host.RunAsync(args);

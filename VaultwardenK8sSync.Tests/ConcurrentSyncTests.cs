@@ -21,6 +21,7 @@ public class ConcurrentSyncTests
         // Arrange
         var mockVaultwardenService = new Mock<IVaultwardenService>();
         var mockKubernetesService = new Mock<IKubernetesService>();
+            mockKubernetesService.Setup(x => x.IsInitialized).Returns(true);
         var mockDbLogger = new Mock<IDatabaseLoggerService>();
         var mockMetrics = new Mock<IMetricsService>();
         var mockLogger = new Mock<ILogger<SyncService>>();
@@ -131,6 +132,7 @@ public class ConcurrentSyncTests
         // Arrange
         var mockVaultwardenService = new Mock<IVaultwardenService>();
         var mockKubernetesService = new Mock<IKubernetesService>();
+            mockKubernetesService.Setup(x => x.IsInitialized).Returns(true);
         var mockDbLogger = new Mock<IDatabaseLoggerService>();
         var mockMetrics = new Mock<IMetricsService>();
         var mockLogger = new Mock<ILogger<SyncService>>();

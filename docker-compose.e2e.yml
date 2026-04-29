@@ -1,0 +1,178 @@
+networks:
+  e2e-net:
+    driver: bridge
+
+volumes:
+  sync-data:
+    name: vw-e2e-sync-data
+
+services:
+  # ---------------------------------------------------------------
+  # Vaultwarden - Bitwarden-compatible server
+  # ---------------------------------------------------------------
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vw-e2e-vaultwarden
+    ports:
+      - "8080:80"
+    environment:
+      ADMIN_TOKEN: test-admin-token
+      SIGNUPS_ALLOWED: "true"
+      I_REALLY_WANT_VOLATILE_STORAGE: "true"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/alive"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 30s
+    networks:
+      - e2e-net
+    restart: "no"
+
+  tls-proxy:
+    image: alpine/socat:latest
+    container_name: vw-e2e-tls-proxy
+    volumes:
+      - ./e2e-ssl:/ssl:ro
+    command:
+      - "OPENSSL-LISTEN:443,reuseaddr,fork,cert=/ssl/cert.pem,key=/ssl/key.pem,verify=0"
+      - "TCP:vaultwarden:80"
+    networks:
+      - e2e-net
+    restart: "no"
+
+  # ---------------------------------------------------------------
+  # Mock Kubernetes API server (in-memory, no real K8s needed)
+  # ---------------------------------------------------------------
+  mock-k8s:
+    image: python:3.11-alpine
+    container_name: vw-e2e-mock-k8s
+    volumes:
+      - ./scripts/mock-k8s-server.py:/mock-server.py:ro
+    command: python3 /mock-server.py
+    networks:
+      - e2e-net
+    restart: "no"
+
+  # ---------------------------------------------------------------
+  # Sync service - runs once per invocation
+  # ---------------------------------------------------------------
+  sync:
+    build:
+      context: .
+      dockerfile: VaultwardenK8sSync/Dockerfile
+    container_name: vw-e2e-sync
+    depends_on:
+      vaultwarden:
+        condition: service_healthy
+      tls-proxy:
+        condition: service_started
+      mock-k8s:
+        condition: service_started
+    environment:
+      # Vaultwarden connection (via TLS proxy for HTTPS)
+      VAULTWARDEN__SERVERURL: https://tls-proxy:443
+      VAULTWARDEN__MASTERPASSWORD: test-e2e-password
+      BW_CLIENTID: ${E2E_BW_CLIENTID:-user.__placeholder__}
+      BW_CLIENTSECRET: ${E2E_BW_CLIENTSECRET:-__placeholder__}
+      # Kubernetes config (pointing to mock server)
+      KUBERNETES__INCLUSTER: "false"
+      KUBERNETES__KUBECONFIGPATH: /kube/config
+      KUBERNETES__DEFAULTNAMESPACE: default
+      # Dry-run FALSE - we use mock K8s so real sync flow runs (needed for hash persistence test)
+      SYNC__DRYRUN: "false"
+      SYNC__CONTINUOUSSYNC: "false"
+      SYNC__SYNCINTERVALSECONDS: "30"
+      SYNC__DELETEORPHANS: "false"
+      # Database connection (persists across restarts via named volume)
+      ConnectionStrings__DefaultConnection: Data Source=/data/sync.db
+      DATABASE_PATH: /data/sync.db
+      # Disable metrics (no need in e2e)
+      METRICS__ENABLED: "false"
+      # Logging
+      LOGGING__LOGLEVEL__DEFAULT: Debug
+      LOGGING__LOGLEVEL__MICROSOFT: Warning
+    user: root
+    volumes:
+      - ./mock-kubeconfig.yaml:/kube/config:ro
+      - sync-data:/data
+    networks:
+      - e2e-net
+    restart: "no"
+    command: ["sync"]
+
+  # ---------------------------------------------------------------
+  # API service (optional - for monitoring the sync state)
+  # ---------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: VaultwardenK8sSync.Api/Dockerfile
+    container_name: vw-e2e-api
+    ports:
+      - "5000:8080"
+    depends_on:
+      sync:
+        condition: service_completed_successfully
+    environment:
+      ConnectionStrings__DefaultConnection: Data Source=/data/sync.db
+      METRICS__ENABLED: "false"
+      LOGINLESS_MODE: "true"
+    volumes:
+      - sync-data:/data
+    networks:
+      - e2e-net
+    restart: "no"
+    profiles:
+      - with-api
+
+  # ---------------------------------------------------------------
+  # Dashboard (optional - requires api service)
+  # ---------------------------------------------------------------
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: vw-e2e-dashboard
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+    networks:
+      - e2e-net
+    restart: "no"
+    profiles:
+      - with-dashboard
+
+  # ---------------------------------------------------------------
+  # Playwright E2E test runner (runs dashboard tests against live stack)
+  # ---------------------------------------------------------------
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.52.0-jammy
+    container_name: vw-e2e-playwright
+    working_dir: /app
+    volumes:
+      - ./dashboard:/app
+    depends_on:
+      api:
+        condition: service_started
+      dashboard:
+        condition: service_started
+    environment:
+      # Point to the docker-compose internal network API endpoint
+      API_URL: http://api:8080/api
+      DASHBOARD_URL: http://dashboard:80
+      CI: "true"
+    command: >
+      sh -c "
+        npm install -g bun &&
+        cd /app &&
+        bun install --frozen-lockfile &&
+        bunx playwright install chromium &&
+        bun run test:e2e
+      "
+    networks:
+      - e2e-net
+    restart: "no"
+    profiles:
+      - with-dashboard

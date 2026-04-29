@@ -24,6 +24,7 @@ public class KubernetesValidationTests
         _loggerMock = new Mock<ILogger<SyncService>>();
         _vaultwardenServiceMock = new Mock<IVaultwardenService>();
         _kubernetesServiceMock = new Mock<IKubernetesService>();
+            _kubernetesServiceMock.Setup(x => x.IsInitialized).Returns(true);
         _metricsServiceMock = new Mock<IMetricsService>();
         _dbLoggerMock = new Mock<IDatabaseLoggerService>();
         _syncConfig = new SyncSettings();
@@ -268,17 +269,17 @@ public class KubernetesValidationTests
         var result = ExtractSecretDataAsync(item).Result;
 
         // Assert
-        // Default fields should use hyphenated secret name
-        Assert.Contains("test-se-cret-default", result.Keys);
-        Assert.Contains("test-se-cret-default-username", result.Keys);
+        // Default fields should use "password" and "username" keys
+        Assert.Contains("password", result.Keys);
+        Assert.Contains("username", result.Keys);
         
         // Custom fields should preserve their formatting
         Assert.Contains("SMTP_PASSWORD", result.Keys);
         Assert.Contains("API-KEY", result.Keys);
         Assert.Contains("database-password", result.Keys);
         
-        Assert.Equal("testpass", result["test-se-cret-default"]);
-        Assert.Equal("testuser", result["test-se-cret-default-username"]);
+        Assert.Equal("testpass", result["password"]);
+        Assert.Equal("testuser", result["username"]);
         Assert.Equal("smtp123", result["SMTP_PASSWORD"]);
         Assert.Equal("api123", result["API-KEY"]);
         Assert.Equal("db123", result["database-password"]);
@@ -317,6 +318,6 @@ public class KubernetesValidationTests
     {
         var method = typeof(SyncService).GetMethod("ExtractSecretDataAsync", 
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        return (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(_syncService, new object[] { item, "Opaque" })!;
+        return (Dictionary<string, string>)await (Task<Dictionary<string, string>>)method!.Invoke(_syncService, new object[] { item, "Opaque", null })!;
     }
 }

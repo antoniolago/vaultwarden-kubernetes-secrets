@@ -27,17 +27,22 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 # Copy published application
 COPY --from=publish /app/publish .
 
-# Install Bitwarden CLI via npm for all architectures so NODE_OPTIONS is honored by Node runtime
-# Update Node.js to version 20+ to fix ES module compatibility issues
-RUN apt-get update && apt-get install -y \
-    curl \
-    unzip \
-    ca-certificates \
-    gnupg \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/* \
-    && npm install -g @bitwarden/cli@2025.12.0
+
+# Install kubectl for applying Kubernetes YAML manifests from note items
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && \
+    KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt) && \
+    case "$(uname -m)" in \
+        x86_64)   ARCH="amd64";; \
+        aarch64)  ARCH="arm64";; \
+        armv7l)   ARCH="arm";; \
+        *)        echo "Unsupported architecture"; exit 1;; \
+    esac && \
+    curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" -o /usr/local/bin/kubectl && \
+    curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl.sha256" -o /tmp/kubectl.sha256 && \
+    echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum --check && \
+    chmod 0755 /usr/local/bin/kubectl && \
+    rm -f /tmp/kubectl.sha256 && \
+    apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 # Change ownership to non-root user
 RUN chown -R appuser:appuser /app

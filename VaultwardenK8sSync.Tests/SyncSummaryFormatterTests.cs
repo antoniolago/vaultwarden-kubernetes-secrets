@@ -194,7 +194,7 @@ public class SyncSummaryFormatterTests
     }
 
     [Fact]
-    public void FormatSummary_WithNamespaceNotFound_ShouldShowInNotFoundColumn()
+    public void FormatSummary_WithNamespaceNotFound_ShouldShowInFailedSection()
     {
         // Arrange
         var summary = new SyncSummary
@@ -223,7 +223,7 @@ public class SyncSummaryFormatterTests
         var result = SyncSummaryFormatter.FormatSummary(summary);
 
         // Assert
-        result.Should().Contain("⚠️  NOT FOUND");
+        result.Should().Contain("❌ FAILED");
         result.Should().Contain("nonexistent");
         result.Should().Contain("not f"); // Truncated in horizontal layout
     }
@@ -309,7 +309,6 @@ public class SyncSummaryFormatterTests
         result.Should().Contain("2 failed");
         result.Should().Contain("Authentication error");
         
-        result.Should().Contain("⚠️  NOT FOUND");
         result.Should().Contain("dev-temp");
         result.Should().Contain("does not exist");
     }
@@ -378,5 +377,302 @@ public class SyncSummaryFormatterTests
         result.Should().Contain("Error 3: Third error");
         result.Should().Contain("Error 4: Fourth error"); // Now shows up to 5 errors
         // No "more errors" message since we only have 4 errors and limit is 5
+    }
+
+    [Fact]
+    public void GetStateKey_IdenticalSummaries_ShouldReturnSameKey()
+    {
+        var summary1 = new SyncSummary
+        {
+            StartTime = DateTime.UtcNow.AddSeconds(-5),
+            EndTime = DateTime.UtcNow,
+            OverallSuccess = true,
+            HasChanges = false
+        };
+        summary1.AddNamespace(new NamespaceSummary { Name = "default", Created = 1, Updated = 2, Skipped = 3, Failed = 0, Success = true });
+
+        var summary2 = new SyncSummary
+        {
+            StartTime = DateTime.UtcNow.AddSeconds(-5),
+            EndTime = DateTime.UtcNow,
+            OverallSuccess = true,
+            HasChanges = false
+        };
+        summary2.AddNamespace(new NamespaceSummary { Name = "default", Created = 1, Updated = 2, Skipped = 3, Failed = 0, Success = true });
+
+        summary1.GetStateKey().Should().Be(summary2.GetStateKey());
+    }
+
+    [Fact]
+    public void GetStateKey_DifferentOutcomes_ShouldReturnDifferentKeys()
+    {
+        var summary1 = new SyncSummary
+        {
+            StartTime = DateTime.UtcNow.AddSeconds(-5),
+            EndTime = DateTime.UtcNow,
+            OverallSuccess = true,
+            HasChanges = true
+        };
+        summary1.AddNamespace(new NamespaceSummary { Name = "default", Created = 1, Updated = 2, Skipped = 3, Failed = 0, Success = true });
+
+        var summary2 = new SyncSummary
+        {
+            StartTime = DateTime.UtcNow.AddSeconds(-5),
+            EndTime = DateTime.UtcNow,
+            OverallSuccess = true,
+            HasChanges = true
+        };
+        summary2.AddNamespace(new NamespaceSummary { Name = "default", Created = 3, Updated = 2, Skipped = 1, Failed = 0, Success = true });
+
+        summary1.GetStateKey().Should().NotBe(summary2.GetStateKey());
+    }
+
+    [Fact]
+    public void GetStateKey_NoChangesVsChanges_ShouldReturnDifferentKeys()
+    {
+        var noChanges = new SyncSummary
+        {
+            StartTime = DateTime.UtcNow.AddSeconds(-5),
+            EndTime = DateTime.UtcNow,
+            OverallSuccess = true,
+            HasChanges = false
+        };
+        noChanges.AddNamespace(new NamespaceSummary { Name = "default", Created = 0, Updated = 0, Skipped = 5, Failed = 0, Success = true });
+
+        var withChanges = new SyncSummary
+        {
+            StartTime = DateTime.UtcNow.AddSeconds(-5),
+            EndTime = DateTime.UtcNow,
+            OverallSuccess = true,
+            HasChanges = true
+        };
+        withChanges.AddNamespace(new NamespaceSummary { Name = "default", Created = 1, Updated = 0, Skipped = 4, Failed = 0, Success = true });
+
+        noChanges.GetStateKey().Should().NotBe(withChanges.GetStateKey());
+    }
+
+    [Fact]
+    public void GetStateKey_SameNamespaceDifferentSecrets_ShouldReturnDifferentKeys()
+    {
+        var summary1 = new SyncSummary { StartTime = DateTime.UtcNow, EndTime = DateTime.UtcNow, OverallSuccess = true, HasChanges = true };
+        var ns1 = new NamespaceSummary { Name = "default", Created = 1, Updated = 0, Skipped = 0, Failed = 0, Success = true };
+        ns1.AddSecret(new SecretSummary { Name = "secret-a", Outcome = ReconcileOutcome.Created });
+        summary1.AddNamespace(ns1);
+
+        var summary2 = new SyncSummary { StartTime = DateTime.UtcNow, EndTime = DateTime.UtcNow, OverallSuccess = true, HasChanges = true };
+        var ns2 = new NamespaceSummary { Name = "default", Created = 1, Updated = 0, Skipped = 0, Failed = 0, Success = true };
+        ns2.AddSecret(new SecretSummary { Name = "secret-b", Outcome = ReconcileOutcome.Created });
+        summary2.AddNamespace(ns2);
+
+        summary1.GetStateKey().Should().NotBe(summary2.GetStateKey());
+    }
+
+    [Fact]
+    public void GetStateKey_SyncWithAttachments_ProducesStableKey()
+    {
+        var summary1 = new SyncSummary { StartTime = DateTime.UtcNow, EndTime = DateTime.UtcNow, OverallSuccess = true, HasChanges = true };
+        var ns1 = new NamespaceSummary { Name = "default", Created = 1, Updated = 0, Skipped = 0, Failed = 0, Success = true };
+        ns1.AddSecret(new SecretSummary { Name = "config-store", Outcome = ReconcileOutcome.Created, ChangeReason = "created" });
+        summary1.AddNamespace(ns1);
+
+        var summary2 = new SyncSummary { StartTime = DateTime.UtcNow.AddMinutes(5), EndTime = DateTime.UtcNow.AddMinutes(5).AddSeconds(5), OverallSuccess = true, HasChanges = true };
+        var ns2 = new NamespaceSummary { Name = "default", Created = 0, Updated = 0, Skipped = 1, Failed = 0, Success = true };
+        ns2.AddSecret(new SecretSummary { Name = "config-store", Outcome = ReconcileOutcome.Skipped, ChangeReason = "no-change" });
+        summary2.AddNamespace(ns2);
+
+        summary1.GetStateKey().Should().NotBe(summary2.GetStateKey(),
+            "first sync (created) should differ from second sync (skipped)");
+    }
+
+    [Fact]
+    public void GetStateKey_IdenticalSkippedSyncs_ShouldDeduplicate()
+    {
+        var makeSkippedSync = () =>
+        {
+            var s = new SyncSummary { StartTime = DateTime.UtcNow, EndTime = DateTime.UtcNow, OverallSuccess = true, HasChanges = false };
+            var ns = new NamespaceSummary { Name = "default", Created = 0, Updated = 0, Skipped = 3, Failed = 0, Success = true };
+            ns.AddSecret(new SecretSummary { Name = "secret-a", Outcome = ReconcileOutcome.Skipped, ChangeReason = "no-change" });
+            ns.AddSecret(new SecretSummary { Name = "secret-b", Outcome = ReconcileOutcome.Skipped, ChangeReason = "no-change" });
+            ns.AddSecret(new SecretSummary { Name = "secret-c", Outcome = ReconcileOutcome.Skipped, ChangeReason = "no-change" });
+            s.AddNamespace(ns);
+            return s;
+        };
+
+        var first = makeSkippedSync();
+        var second = makeSkippedSync();
+
+        first.GetStateKey().Should().Be(second.GetStateKey(),
+            "identical no-change syncs should produce same state key for log deduplication");
+    }
+
+    [Fact]
+    public void BuildDeltaSummary_FirstRun_ShouldReturnFullSummary()
+    {
+        var summary = new SyncSummary { StartTime = DateTime.UtcNow, EndTime = DateTime.UtcNow, OverallSuccess = true, HasChanges = true };
+        summary.AddNamespace(new NamespaceSummary { Name = "default", Created = 1, Skipped = 2, Success = true });
+
+        var delta = summary.BuildDeltaSummary(null);
+
+        delta.Should().NotBeNull();
+        delta.Should().BeSameAs(summary, "first run should return full summary");
+    }
+
+    [Fact]
+    public void BuildDeltaSummary_NoChanges_ShouldReturnNull()
+    {
+        var previous = new SyncSummary { StartTime = DateTime.UtcNow.AddMinutes(-5), EndTime = DateTime.UtcNow.AddMinutes(-5).AddSeconds(3), OverallSuccess = true, HasChanges = false };
+        var prevNs = new NamespaceSummary { Name = "default", Created = 0, Updated = 0, Skipped = 3, Failed = 0, Success = true };
+        prevNs.AddSecret(new SecretSummary { Name = "secret-a", Outcome = ReconcileOutcome.Skipped });
+        prevNs.AddSecret(new SecretSummary { Name = "secret-b", Outcome = ReconcileOutcome.Skipped });
+        prevNs.AddSecret(new SecretSummary { Name = "secret-c", Outcome = ReconcileOutcome.Skipped });
+        previous.AddNamespace(prevNs);
+
+        var current = new SyncSummary { StartTime = DateTime.UtcNow, EndTime = DateTime.UtcNow.AddSeconds(3), OverallSuccess = true, HasChanges = false };
+        var curNs = new NamespaceSummary { Name = "default", Created = 0, Updated = 0, Skipped = 3, Failed = 0, Success = true };
+        curNs.AddSecret(new SecretSummary { Name = "secret-a", Outcome = ReconcileOutcome.Skipped });
+        curNs.AddSecret(new SecretSummary { Name = "secret-b", Outcome = ReconcileOutcome.Skipped });
+        curNs.AddSecret(new SecretSummary { Name = "secret-c", Outcome = ReconcileOutcome.Skipped });
+        current.AddNamespace(curNs);
+
+        var delta = current.BuildDeltaSummary(previous);
+
+        delta.Should().BeNull("identical sync states should produce null delta");
+    }
+
+    [Fact]
+    public void BuildDeltaSummary_NewSecretCreated_ShouldReturnDeltaWithNewSecret()
+    {
+        var previous = new SyncSummary { StartTime = DateTime.UtcNow.AddMinutes(-5), EndTime = DateTime.UtcNow.AddMinutes(-5).AddSeconds(2), OverallSuccess = true, HasChanges = true };
+        var prevNs = new NamespaceSummary { Name = "default", Created = 0, Updated = 0, Skipped = 2, Failed = 0, Success = true };
+        prevNs.AddSecret(new SecretSummary { Name = "secret-a", Outcome = ReconcileOutcome.Skipped });
+        prevNs.AddSecret(new SecretSummary { Name = "secret-b", Outcome = ReconcileOutcome.Skipped });
+        previous.AddNamespace(prevNs);
+
+        var current = new SyncSummary { StartTime = DateTime.UtcNow, EndTime = DateTime.UtcNow.AddSeconds(4), OverallSuccess = true, HasChanges = true };
+        var curNs = new NamespaceSummary { Name = "default", Created = 1, Updated = 0, Skipped = 2, Failed = 0, Success = true };
+        curNs.AddSecret(new SecretSummary { Name = "secret-a", Outcome = ReconcileOutcome.Skipped });
+        curNs.AddSecret(new SecretSummary { Name = "secret-b", Outcome = ReconcileOutcome.Skipped });
+        curNs.AddSecret(new SecretSummary { Name = "secret-c", Outcome = ReconcileOutcome.Created });
+        current.AddNamespace(curNs);
+
+        var delta = current.BuildDeltaSummary(previous);
+
+        delta.Should().NotBeNull();
+        delta.Namespaces.Should().HaveCount(1);
+        delta.Namespaces[0].Secrets.Should().HaveCount(1);
+        delta.Namespaces[0].Secrets[0].Name.Should().Be("secret-c");
+    }
+
+    [Fact]
+    public void BuildDeltaSummary_SecretOutcomeChanged_ShouldReturnDeltaWithChangedSecret()
+    {
+        var previous = new SyncSummary { StartTime = DateTime.UtcNow.AddMinutes(-5), EndTime = DateTime.UtcNow.AddMinutes(-5).AddSeconds(2), OverallSuccess = true, HasChanges = true };
+        var prevNs = new NamespaceSummary { Name = "default", Created = 1, Updated = 0, Skipped = 1, Failed = 0, Success = true };
+        prevNs.AddSecret(new SecretSummary { Name = "secret-a", Outcome = ReconcileOutcome.Created });
+        prevNs.AddSecret(new SecretSummary { Name = "secret-b", Outcome = ReconcileOutcome.Skipped });
+        previous.AddNamespace(prevNs);
+
+        var current = new SyncSummary { StartTime = DateTime.UtcNow, EndTime = DateTime.UtcNow.AddSeconds(2), OverallSuccess = true, HasChanges = true };
+        var curNs = new NamespaceSummary { Name = "default", Created = 0, Updated = 1, Skipped = 1, Failed = 0, Success = true };
+        curNs.AddSecret(new SecretSummary { Name = "secret-a", Outcome = ReconcileOutcome.Updated });
+        curNs.AddSecret(new SecretSummary { Name = "secret-b", Outcome = ReconcileOutcome.Skipped });
+        current.AddNamespace(curNs);
+
+        var delta = current.BuildDeltaSummary(previous);
+
+        delta.Should().NotBeNull();
+        delta.Namespaces[0].Secrets.Should().HaveCount(1);
+        delta.Namespaces[0].Secrets[0].Name.Should().Be("secret-a");
+        delta.Namespaces[0].Secrets[0].Outcome.Should().Be(ReconcileOutcome.Updated);
+    }
+
+    [Fact]
+    public void BuildDeltaSummary_NewError_ShouldReturnDeltaWithError()
+    {
+        var previous = new SyncSummary { StartTime = DateTime.UtcNow.AddMinutes(-5), EndTime = DateTime.UtcNow.AddMinutes(-5).AddSeconds(2), OverallSuccess = true, HasChanges = false };
+        var prevNs = new NamespaceSummary { Name = "default", Created = 0, Updated = 0, Skipped = 1, Failed = 0, Success = true };
+        prevNs.AddSecret(new SecretSummary { Name = "secret-a", Outcome = ReconcileOutcome.Skipped });
+        previous.AddNamespace(prevNs);
+
+        var current = new SyncSummary { StartTime = DateTime.UtcNow, EndTime = DateTime.UtcNow.AddSeconds(2), OverallSuccess = false, HasChanges = false };
+        var curNs = new NamespaceSummary { Name = "default", Created = 0, Updated = 0, Skipped = 0, Failed = 1, Success = false };
+        curNs.AddSecret(new SecretSummary { Name = "secret-a", Outcome = ReconcileOutcome.Failed, Error = "connection refused" });
+        curNs.Errors.Add("connection refused");
+        current.AddNamespace(curNs);
+
+        var delta = current.BuildDeltaSummary(previous);
+
+        delta.Should().NotBeNull();
+        delta.Namespaces[0].Errors.Should().Contain("connection refused");
+    }
+
+    [Fact]
+    public void BuildDeltaSummary_RepeatedError_ShouldNotIncludeInDelta()
+    {
+        var previous = new SyncSummary { StartTime = DateTime.UtcNow.AddMinutes(-5), EndTime = DateTime.UtcNow.AddMinutes(-5).AddSeconds(2), OverallSuccess = false, HasChanges = false };
+        var prevNs = new NamespaceSummary { Name = "default", Created = 0, Updated = 0, Skipped = 0, Failed = 1, Success = false };
+        prevNs.AddSecret(new SecretSummary { Name = "secret-a", Outcome = ReconcileOutcome.Failed, Error = "connection refused" });
+        prevNs.Errors.Add("connection refused");
+        previous.AddNamespace(prevNs);
+
+        var current = new SyncSummary { StartTime = DateTime.UtcNow, EndTime = DateTime.UtcNow.AddSeconds(2), OverallSuccess = false, HasChanges = false };
+        var curNs = new NamespaceSummary { Name = "default", Created = 0, Updated = 0, Skipped = 0, Failed = 1, Success = false };
+        curNs.AddSecret(new SecretSummary { Name = "secret-a", Outcome = ReconcileOutcome.Failed, Error = "connection refused" });
+        curNs.Errors.Add("connection refused");
+        current.AddNamespace(curNs);
+
+        var delta = current.BuildDeltaSummary(previous);
+
+        delta.Should().BeNull("repeated errors should not trigger delta output");
+    }
+
+    [Fact]
+    public void BuildDeltaSummary_SecretRemoved_ShouldReturnDeltaWithRemoval()
+    {
+        var previous = new SyncSummary { StartTime = DateTime.UtcNow.AddMinutes(-5), EndTime = DateTime.UtcNow.AddMinutes(-5).AddSeconds(2), OverallSuccess = true, HasChanges = true };
+        var prevNs = new NamespaceSummary { Name = "default", Created = 0, Updated = 0, Skipped = 2, Failed = 0, Success = true };
+        prevNs.AddSecret(new SecretSummary { Name = "secret-a", Outcome = ReconcileOutcome.Skipped });
+        prevNs.AddSecret(new SecretSummary { Name = "secret-b", Outcome = ReconcileOutcome.Skipped });
+        previous.AddNamespace(prevNs);
+
+        var current = new SyncSummary { StartTime = DateTime.UtcNow, EndTime = DateTime.UtcNow.AddSeconds(2), OverallSuccess = true, HasChanges = true };
+        var curNs = new NamespaceSummary { Name = "default", Created = 0, Updated = 0, Skipped = 1, Failed = 0, Success = true };
+        curNs.AddSecret(new SecretSummary { Name = "secret-a", Outcome = ReconcileOutcome.Skipped });
+        current.AddNamespace(curNs);
+
+        var delta = current.BuildDeltaSummary(previous);
+
+        delta.Should().NotBeNull();
+        delta.Namespaces[0].Secrets.Should().HaveCount(1);
+        delta.Namespaces[0].Secrets[0].Name.Should().Be("secret-b");
+        delta.Namespaces[0].Secrets[0].Outcome.Should().Be(ReconcileOutcome.Skipped);
+        delta.Namespaces[0].Secrets[0].ChangeReason.Should().Be("removed");
+    }
+
+    /// <summary>
+    /// When previous summary has no Namespaces (e.g., after a no-change sync
+    /// overwrote the previous state), there is no baseline to compute deltas.
+    /// BuildDeltaSummary returns the full current summary, same as first-run behavior.
+    /// The real fix for the bug is in CommandHandler.cs, which prevents the empty
+    /// summary from overwriting previousSummary in the first place.
+    /// </summary>
+    [Fact]
+    public void BuildDeltaSummary_PreviousEmptyAfterNoChangeSync_ShouldReturnFullSummary()
+    {
+        var previous = new SyncSummary { HasChanges = false };
+
+        var current = new SyncSummary { HasChanges = true };
+        var curNs = new NamespaceSummary { Name = "default", Updated = 1, Skipped = 2 };
+        curNs.AddSecret(new SecretSummary { Name = "secret-alpha", Outcome = ReconcileOutcome.Skipped });
+        curNs.AddSecret(new SecretSummary { Name = "secret-beta", Outcome = ReconcileOutcome.Updated, ChangeReason = "hash changed" });
+        curNs.AddSecret(new SecretSummary { Name = "secret-gamma", Outcome = ReconcileOutcome.Skipped });
+        current.AddNamespace(curNs);
+
+        var delta = current.BuildDeltaSummary(previous);
+
+        // When previous has no baseline, returns full summary (same as first run)
+        delta.Should().NotBeNull();
+        delta.Namespaces.Should().HaveCount(1);
+        delta.Namespaces[0].Secrets.Should().HaveCount(3);
     }
 }

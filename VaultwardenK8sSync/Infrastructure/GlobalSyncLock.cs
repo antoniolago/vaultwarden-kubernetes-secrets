@@ -21,12 +21,17 @@ public class GlobalSyncLock : IDisposable, IAsyncDisposable
     private readonly int _timeoutMs;
     private bool _disposed;
 
-    public GlobalSyncLock(ILogger? logger = null, int timeoutMs = 5000)
+    public GlobalSyncLock(ILogger? logger = null, int timeoutMs = 5000, string? lockFileName = null)
     {
+        // Validate only when lockFileName is explicitly provided (null means "use default")
+        if (lockFileName is not null)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(lockFileName);
+        }
         _logger = logger;
         _timeoutMs = timeoutMs;
         var tempPath = Path.GetTempPath();
-        _lockFilePath = Path.Combine(tempPath, "vaultwarden-sync-operation.lock");
+        _lockFilePath = Path.Combine(tempPath, lockFileName ?? "vaultwarden-sync-operation.lock");
     }
 
     /// <summary>

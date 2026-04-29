@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
 using VaultwardenK8sSync.Database;
 using VaultwardenK8sSync.Database.Models;
 using VaultwardenK8sSync.Database.Repositories;
@@ -210,7 +211,8 @@ public class DatabaseLoggerService : IDatabaseLoggerService
         string vaultwardenItemName, 
         string status, 
         int dataKeysCount, 
-        string? lastError = null)
+        string? lastError = null,
+        string? contentHash = null)
     {
         if (!_isEnabled) return;
 
@@ -225,7 +227,8 @@ public class DatabaseLoggerService : IDatabaseLoggerService
                 LastSynced = DateTime.UtcNow,
                 Status = status,
                 DataKeysCount = dataKeysCount,
-                LastError = lastError
+                LastError = lastError,
+                ContentHash = contentHash
             };
 
             using var scope = _scopeFactory.CreateScope();
@@ -259,7 +262,7 @@ public class DatabaseLoggerService : IDatabaseLoggerService
                 try
                 {
                     orgMap = await _vaultwardenService.GetOrganizationsMapAsync();
-                    _logger.LogInformation("Fetched {Count} organization names for caching", orgMap.Count);
+                    _logger.LogDebug("Fetched {Count} organization names for caching", orgMap.Count);
                 }
                 catch (Exception ex)
                 {
@@ -269,7 +272,7 @@ public class DatabaseLoggerService : IDatabaseLoggerService
                 try
                 {
                     userEmail = await _vaultwardenService.GetCurrentUserEmailAsync();
-                    _logger.LogInformation("Fetched current user email: {Email}", userEmail ?? "unknown");
+                    _logger.LogDebug("Fetched current user email");
                 }
                 catch (Exception ex)
                 {
@@ -340,7 +343,7 @@ public class DatabaseLoggerService : IDatabaseLoggerService
             }
             
             await context.SaveChangesAsync();
-            _logger.LogInformation("Cached {Count} Vaultwarden items in database", items.Count);
+            _logger.LogDebug("Cached {Count} Vaultwarden items in database", items.Count);
         }
         catch (Exception ex)
         {
@@ -390,7 +393,7 @@ public class DatabaseLoggerService : IDatabaseLoggerService
 
             if (staleStates.Any())
             {
-                _logger.LogInformation("🧹 Found {Count} stale secret state entries to cleanup", staleStates.Count);
+                _logger.LogDebug("🧹 Found {Count} stale secret state entries to cleanup", staleStates.Count);
                 
                 foreach (var staleState in staleStates)
                 {
@@ -399,7 +402,7 @@ public class DatabaseLoggerService : IDatabaseLoggerService
                     await secretStateRepository.DeleteAsync(staleState.Id);
                 }
                 
-                _logger.LogInformation("✅ Cleaned up {Count} stale secret state entries", staleStates.Count);
+                _logger.LogDebug("✅ Cleaned up {Count} stale secret state entries", staleStates.Count);
                 return staleStates.Count;
             }
             else
@@ -435,5 +438,57 @@ public class DatabaseLoggerService : IDatabaseLoggerService
 
         // Ensure it's not empty after sanitization
         return string.IsNullOrEmpty(sanitized) ? "unnamed-secret" : sanitized;
+    }
+
+    public async Task<string?> GetSecretHashAsync(string namespaceName, string secretName)
+    {
+        if (!_isEnabled) return null;
+
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var secretStateRepository = scope.ServiceProvider.GetRequiredService<ISecretStateRepository>();
+            return await secretStateRepository.GetSecretHashAsync(namespaceName, secretName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get secret hash for {Namespace}/{SecretName}", namespaceName, secretName);
+            return null;
+        }
+    }
+
+    public async Task<List<Database.Models.VaultwardenItem>> GetCachedVaultwardenItemsAsync()
+    {
+        if (!_isEnabled) return new List<Database.Models.VaultwardenItem>();
+
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<SyncDbContext>();
+            return await context.VaultwardenItems
+                .OrderBy(i => i.Name)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read cached Vaultwarden items");
+            return new List<Database.Models.VaultwardenItem>();
+        }
+    }
+
+    public async Task UpdateSecretHashAsync(string namespaceName, string secretName, string contentHash)
+    {
+        if (!_isEnabled) return;
+
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var secretStateRepository = scope.ServiceProvider.GetRequiredService<ISecretStateRepository>();
+            await secretStateRepository.UpdateSecretHashAsync(namespaceName, secretName, contentHash);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update secret hash for {Namespace}/{SecretName}", namespaceName, secretName);
+        }
     }
 }
