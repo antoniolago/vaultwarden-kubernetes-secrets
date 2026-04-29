@@ -7,7 +7,7 @@ using VaultwardenK8sSync.Services;
 using Xunit;
 using FieldInfo = VaultwardenK8sSync.Models.FieldInfo;
 
-namespace VaultwardenK8sSync.Tests;
+namespace VaultwardenK8sSync.Tests.Services;
 
 [Collection("SyncService Sequential")]
 [Trait("Category", "SecretChangeBehavior")]

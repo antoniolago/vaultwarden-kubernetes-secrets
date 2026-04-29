@@ -1,7 +1,5 @@
 import { test, expect } from '@playwright/test'
-
-const API_URL = 'http://localhost:8080/api'
-const DASHBOARD_URL = 'http://localhost:3000'
+import { API_URL, DASHBOARD_URL } from './shared'
 
 interface DashboardOverview {
   totalSyncs: number

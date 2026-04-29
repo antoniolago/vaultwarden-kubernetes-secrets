@@ -143,3 +143,36 @@ services:
     restart: "no"
     profiles:
       - with-dashboard
+
+  # ---------------------------------------------------------------
+  # Playwright E2E test runner (runs dashboard tests against live stack)
+  # ---------------------------------------------------------------
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.52.0-jammy
+    container_name: vw-e2e-playwright
+    working_dir: /app
+    volumes:
+      - ./dashboard:/app
+    depends_on:
+      api:
+        condition: service_started
+      dashboard:
+        condition: service_started
+    environment:
+      # Point to the docker-compose internal network API endpoint
+      API_URL: http://api:8080/api
+      DASHBOARD_URL: http://dashboard:80
+      CI: "true"
+    command: >
+      sh -c "
+        npm install -g bun &&
+        cd /app &&
+        bun install --frozen-lockfile &&
+        bunx playwright install chromium &&
+        bun run test:e2e
+      "
+    networks:
+      - e2e-net
+    restart: "no"
+    profiles:
+      - with-dashboard

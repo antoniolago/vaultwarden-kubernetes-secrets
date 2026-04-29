@@ -246,7 +246,7 @@ public class SanitizationTests
     }
 
     [Fact]
-    public void ExtractSecretDataAsync_WithHyphenatedItemName_ShouldPreserveHyphensInDefaultFields()
+    public async Task ExtractSecretDataAsync_WithHyphenatedItemName_ShouldPreserveHyphensInDefaultFields()
     {
         // Arrange
         var item = new VaultwardenItem
@@ -266,7 +266,7 @@ public class SanitizationTests
         };
 
         // Act
-        var result = ExtractSecretDataAsync(item).Result;
+        var result = await ExtractSecretDataAsync(item);
 
         // Assert
         Assert.Contains("password", result.Keys);

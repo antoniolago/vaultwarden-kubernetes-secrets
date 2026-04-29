@@ -68,7 +68,7 @@ main() {
   ok "SSL certs generated"
 
   step "Starting vaultwarden + mock K8s"
-  $DOCKER_COMPOSE -f "$COMPOSE_FILE" down -v 2>&1 >/dev/null || true
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" down -v >/dev/null 2>&1 || true
   $DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d vaultwarden tls-proxy mock-k8s 2>&1 | grep -vE "Network|Container|volume" || true
   wait_for "$VAULTWARDEN_URL/" "Vaultwarden" 90
 
@@ -147,6 +147,8 @@ main() {
   info "Run 2: Created=$c2 Updated=$u2 Skipped=$s2 HashMismatch=$hm2"
   info "Run 3: Created=$c3 Updated=$u3 Skipped=$s3 HashMismatch=$hm3"
 
+  mkdir -p "$EVIDENCE_DIR"
+
   # ── Run 2 validation: hash persistence ──
   # Some items may appear as Created if they failed in Run 1 (mock K8s glitch).
   # Core assertion: items with stored hashes show as Up-to-date with zero hash mismatches.
@@ -185,15 +187,9 @@ main() {
     fi
   fi
 
-  mkdir -p "$EVIDENCE_DIR"
   cp "$SYNC_LOG_1" "$EVIDENCE_DIR/sync-run-1.log" 2>/dev/null || true
   cp "$SYNC_LOG_2" "$EVIDENCE_DIR/sync-run-2.log" 2>/dev/null || true
   cp "$SYNC_LOG_3" "$EVIDENCE_DIR/sync-run-3.log" 2>/dev/null || true
-
-  echo "$DOCKER_COMPOSE -f $COMPOSE_FILE down -v" >/dev/null
-  $DOCKER_COMPOSE -f "$COMPOSE_FILE" down -v 2>&1 >/dev/null || true
-  rm -rf "$PROJECT_ROOT/e2e-ssl" 2>/dev/null || true
-  cleanup
 
   printf "\n${GREEN}Passed: $PASS${NC}  ${RED}Failed: $FAIL${NC}\n"
   if [ "$FAIL" -eq 0 ]; then
@@ -209,6 +205,12 @@ main() {
     echo "--- Sync 2 tail ---" >> "$EVIDENCE_DIR/task-6-e2e-result.txt"
     tail -15 "$SYNC_LOG_2" >> "$EVIDENCE_DIR/task-6-e2e-result.txt" 2>/dev/null
   fi
+
+  echo "$DOCKER_COMPOSE -f $COMPOSE_FILE down -v" >/dev/null
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" down -v >/dev/null 2>&1 || true
+  rm -rf "$PROJECT_ROOT/e2e-ssl" 2>/dev/null || true
+  cleanup
+
   return $FAIL
 }
 

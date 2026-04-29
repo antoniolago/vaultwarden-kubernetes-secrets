@@ -272,7 +272,7 @@ public class DatabaseLoggerService : IDatabaseLoggerService
                 try
                 {
                     userEmail = await _vaultwardenService.GetCurrentUserEmailAsync();
-                    _logger.LogDebug("Fetched current user email: {Email}", userEmail ?? "unknown");
+                    _logger.LogDebug("Fetched current user email");
                 }
                 catch (Exception ex)
                 {

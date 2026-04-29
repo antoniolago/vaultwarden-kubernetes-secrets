@@ -1,4 +1,6 @@
+using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -892,8 +894,8 @@ public class VaultwardenService : IVaultwardenService
             if (decryptedOrgKey != null && decryptedOrgKey.Length >= 64)
             {
                 _orgKeys[orgId] = (decryptedOrgKey[..32], decryptedOrgKey[32..64]);
-                _logger.LogDebug("Decrypted org key for {OrgId}: {Len} bytes, first4hex={First4}", 
-                    orgId, decryptedOrgKey.Length, Convert.ToHexString(decryptedOrgKey[..4]));
+                _logger.LogDebug("Decrypted org key for {OrgId}: {Len} bytes", 
+                    orgId, decryptedOrgKey.Length);
             }
             else
             {
@@ -1076,14 +1078,23 @@ public class VaultwardenService : IVaultwardenService
                 return null;
             }
 
-            var isAbsoluteUrl = Uri.TryCreate(attachmentUrl, UriKind.Absolute, out var uriResult) 
-                && (uriResult.Scheme == Uri.UriSchemeHttp || uriResult.Scheme == Uri.UriSchemeHttps);
-            
-            var fullUrl = isAbsoluteUrl 
-                ? attachmentUrl 
-                : $"{_config.ServerUrl}{attachmentUrl}";
+            string requestUrl;
+            if (Uri.TryCreate(attachmentUrl, UriKind.Absolute, out var uriResult) 
+                && (uriResult.Scheme == Uri.UriSchemeHttp || uriResult.Scheme == Uri.UriSchemeHttps))
+            {
+                if (!IsSafeUrl(uriResult))
+                {
+                    _logger.LogWarning("Blocked attachment download from unsafe URL (SSRF prevention): {Url}", attachmentUrl);
+                    return null;
+                }
+                requestUrl = attachmentUrl;
+            }
+            else
+            {
+                requestUrl = $"{_config.ServerUrl}{attachmentUrl}";
+            }
 
-            using var response = await _httpClient.GetAsync(fullUrl);
+            using var response = await _httpClient.GetAsync(requestUrl);
             
             if (!response.IsSuccessStatusCode)
             {
@@ -1174,8 +1185,12 @@ public class VaultwardenService : IVaultwardenService
     private byte[]? DecryptToBytesWithOrgKey(string? encrypted, string? orgId = null)
     {
         byte[]? encKey = _encryptionKey;
+        byte[]? macKey = _macKey;
         if (!string.IsNullOrEmpty(orgId) && _orgKeys.TryGetValue(orgId, out var orgKeyPair))
+        {
             encKey = orgKeyPair.encKey;
+            macKey = orgKeyPair.macKey;
+        }
 
         if (string.IsNullOrEmpty(encrypted) || encKey == null)
             return null;
@@ -1191,6 +1206,26 @@ public class VaultwardenService : IVaultwardenService
 
             var iv = Convert.FromBase64String(parts[0]);
             var data = Convert.FromBase64String(parts[1]);
+
+            // Verify MAC if present and macKey available
+            if (parts.Length > 2 && !string.IsNullOrEmpty(parts[2]) && macKey != null)
+            {
+                var mac = Convert.FromBase64String(parts[2]);
+                using var hmac = new HMACSHA256(macKey);
+                var macData = new byte[iv.Length + data.Length];
+                iv.CopyTo(macData, 0);
+                data.CopyTo(macData, iv.Length);
+                var computedMac = hmac.ComputeHash(macData);
+                if (!computedMac.SequenceEqual(mac))
+                {
+                    _logger.LogWarning("MAC verification failed for encrypted data (org: {OrgId})", orgId ?? "personal");
+                    return null;
+                }
+            }
+            else if (parts.Length > 2 && string.IsNullOrEmpty(parts[2]) && macKey != null)
+            {
+                _logger.LogWarning("Empty MAC in encrypted data (org: {OrgId})", orgId ?? "personal");
+            }
 
             using var aes = Aes.Create();
             aes.Key = encKey;
@@ -1221,6 +1256,31 @@ public class VaultwardenService : IVaultwardenService
         var dangerousChars = new[] { ";", "`", "$", "&", "|", "\n", "\r", "'", "\"", "<", ">", "(", ")" };
         if (dangerousChars.Any(url.Contains))
             return false;
+
+        return true;
+    }
+
+    private static bool IsSafeUrl(Uri uri)
+    {
+        if (uri.Scheme != Uri.UriSchemeHttps)
+            return false;
+
+        if (IPAddress.TryParse(uri.DnsSafeHost, out var ip))
+        {
+            if (IPAddress.IsLoopback(ip))
+                return false;
+
+            if (ip.AddressFamily == AddressFamily.InterNetwork)
+            {
+                var bytes = ip.GetAddressBytes();
+                // RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+                if (bytes[0] == 10) return false;
+                if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return false;
+                if (bytes[0] == 192 && bytes[1] == 168) return false;
+                // Link-local: 169.254.0.0/16
+                if (bytes[0] == 169 && bytes[1] == 254) return false;
+            }
+        }
 
         return true;
     }

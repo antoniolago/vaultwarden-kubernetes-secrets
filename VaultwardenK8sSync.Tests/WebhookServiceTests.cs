@@ -84,7 +84,7 @@ public class WebhookServiceTests
     [Fact]
     public void ValidateSignature_WithNoSignature_ReturnsFalse()
     {
-        var result = _webhookService.ValidateSignature("test-payload", "");
+        var result = _webhookService.ValidateSignature("test-payload", " ");
         result.Should().BeFalse();
     }
 
@@ -134,6 +134,8 @@ public class WebhookServiceTests
         var result = await _webhookService.ProcessWebhookAsync(webhookEvent);
 
         result.Success.Should().BeTrue();
+        _vaultwardenServiceMock.Verify(x => x.GetItemsAsync(), Times.Once);
+        _syncServiceMock.Verify(x => x.SyncNamespaceAsync("default"), Times.Once);
     }
 
     [Fact]
@@ -200,6 +202,8 @@ public class WebhookServiceTests
         var result = await _webhookService.ProcessWebhookAsync(webhookEvent);
 
         result.Success.Should().BeFalse();
+        _vaultwardenServiceMock.Verify(x => x.GetItemsAsync(), Times.Once);
+        _syncServiceMock.Verify(x => x.SyncNamespaceAsync("default"), Times.Once);
     }
 
     #endregion

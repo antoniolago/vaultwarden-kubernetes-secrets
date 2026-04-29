@@ -40,7 +40,7 @@ def aes_cbc_encrypt(plaintext, key, iv):
 
 def encrypt_bitwarden(plaintext, enc_key, mac_key):
     """
-    Encrypt data using Bitwarden format: base64(iv).base64(ciphertext).base64(mac)
+    Encrypt data using Bitwarden V2 format: 2.base64(iv)|base64(ciphertext)|base64(mac)
     """
     iv = os.urandom(16)
     ciphertext = aes_cbc_encrypt(plaintext, enc_key, iv)
@@ -50,7 +50,7 @@ def encrypt_bitwarden(plaintext, enc_key, mac_key):
         base64.b64encode(ciphertext).decode(),
         base64.b64encode(mac).decode(),
     ]
-    return ".".join(parts)
+    return "2." + "|".join(parts)
 
 
 def make_mac_key(enc_key):

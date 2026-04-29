@@ -4,7 +4,7 @@ using Moq;
 using VaultwardenK8sSync.Infrastructure;
 using Xunit;
 
-namespace VaultwardenK8sSync.Tests;
+namespace VaultwardenK8sSync.Tests.Infrastructure;
 
 [Collection("GlobalSyncLock Sequential")]
 public class GlobalSyncLockTests : IDisposable
@@ -77,16 +77,16 @@ public class GlobalSyncLockTests : IDisposable
     }
 
     [Fact]
-    public void Dispose_AfterAcquire_ReleasesLock()
+    public async Task Dispose_AfterAcquire_ReleasesLock()
     {
         var loggerMock = new Mock<ILogger<GlobalSyncLock>>();
         using var lock1 = new GlobalSyncLock(loggerMock.Object, lockFileName: LockFileName);
 
-        lock1.TryAcquireAsync().Wait();
+        await lock1.TryAcquireAsync();
         lock1.Dispose();
 
         using var lock2 = new GlobalSyncLock(loggerMock.Object, lockFileName: LockFileName);
-        var result = lock2.TryAcquireAsync().Result;
+        var result = await lock2.TryAcquireAsync();
         result.Should().BeTrue();
     }
 

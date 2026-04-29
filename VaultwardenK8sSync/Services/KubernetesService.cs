@@ -404,6 +404,7 @@ catch (k8s.Autorest.HttpOperationException httpEx)
             {
                 Name = secretName,
                 NamespaceProperty = namespaceName,
+                ResourceVersion = existingSecret.Metadata?.ResourceVersion,
                 Labels = labels,
                 Annotations = mergedAnnotations
             };
@@ -850,6 +851,7 @@ catch (k8s.Autorest.HttpOperationException httpEx)
             {
                 Name = secretName,
                 NamespaceProperty = namespaceName,
+                ResourceVersion = existingSecret.Metadata?.ResourceVersion,
                 Labels = updatedLabels,
                 Annotations = updatedAnnotations
             };

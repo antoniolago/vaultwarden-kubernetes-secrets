@@ -21,7 +21,6 @@ public class DynamicSyncProgressDisplay : IDisposable
     private readonly List<(string Message, LogLevel Level)> _buffer = new();
     private bool _disposed;
     private bool _isActive;
-    private bool _hasEmitted;
     private DateTime _startTime;
     private string _currentPhase = "";
 
@@ -43,7 +42,6 @@ public class DynamicSyncProgressDisplay : IDisposable
         lock (_lock)
         {
             _isActive = true;
-            _hasEmitted = false;
             _startTime = DateTime.UtcNow;
             _currentPhase = phase;
             _totalItems = totalItems;
@@ -160,8 +158,9 @@ public class DynamicSyncProgressDisplay : IDisposable
             var totalProcessed = _processedItems;
             var hasErrors = _failedSecrets > 0;
             var hasChanges = _createdSecrets > 0 || _updatedSecrets > 0;
+            var hasWarningsOrSkipped = _skippedSecrets > 0;
             
-            if (_previousSummary != null && !hasErrors && !hasChanges)
+            if (_previousSummary != null && !hasErrors && !hasChanges && !hasWarningsOrSkipped)
             {
                 _buffer.Clear();
                 return;
@@ -234,7 +233,6 @@ public class DynamicSyncProgressDisplay : IDisposable
             {
                 WriteLine(message, level);
             }
-            _hasEmitted = true;
             _buffer.Clear();
         }
     }

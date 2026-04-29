@@ -21,7 +21,22 @@ class MockK8sHandler(BaseHTTPRequestHandler):
         if content_length == 0:
             return {}
         raw = self.rfile.read(content_length)
-        return json.loads(raw) if raw else {}
+        if raw:
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                self._send_json({
+                    "kind": "Status",
+                    "apiVersion": "v1",
+                    "metadata": {},
+                    "status": "Failure",
+                    "message": "Invalid JSON in request body",
+                    "reason": "BadRequest",
+                    "code": 400,
+                }, 400)
+                self._parse_error = True
+                return {}
+        return {}
 
     def _send_json(self, data: dict, code: int = 200):
         body = json.dumps(data).encode("utf-8")
@@ -156,6 +171,8 @@ class MockK8sHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         body = self._get_body()
+        if getattr(self, '_parse_error', False):
+            return
 
         # /api/v1/namespaces/{ns}/secrets - create secret
         if "/secrets" in path:
@@ -166,6 +183,18 @@ class MockK8sHandler(BaseHTTPRequestHandler):
             if ns not in self.secrets_store:
                 self.secrets_store[ns] = {}
                 self.secret_names[ns] = set()
+            elif name in self.secrets_store[ns]:
+                self._send_json({
+                    "kind": "Status",
+                    "apiVersion": "v1",
+                    "metadata": {},
+                    "status": "Failure",
+                    "message": f"secret \"{name}\" already exists",
+                    "reason": "AlreadyExists",
+                    "code": 409,
+                    "details": {"name": name, "kind": "secrets"},
+                }, 409)
+                return
 
             self.secrets_store[ns][name] = {
                 "data": body.get("data", {}),
@@ -194,11 +223,25 @@ class MockK8sHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         body = self._get_body()
+        if getattr(self, '_parse_error', False):
+            return
 
         # /api/v1/namespaces/{ns}/secrets/{name} - update secret
         if "/secrets/" in path:
             ns, secret_name = self._extract_ns_and_secret(path)
             if ns and secret_name:
+                if ns not in self.secrets_store or secret_name not in self.secrets_store.get(ns, {}):
+                    self._send_json({
+                        "kind": "Status",
+                        "apiVersion": "v1",
+                        "metadata": {},
+                        "status": "Failure",
+                        "message": f"secrets \"{secret_name}\" not found",
+                        "reason": "NotFound",
+                        "code": 404,
+                        "details": {"name": secret_name, "kind": "secrets"},
+                    }, 404)
+                    return
                 if ns not in self.secrets_store:
                     self.secrets_store[ns] = {}
                     self.secret_names[ns] = set()

@@ -76,15 +76,20 @@ public class SyncSummary
         return "UP-TO-DATE";
     }
 
+    private static string Base64Encode(string value)
+    {
+        return Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(value ?? ""));
+    }
+
     public string GetStateKey()
     {
         var nsParts = Namespaces
             .OrderBy(n => n.Name)
             .Select(n =>
             {
-                var secrets = string.Join(",", n.Secrets.OrderBy(s => s.Name).Select(s => $"{s.Name}={s.Outcome}:{s.ChangeReason}:{s.Error ?? ""}"));
+                var secrets = string.Join(",", n.Secrets.OrderBy(s => s.Name).Select(s => $"{Base64Encode(s.Name)}={s.Outcome}:{s.ChangeReason}:{s.Error ?? ""}"));
                 var errors = string.Join(",", n.Errors.OrderBy(e => e));
-                return $"{n.Name}:{n.Created}:{n.Updated}:{n.Skipped}:{n.Failed}:{secrets}|{errors}";
+                return $"{Base64Encode(n.Name)}:{n.Created}:{n.Updated}:{n.Skipped}:{n.Failed}:{secrets}|{errors}";
             });
         var errorsStr = string.Join(",", Errors.OrderBy(e => e));
         var warningsStr = string.Join(",", Warnings.OrderBy(w => w));
@@ -101,7 +106,7 @@ public class SyncSummary
         if (previous == null || previous.Namespaces.Count == 0)
             return this;
 
-        if (!HasChanges && Namespaces.Count == 0)
+        if (!HasChanges && Namespaces.Count == 0 && TotalSecretsFailed == 0 && Errors.Count == 0 && Warnings.Count == 0)
             return null;
 
         var delta = new SyncSummary

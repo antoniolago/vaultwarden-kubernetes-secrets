@@ -23,6 +23,11 @@ public class GlobalSyncLock : IDisposable, IAsyncDisposable
 
     public GlobalSyncLock(ILogger? logger = null, int timeoutMs = 5000, string? lockFileName = null)
     {
+        // Validate only when lockFileName is explicitly provided (null means "use default")
+        if (lockFileName is not null)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(lockFileName);
+        }
         _logger = logger;
         _timeoutMs = timeoutMs;
         var tempPath = Path.GetTempPath();

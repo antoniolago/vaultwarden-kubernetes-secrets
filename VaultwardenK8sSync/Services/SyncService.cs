@@ -21,6 +21,7 @@ public class SyncService : ISyncService
     private string? _lastItemsHash;
     private string? _currentItemsHash;
     private readonly Dictionary<string, DateTime> _secretExistsCache = new();
+    private readonly object _missingNamespacesLock = new();
     private readonly HashSet<string> _knownMissingNamespaces = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _missingNamespaceCheckTimes = new(StringComparer.OrdinalIgnoreCase);
     private static readonly TimeSpan MissingNamespaceRecheckInterval = TimeSpan.FromMinutes(30);
@@ -120,8 +121,9 @@ public class SyncService : ISyncService
             }
 
             // Quick change detection - skip expensive processing if nothing changed
+            var effectiveContextName = GetEffectiveContextName();
             progress.SetPhase("Analyzing changes");
-            _currentItemsHash = CalculateQuickItemsHash(items);
+            _currentItemsHash = CalculateQuickItemsHash(items, effectiveContextName);
             var shouldSkipReconciliation = _lastItemsHash == _currentItemsHash && _lastItemsHash != null;
             
             if (shouldSkipReconciliation)
@@ -155,8 +157,6 @@ public class SyncService : ISyncService
             summary.HasChanges = true;
 
             _logger.LogDebug("Proceeding with reconciliation (items changed since last sync)");
-
-            var effectiveContextName = GetEffectiveContextName();
             
             if (!string.IsNullOrEmpty(effectiveContextName))
             {
@@ -207,20 +207,23 @@ public class SyncService : ISyncService
             // Sync each namespace (skip known-missing namespaces, with periodic re-check)
             foreach (var (namespaceName, namespaceItems) in itemsByNamespace)
             {
-                if (_knownMissingNamespaces.Contains(namespaceName))
+                lock (_missingNamespacesLock)
                 {
-                    // Re-check periodically so namespace creation is eventually detected
-                    if (_missingNamespaceCheckTimes.TryGetValue(namespaceName, out var lastCheck) &&
-                        (DateTime.UtcNow - lastCheck) < MissingNamespaceRecheckInterval)
+                    if (_knownMissingNamespaces.Contains(namespaceName))
                     {
-                        _logger.LogDebug("Skipping known-missing namespace {Namespace} (cached, re-check in {Minutes} min)", 
-                            namespaceName, MissingNamespaceRecheckInterval.TotalMinutes);
-                        continue;
+                        // Re-check periodically so namespace creation is eventually detected
+                        if (_missingNamespaceCheckTimes.TryGetValue(namespaceName, out var lastCheck) &&
+                            (DateTime.UtcNow - lastCheck) < MissingNamespaceRecheckInterval)
+                        {
+                            _logger.LogDebug("Skipping known-missing namespace {Namespace} (cached, re-check in {Minutes} min)", 
+                                namespaceName, MissingNamespaceRecheckInterval.TotalMinutes);
+                            continue;
+                        }
+                        // Time to re-check — remove from cache
+                        _logger.LogDebug("Re-checking previously missing namespace {Namespace}", namespaceName);
+                        _knownMissingNamespaces.Remove(namespaceName);
+                        _missingNamespaceCheckTimes.Remove(namespaceName);
                     }
-                    // Time to re-check — remove from cache
-                    _logger.LogDebug("Re-checking previously missing namespace {Namespace}", namespaceName);
-                    _knownMissingNamespaces.Remove(namespaceName);
-                    _missingNamespaceCheckTimes.Remove(namespaceName);
                 }
 
                 try
@@ -341,11 +344,22 @@ public class SyncService : ISyncService
                 _metricsService.SetLastSuccessfulSync();
             }
             
-            // Always update the hash so we can skip reconciliation on next run if items haven't changed.
+            // Only update the hash when ALL namespaces succeeded.
+            // On partial failure, reset the hash so next sync re-processes everything
+            // (including namespaces that succeeded — this is a deliberately conservative choice
+            // to ensure errors don't silently get skipped on the next cycle).
             // Known-missing namespaces are cached separately (_knownMissingNamespaces) and retried only when items change.
-            _lastItemsHash = _currentItemsHash;
-            _logger.LogDebug("Updated items hash to {Hash} after sync", 
-                _currentItemsHash?.Substring(0, Math.Min(8, _currentItemsHash?.Length ?? 0)));
+            if (summary.OverallSuccess)
+            {
+                _lastItemsHash = _currentItemsHash;
+                _logger.LogDebug("Updated items hash to {Hash} after sync", 
+                    _currentItemsHash?.Substring(0, Math.Min(8, _currentItemsHash?.Length ?? 0)));
+            }
+            else
+            {
+                _lastItemsHash = null;
+                _logger.LogDebug("Sync had failures - reset items hash to force full re-processing on next sync");
+            }
             
             _logger.LogDebug("Reconciliation completed: success={Success}", summary.OverallSuccess);
             progress.Complete();
@@ -444,8 +458,11 @@ public class SyncService : ISyncService
             {
                 var errorMsg = $"Namespace '{namespaceName}' does not exist in Kubernetes cluster";
                 _logger.LogWarning("SyncNamespaceAsync: {Error}. Skipping all {Count} secret(s) in namespace", errorMsg, itemsBySecretName.Count);
-                _knownMissingNamespaces.Add(namespaceName);
-                _missingNamespaceCheckTimes[namespaceName] = DateTime.UtcNow;
+                lock (_missingNamespacesLock)
+                {
+                    _knownMissingNamespaces.Add(namespaceName);
+                    _missingNamespaceCheckTimes[namespaceName] = DateTime.UtcNow;
+                }
                 
                 foreach (var (failedSecretName, failedSecretItems) in itemsBySecretName)
                 {
@@ -2208,7 +2225,7 @@ foreach (var attachment in item.Attachments.OrderBy(a => a.FileName))
         }
     }
 
-    private static string CalculateQuickItemsHash(List<Models.VaultwardenItem> items)
+    private static string CalculateQuickItemsHash(List<Models.VaultwardenItem> items, string? effectiveContextName = null)
     {
         // Content hash of each item - excludes RevisionDate to avoid false-positive change detection
         var quickData = items
@@ -2216,7 +2233,8 @@ foreach (var attachment in item.Attachments.OrderBy(a => a.FileName))
             .Select(i => $"{i.Id}:{GetContentHash(i)}")
             .ToList();
         
-        var combinedData = $"{items.Count}|{string.Join("|", quickData)}";
+        // Include context name in hash so context changes invalidate the fast-path skip
+        var combinedData = $"{items.Count}|ctx:{effectiveContextName ?? ""}|{string.Join("|", quickData)}";
         using var sha256 = System.Security.Cryptography.SHA256.Create();
         var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(combinedData));
         return Convert.ToBase64String(hashBytes);
@@ -2301,7 +2319,7 @@ foreach (var attachment in item.Attachments.OrderBy(a => a.FileName))
         {
             foreach (var attachment in item.Attachments.OrderBy(a => a.FileName))
             {
-                contentParts.Add($"attachment:{attachment.Id}");
+                contentParts.Add($"attachment:{attachment.Id}:{attachment.Size}:{attachment.SizeName}");
             }
         }
         

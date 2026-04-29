@@ -241,7 +241,7 @@ public class CommandHandler : ICommandHandler
                         syncSummary = await _syncService.SyncAsync(progressReporter);
                     }
                     
-                    if (syncSummary.HasChanges)
+                    if (syncSummary.HasChanges || syncSummary.TotalSecretsFailed > 0 || syncSummary.Errors.Any())
                     {
                         var summaryText = Services.SyncSummaryFormatter.FormatSummary(syncSummary, _appSettings.Sync.DryRun);
                         Console.WriteLine(summaryText);

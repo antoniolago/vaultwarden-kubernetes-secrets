@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test'
-
-const API_URL = 'http://localhost:8080/api'
+import { API_URL } from './shared'
 
 test.describe('SSH Keys E2E Tests', () => {
   interface SecretData {

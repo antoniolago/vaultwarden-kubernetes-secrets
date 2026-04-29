@@ -3,7 +3,7 @@
 E2E test helper for vaultwarden operations.
 Handles registration, login, API key retrieval, and encrypted item creation.
 """
-import hashlib, hmac, base64, json, os, sys, urllib.request, urllib.error
+import hashlib, hmac, base64, json, logging, os, sys, urllib.request, urllib.error
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding
@@ -292,6 +292,7 @@ def main():
         url = f"{server.rstrip('/')}/api/ciphers/{item_id}"
         existing = api_get(url, token=session)
 
+        modified = False
         for f in existing.get("fields", []):
             if f.get("name") and f["name"].startswith("2."):
                 try:
@@ -307,9 +308,11 @@ def main():
                     plain_name = (unpadder.update(name_plain) + unpadder.finalize()).decode()
                     if plain_name == "data-key":
                         f["value"] = encrypt_cipher_field("modified-value", enc_key, mac_key)
+                        modified = True
                         break
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.warning("Failed to decrypt field '%s': %s",
+                                    f.get("name", "unknown"), e)
 
         # Send update
         url = f"{server.rstrip('/')}/api/ciphers/{item_id}"

@@ -1054,8 +1054,38 @@ kind: ConfigMap
                 new FieldInfo { Name = "namespaces", Value = "default", Type = 0 }
             }
         };
-        
-        Assert.True(true);
+
+        _vaultwardenServiceMock.Setup(x => x.GetItemsAsync())
+            .ReturnsAsync(new List<VaultwardenItem> { itemWithMatchingContext, itemWithDifferentContext });
+        _kubernetesServiceMock.Setup(x => x.GetAllNamespacesAsync())
+            .ReturnsAsync(new List<string> { "default" });
+        _kubernetesServiceMock.Setup(x => x.NamespaceExistsAsync("default"))
+            .ReturnsAsync(true);
+        _kubernetesServiceMock.Setup(x => x.GetExistingSecretNamesAsync("default"))
+            .ReturnsAsync(new List<string>());
+        _kubernetesServiceMock.Setup(x => x.GetManagedSecretNamesAsync("default"))
+            .ReturnsAsync(new List<string>());
+        _kubernetesServiceMock.Setup(x => x.SecretExistsAsync("default", "item-1"))
+            .ReturnsAsync(false);
+        _kubernetesServiceMock.Setup(x => x.GetSecretDataAsync("default", "item-1"))
+            .ReturnsAsync((Dictionary<string, string>?)null);
+        _kubernetesServiceMock.Setup(x => x.GetSecretAnnotationsAsync("default", "item-1"))
+            .ReturnsAsync((Dictionary<string, string>?)null);
+        _kubernetesServiceMock.Setup(x => x.GetSecretTypeAsync("default", "item-1"))
+            .ReturnsAsync((string?)null);
+        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync(
+            "default", "item-1", It.IsAny<Dictionary<string, string>>(),
+            It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string>()))
+            .ReturnsAsync(OperationResult.Successful());
+
+        var result = await syncServiceWithContext.SyncAsync();
+
+        result.OverallSuccess.Should().BeTrue();
+        result.TotalSecretsCreated.Should().Be(1);
+        _kubernetesServiceMock.Verify(x => x.CreateSecretAsync(
+            "default", "item-1", It.IsAny<Dictionary<string, string>>(),
+            It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string>()),
+            Times.Once);
     }
 
     #endregion
