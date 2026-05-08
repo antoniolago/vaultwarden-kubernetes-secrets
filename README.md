@@ -52,6 +52,8 @@ In Vaultwarden, create a **Login**, **SSH Key** or **Secure Note** item with:
 
 **That's it!** The sync service will create the Secret in your specified namespace(s) within the sync interval.
 
+**Alternative — YAML-only items:** You can also create a **Secure Note** with a full Kubernetes manifest (ConfigMap, Secret, etc.) in the notes field and no custom fields. The sync service will detect valid K8s YAML and apply it using the `metadata.namespace` declared in the manifest. See [Kubernetes YAML from Notes](#kubernetes-yaml-from-notes) for details.
+
 ### Available Custom Fields Reference
 
 | Field Name | Description | Default |
@@ -256,9 +258,15 @@ If upgrading from v1.x, be aware of the following changes to default secret key 
 
 ### Kubernetes YAML from Notes
 
-Secure Note items containing valid Kubernetes YAML are automatically applied via `kubectl apply`:
+Secure Note items containing valid Kubernetes YAML are automatically applied via the Kubernetes API:
 
-**Vaultwarden Secure Note:**
+**Two modes:**
+
+**1. With a `namespaces` custom field** — YAML manifest is applied after secret sync within each namespace context.
+
+**2. Without a `namespaces` custom field** — YAML manifest is applied directly using its own `metadata.namespace` field. This allows you to manage any Kubernetes resource (ConfigMaps, Secrets, etc.) without needing the `namespaces` custom field:
+
+**Vaultwarden Secure Note (YAML in notes, no custom fields needed):**
 ```yaml
 apiVersion: v1
 kind: ConfigMap
@@ -269,7 +277,9 @@ data:
   key: value
 ```
 
-**Result:** ConfigMap is created/updated in the cluster (not a Secret).
+**Result:** ConfigMap is created/updated in the cluster. The target namespace is read from `metadata.namespace` in the YAML itself.
+
+> **Note:** The YAML manifest must include `metadata.namespace` when the item has no `namespaces` custom field. The sync service does not infer a default namespace — it uses the one declared in the manifest.
 
 ### stringData: Mode
 
@@ -405,7 +415,7 @@ The service uses Serilog for structured logging with environment-aware output:
 
 ## Important Notes
 
-- **Namespace requirement**: Items must have a `namespaces` custom field to be synced
+- **Namespace requirement**: Items must have a `namespaces` custom field to be synced, unless the item contains valid Kubernetes YAML in its notes (in which case `metadata.namespace` from the YAML is used instead)
 - **Supported item types**: Login, Secure Note, SSH Key (Card/Identity not recommended)
 - **User API keys only**: Organization API keys are not supported by Bitwarden CLI
 - **Secret types**: Supports `Opaque` (default), `kubernetes.io/basic-auth`, `kubernetes.io/tls` and `kubernetes.io/dockerconfigjson` via the `secret-type` custom field
@@ -417,7 +427,7 @@ The service uses Serilog for structured logging with environment-aware output:
 
 **Secrets not appearing?**
 - Check the sync service logs: `kubectl logs -n vaultwarden-kubernetes-secrets deployment/vaultwarden-kubernetes-secrets`
-- Verify the item has a `namespaces` custom field
+- Verify the item has a `namespaces` custom field, or that it contains valid Kubernetes YAML in its notes (with `metadata.namespace` set)
 - Ensure target namespaces exist in Kubernetes
 - Confirm the Vaultwarden user has access to the item (check Organization/Collection permissions)
 - Enable api and dashboard to visualize the sync status
