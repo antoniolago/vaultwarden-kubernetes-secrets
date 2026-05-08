@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.0.0] - 2026-05-08
 
 ### Added
 - Kubernetes YAML from Notes: Secure Notes with valid K8s YAML are automatically applied, even without the `namespaces` custom field. Uses `metadata.namespace` from the manifest when no explicit namespace is set.
