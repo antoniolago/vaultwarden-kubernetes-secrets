@@ -840,56 +840,8 @@ public class SyncService : ISyncService
             }
         }
 
-        if (item.Attachments != null)
-        {
-foreach (var attachment in item.Attachments.OrderBy(a => a.FileName))
-                {
-                    var fileName = attachment.FileName;
-                    try
-                    {
-                        var attachmentUrl = !string.IsNullOrEmpty(attachment.Url) ? attachment.Url : $"/api/ciphers/{item.Id}/attachment/{attachment.Id}";
-                        var contentBytes = await _vaultwardenService.DownloadAttachmentAsync(attachmentUrl);
-                    if (contentBytes == null || contentBytes.Length == 0)
-                        continue;
-                    
-                    if (!string.IsNullOrEmpty(attachment.Key))
-                    {
-                        var decryptedBytes = _vaultwardenService.DecryptAttachmentContent(contentBytes, attachment.Key, item.OrganizationId);
-                        if (decryptedBytes != null)
-                            contentBytes = decryptedBytes;
-                        else
-                            _logger.LogDebug("Failed to decrypt attachment {FileName} for item {ItemId}, using raw content", fileName, item.Id);
-                    }
-
-                    var content = System.Text.Encoding.UTF8.GetString(contentBytes);
-                    
-                    if (IsKubernetesYaml(content))
-                    {
-                        yamlManifests?.Add(content);
-                    }
-                    else if (content.TrimStart().StartsWith("stringData:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        ParseStringDataContent(content, data);
-                    }
-                    else if (fileName.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase) ||
-                             fileName.EndsWith(".yml", StringComparison.OrdinalIgnoreCase))
-                    {
-                        data[$"__yaml_attachment__{fileName}"] = content;
-                    }
-                    else
-                    {
-                        if (!data.ContainsKey(fileName))
-                        {
-                            data[fileName] = FormatMultilineValue(content);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Failed to process attachment {FileName} for item {ItemId}", fileName, item.Id);
-                }
-            }
-        }
+        // Attachments disabled — kept for reference:
+        // data = await ProcessItemAttachmentsAsync(item, yamlManifests, data);
 
         return data;
     }
@@ -2364,14 +2316,6 @@ foreach (var attachment in item.Attachments.OrderBy(a => a.FileName))
             }
         }
         
-        if (item.Attachments != null)
-        {
-            foreach (var attachment in item.Attachments.OrderBy(a => a.FileName))
-            {
-                contentParts.Add($"attachment:{attachment.Id}:{attachment.Size}:{attachment.SizeName}");
-            }
-        }
-        
         if (contentParts.Count == 0) return "no-content";
         
         var combinedContent = string.Join("|", contentParts);
@@ -2424,15 +2368,6 @@ foreach (var attachment in item.Attachments.OrderBy(a => a.FileName))
                 .Select(f => $"{f.Name}:{f.Value}")
                 .ToList();
             hashData.AddRange(sortedFields);
-        }
-
-        // Add attachments (must match GetContentHash for stable comparison)
-        if (item.Attachments != null)
-        {
-            foreach (var attachment in item.Attachments.OrderBy(a => a.FileName))
-            {
-                hashData.Add($"attachment:{attachment.Id}:{attachment.FileName}:{attachment.Size}");
-            }
         }
 
         // NOTE: RevisionDate is intentionally excluded from the hash.
@@ -2694,6 +2629,65 @@ foreach (var attachment in item.Attachments.OrderBy(a => a.FileName))
         var filteredItems = itemsByNamespace.Values.SelectMany(x => x).DistinctBy(i => i.Id).ToList();
         return (itemsByNamespace, itemsWithNamespaces, itemsSkippedByContext, filteredItems);
     }
+
+    // Attachment processing — preserved for reference, not currently called.
+    // YAML-in-notes and custom fields cover all use cases.
+    /*
+    private async Task<Dictionary<string, string>> ProcessItemAttachmentsAsync(Models.VaultwardenItem item, List<string>? yamlManifests, Dictionary<string, string> data)
+    {
+        if (item.Attachments != null)
+        {
+            foreach (var attachment in item.Attachments.OrderBy(a => a.FileName))
+            {
+                var fileName = attachment.FileName;
+                try
+                {
+                    var attachmentUrl = !string.IsNullOrEmpty(attachment.Url) ? attachment.Url : $"/api/ciphers/{item.Id}/attachment/{attachment.Id}";
+                    var contentBytes = await _vaultwardenService.DownloadAttachmentAsync(attachmentUrl);
+                    if (contentBytes == null || contentBytes.Length == 0)
+                        continue;
+
+                    if (!string.IsNullOrEmpty(attachment.Key))
+                    {
+                        var decryptedBytes = _vaultwardenService.DecryptAttachmentContent(contentBytes, attachment.Key, item.OrganizationId);
+                        if (decryptedBytes != null)
+                            contentBytes = decryptedBytes;
+                        else
+                            _logger.LogDebug("Failed to decrypt attachment {FileName} for item {ItemId}, using raw content", fileName, item.Id);
+                    }
+
+                    var content = System.Text.Encoding.UTF8.GetString(contentBytes);
+
+                    if (IsKubernetesYaml(content))
+                    {
+                        yamlManifests?.Add(content);
+                    }
+                    else if (content.TrimStart().StartsWith("stringData:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ParseStringDataContent(content, data);
+                    }
+                    else if (fileName.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase) ||
+                             fileName.EndsWith(".yml", StringComparison.OrdinalIgnoreCase))
+                    {
+                        data[$"__yaml_attachment__{fileName}"] = content;
+                    }
+                    else
+                    {
+                        if (!data.ContainsKey(fileName))
+                        {
+                            data[fileName] = FormatMultilineValue(content);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to process attachment {FileName} for item {ItemId}", fileName, item.Id);
+                }
+            }
+        }
+        return data;
+    }
+    */
 
     private string? GetEffectiveContextName()
     {

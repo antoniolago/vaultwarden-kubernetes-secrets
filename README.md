@@ -301,13 +301,6 @@ data:
   ENABLE_FEATURE: dHJ1ZQ==
 ```
 
-### Attachment Support
-
-File attachments on Vaultwarden items are processed:
-- **YAML files** → Applied via `kubectl apply`
-- **stringData: files** → Parsed as key-value pairs
-- **Other files** → Stored with filename as key
-
 ### Private Registry Support
 
 Use `imagePullSecrets` in Helm values for private registries:

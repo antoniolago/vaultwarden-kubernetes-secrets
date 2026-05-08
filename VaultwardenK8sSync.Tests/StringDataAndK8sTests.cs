@@ -440,6 +440,8 @@ metadata:
 
     #endregion
 
+    // Attachment tests preserved for reference — attachment processing is disabled.
+#if false
     #region Attachment Tests
 
     [Fact]
@@ -695,6 +697,7 @@ data:
     }
 
     #endregion
+#endif
 
     #region Edge Cases
 

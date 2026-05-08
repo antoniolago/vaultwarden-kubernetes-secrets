@@ -678,6 +678,8 @@ public class SecretChangeBehaviorTests
 
     #region YAML and stringData Tests
 
+    // Attachment test preserved for reference — attachment processing is disabled.
+    /*
     [Fact]
     public async Task YAMLAttachmentAdded_SecureNote_AppliesYamlManifest()
     {
@@ -735,6 +737,7 @@ data:
 
         _kubernetesServiceMock.Verify(x => x.ApplyYamlAsync(yamlContent), Times.Once);
     }
+    */
 
     [Fact]
     public async Task StringDataNote_Changed_UpdatesSecretWithParsedData()
