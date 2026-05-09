@@ -189,7 +189,7 @@ nodes:
         AnsiConsole.MarkupLine("[green]✓ Vaultwarden deployed[/]");
     }
     
-    private async Task SeedVaultwardenDatabase()
+    private async Task SeedVaultwardenDatabase(string akey)
     {
         var podName = (await RunCommand("kubectl",
             $"get pod -n {VaultwardenNamespace} -l app=vaultwarden " +
@@ -206,6 +206,7 @@ nodes:
         // The client_id format for user API key login is "user.{uuid}".
         _seededUserId = Guid.NewGuid();
         var securityStamp = Guid.NewGuid();
+        
         var insertSql = string.Format(
             "INSERT OR IGNORE INTO users " +
             "(uuid,created_at,updated_at,email,name,password_hash,salt,password_iterations," +
@@ -213,11 +214,11 @@ nodes:
             "client_kdf_type,client_kdf_iter,api_key,enabled) " +
             "VALUES (\"{0}\",datetime(\"now\"),datetime(\"now\"),\"{1}\",\"{2}\"," +
             "\"x\",\"x\",{3}," +
-            "\"x\",\"{4}\",\"[]\",\"[]\"," +
-            "{5},{6},\"{7}\",1)",
+            "\"{4}\",\"{5}\",\"[]\",\"[]\"," +
+            "{6},{7},\"{8}\",1)",
             _seededUserId, TestEmail, "E2E Test User",
             600000,
-            securityStamp,
+            akey, securityStamp,
             0, 600000,
             TestApiKey);
         
@@ -255,15 +256,19 @@ nodes:
         await AnsiConsole.Status()
             .StartAsync("Setting up test user...", async ctx =>
             {
-                // Generate local encryption keys (same approach as registration)
+                // Generate local encryption keys and a valid akey for the seeded user.
+                // The akey allows the operator (sync service) to successfully unlock the vault
+                // during AuthenticateAsync() -> UnlockVaultAsync().
                 ctx.Status("Generating encryption keys...");
                 var symKey = GenerateEncryptionKey();
                 _encryptionKey = symKey[..32];
                 _macKey = symKey[32..];
+                var masterKey = DeriveKey(TestMasterPassword, TestEmail.ToLowerInvariant(), 600000);
+                var akey = ProtectSymmetricKey(symKey, masterKey);
                 
                 // Seed user with known API key (avoids version-specific password hashing)
                 ctx.Status("Seeding vaultwarden database with test user...");
-                await SeedVaultwardenDatabase();
+                await SeedVaultwardenDatabase(akey);
                 
                 // Authenticate via OAuth2 client_credentials with the API key.
                 // This works on ALL vaultwarden versions since user API key login was introduced.
