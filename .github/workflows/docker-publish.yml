@@ -111,12 +111,13 @@ jobs:
     - name: Start e2e stack (vaultwarden + sync + api + dashboard)
       env:
         VAULTWARDEN_VERSION: ${{ matrix.vaultwarden-version }}
+        COMPOSE_PROFILES: with-dashboard
       run: |
         echo "Starting e2e stack with Vaultwarden $VAULTWARDEN_VERSION..."
         # Pre-build images
         docker compose -f docker-compose.e2e.yml build sync api dashboard
         # Start all services (except playwright - we run that separately with richer output)
-        docker compose -f docker-compose.e2e.yml up -d --profile with-dashboard vaultwarden tls-proxy mock-k8s sync api dashboard
+        docker compose -f docker-compose.e2e.yml up -d vaultwarden tls-proxy mock-k8s sync api dashboard
 
     - name: Wait for API to be healthy
       run: |
