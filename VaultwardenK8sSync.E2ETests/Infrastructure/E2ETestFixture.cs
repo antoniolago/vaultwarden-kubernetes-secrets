@@ -203,11 +203,11 @@ nodes:
             $"get pod -n {VaultwardenNamespace} -l app=vaultwarden " +
             $"-o jsonpath='{{.items[0].metadata.name}}'")).Trim('\'', '"', '\n', ' ');
         
-        // Install sqlite3 CLI in the vaultwarden pod (Alpine-based, apk available).
-        // We need this to modify vaultwarden's own database directly.
+        // Copy static sqlite3 binary into the pod. kubectl cp uses tar internally,
+        // which is available in all Alpine-based vaultwarden images.
+        var sqlitePath = Path.Combine(_projectRoot, Sqlite3BinaryPath);
         await RunCommand("kubectl",
-            $"exec -n {VaultwardenNamespace} {podName} -- apk add --no-cache sqlite3",
-            throwOnError: false);
+            $"cp {sqlitePath} {VaultwardenNamespace}/{podName}:/tmp/sqlite3");
         
         // Insert test user directly into vaultwarden's database.
         // The password_hash and salt are from a correctly-registered vaultwarden user.
@@ -239,7 +239,7 @@ nodes:
                 $"cp {sqlFile} {VaultwardenNamespace}/{podName}:/tmp/seed.sql");
             await RunCommand("kubectl",
                 $"exec -n {VaultwardenNamespace} {podName} -- " +
-                $"sh -c \"sqlite3 /data/db.sqlite3 < /tmp/seed.sql\"");
+                $"sh -c \"chmod +x /tmp/sqlite3 && /tmp/sqlite3 /data/db.sqlite3 < /tmp/seed.sql\"");
         }
         finally
         {
