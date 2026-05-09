@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using k8s;
 using k8s.Models;
 using Spectre.Console;
@@ -164,9 +165,19 @@ nodes:
                     $"create secret tls vaultwarden-tls -n {VaultwardenNamespace} " +
                     $"--cert={certPath} --key={keyPath} --dry-run=client -o yaml | kubectl apply -f -", useShell: true);
                 
-                ctx.Status("Applying Vaultwarden manifests...");
+                ctx.Status("Customizing Vaultwarden image tag...");
                 var manifestPath = Path.Combine(_projectRoot, "tests", "e2e", "manifests", "vaultwarden.yaml");
-                await RunCommand("kubectl", $"apply -f {manifestPath}");
+                var manifestContent = await File.ReadAllTextAsync(manifestPath);
+                var vaultwardenVersion = Environment.GetEnvironmentVariable("VAULTWARDEN_VERSION") ?? "1.36.0";
+                manifestContent = Regex.Replace(
+                    manifestContent,
+                    @"image:\s+vaultwarden/server:\S+",
+                    $"image: vaultwarden/server:{vaultwardenVersion}");
+                var tempManifestPath = Path.Combine(Path.GetTempPath(), $"vaultwarden-{Guid.NewGuid()}.yaml");
+                await File.WriteAllTextAsync(tempManifestPath, manifestContent);
+                
+                ctx.Status($"Applying Vaultwarden manifests (version: {vaultwardenVersion})...");
+                await RunCommand("kubectl", $"apply -f {tempManifestPath}");
                 
                 ctx.Status("Waiting for Vaultwarden pod...");
                 await RunCommand("kubectl", $"wait --for=condition=Ready pod -l app=vaultwarden -n {VaultwardenNamespace} --timeout=180s");

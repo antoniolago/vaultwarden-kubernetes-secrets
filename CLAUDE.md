@@ -28,7 +28,7 @@ The main sync service follows a layered architecture:
 Key architectural patterns:
 - Enforces single-instance operation via ProcessLock to prevent concurrent syncs
 - Uses GlobalSyncLock for coordination between API and sync service via Redis/Valkey
-- VwConnector package handles Bitwarden CLI interactions
+- Vaultwarden HTTP API handles all item operations (list, get, decrypt) with full crypto
 
 ### Dashboard (React + TypeScript)
 
@@ -155,7 +155,7 @@ dotnet test --filter "FullyQualifiedName~VaultwardenK8sSync.Tests.SomeTestClass"
 
 ### C# Backend
 - **KubernetesClient** - K8s API interaction
-- **VwConnector** - Bitwarden CLI wrapper
+- **Vaultwarden HTTP API** - Direct API calls with native .NET crypto (PBKDF2, Argon2id, AES-CBC-HMAC)
 - **prometheus-net** - Metrics collection
 - **StackExchange.Redis** - Redis/Valkey for sync coordination
 - **Microsoft.EntityFrameworkCore.Sqlite** - Database for state tracking

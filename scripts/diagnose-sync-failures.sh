@@ -131,8 +131,8 @@ if [ "$FAILED_COUNT" -gt 100 ]; then
     echo "2. Verify configuration:"
     echo "   kubectl get configmap vaultwarden-sync-config -o yaml"
     echo ""
-    echo "3. Test authentication manually:"
-    echo "   kubectl exec -it deployment/vaultwarden-sync -- bw status"
+    echo "3. Check pod logs for authentication errors:"
+    echo "   kubectl logs -l app.kubernetes.io/name=vaultwarden-kubernetes-secrets"
     echo ""
 elif [ "$FAILED_COUNT" -gt 10 ]; then
     echo "⚠️  MODERATE FAILURES DETECTED"

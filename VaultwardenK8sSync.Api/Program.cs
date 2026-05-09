@@ -5,7 +5,6 @@ using VaultwardenK8sSync.Database;
 using VaultwardenK8sSync.Database.Repositories;
 using VaultwardenK8sSync.Configuration;
 using VaultwardenK8sSync.Services;
-using VaultwardenK8sSync.Infrastructure;
 using VaultwardenK8sSync.Policies;
 using VaultwardenK8sSync.Api.Converters;
 using System.Diagnostics;
@@ -88,9 +87,6 @@ try
     builder.Services.AddSingleton(appSettings.Kubernetes);
     // Make VaultwardenService singleton to preserve authentication state across requests
     builder.Services.AddSingleton<IVaultwardenService, VaultwardenService>();
-    // Make these singleton to work with VaultwardenService singleton
-    builder.Services.AddSingleton<IProcessFactory, ProcessFactory>();
-    builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
     // Make VaultwardenService singleton to preserve authentication state across requests
     builder.Services.AddSingleton<IVaultwardenService, VaultwardenService>();
     // Make KubernetesService singleton to preserve client connection across requests
@@ -146,11 +142,9 @@ try
         {
             using var loggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
                 builder.AddSerilog(Log.Logger, dispose: false));
-            var processRunner = new ProcessRunner(loggerFactory.CreateLogger<ProcessRunner>());
             var kubernetesService = new KubernetesService(
                 loggerFactory.CreateLogger<KubernetesService>(),
-                appSettings.Kubernetes,
-                processRunner
+                appSettings.Kubernetes
             );
 
             if (await kubernetesService.InitializeAsync())

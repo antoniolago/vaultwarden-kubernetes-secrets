@@ -28,8 +28,7 @@ public class AppSettings
                 FolderName = Environment.GetEnvironmentVariable("VAULTWARDEN__FOLDERNAME"),
                 CollectionId = Environment.GetEnvironmentVariable("VAULTWARDEN__COLLECTIONID"),
                 CollectionName = Environment.GetEnvironmentVariable("VAULTWARDEN__COLLECTIONNAME"),
-                DeviceId = Environment.GetEnvironmentVariable("VAULTWARDEN__DEVICEID"),
-                DataDirectory = Environment.GetEnvironmentVariable("VAULTWARDEN__DATADIRECTORY") ?? Path.Combine(Path.GetTempPath(), "bw-data")
+                DeviceId = Environment.GetEnvironmentVariable("VAULTWARDEN__DEVICEID")
             },
             Kubernetes = new KubernetesSettings
             {
@@ -112,9 +111,6 @@ public class VaultwardenSettings
 
     // Optional: persistent device identifier to prevent "New device logged in" notifications
     public string? DeviceId { get; set; }
-
-    // Data directory for bw CLI state (ensures consistent session across commands)
-    public string DataDirectory { get; set; } = Path.Combine(Path.GetTempPath(), "bw-data");
 
     // Password login removed; API key is the only supported mode
 }

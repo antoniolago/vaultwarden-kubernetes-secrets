@@ -4,13 +4,7 @@ using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Logging;
 using VaultwardenK8sSync.Models;
 using VaultwardenK8sSync.Configuration;
-using VaultwardenK8sSync.Infrastructure;
 using VaultwardenK8sSync.Policies;
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace VaultwardenK8sSync.Services;
 
@@ -18,17 +12,15 @@ public class KubernetesService : IKubernetesService
 {
     private readonly ILogger<KubernetesService> _logger;
     private readonly KubernetesSettings _config;
-    private readonly IProcessRunner _processRunner;
     private IKubernetes? _client;
     private string? _detectedContextName;
 
     public bool IsInitialized => _client != null;
 
-    public KubernetesService(ILogger<KubernetesService> logger, KubernetesSettings config, IProcessRunner processRunner)
+    public KubernetesService(ILogger<KubernetesService> logger, KubernetesSettings config)
     {
         _logger = logger;
         _config = config;
-        _processRunner = processRunner;
     }
 
     public async Task<bool> InitializeAsync()
