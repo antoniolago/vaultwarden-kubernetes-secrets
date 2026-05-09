@@ -46,11 +46,11 @@ public class SecretSyncTests : IAsyncLifetime
         secret.Should().NotBeNull($"Secret '{secretName}' should be created in namespace '{ns}'");
         
         var data = DecodeSecretData(secret!);
-        // Operator uses item name as key prefix: {item-name} for password, {item-name}-username for username
-        data.Should().ContainKey("test-basic-login");
-        data.Should().ContainKey("test-basic-login-username");
-        data["test-basic-login-username"].Should().Be("testuser");
-        data["test-basic-login"].Should().Be("testpassword123");
+        // v2 operator uses 'password' and 'username' as default keys for login items
+        data.Should().ContainKey("password");
+        data.Should().ContainKey("username");
+        data["username"].Should().Be("testuser");
+        data["password"].Should().Be("testpassword123");
         
         AnsiConsole.MarkupLine($"[green]✓[/] Basic login item synced correctly");
     }
@@ -69,8 +69,9 @@ public class SecretSyncTests : IAsyncLifetime
         secret.Should().NotBeNull($"Secret with custom name '{secretName}' should be created");
         
         var data = DecodeSecretData(secret!);
-        // When custom secret-name is used, that name becomes the key prefix
-        data["custom-app-secret-username"].Should().Be("appuser");
+        data.Should().ContainKey("password");
+        data.Should().ContainKey("username");
+        data["username"].Should().Be("appuser");
         
         AnsiConsole.MarkupLine($"[green]✓[/] Custom secret name '{secretName}' working correctly");
     }
@@ -94,7 +95,9 @@ public class SecretSyncTests : IAsyncLifetime
             secret.Should().NotBeNull($"Secret should exist in namespace '{ns}'");
             
             var data = DecodeSecretData(secret!);
-            data["multi-namespace-secret-username"].Should().Be("multiuser");
+            data.Should().ContainKey("password");
+            data.Should().ContainKey("username");
+            data["username"].Should().Be("multiuser");
         }
         
         AnsiConsole.MarkupLine($"[green]✓[/] Multi-namespace sync working ({namespaces.Length} namespaces)");
