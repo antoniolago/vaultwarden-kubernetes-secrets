@@ -95,11 +95,11 @@ spec:
             - name: SYNC__FIELD__INLINEKVPREFIX
               value: {{ .inlineKvPrefix | quote }}
             - name: SYNC__FIELD__SECRETBLOCKPREFIX
-              value: {{ .Values.env.fields.secretBlockPrefix | quote }}
+              value: {{ .secretBlockPrefix | quote }}
             {{- end }}
-            {{- if .Values.sync.contextName }}
+            {{- if .Values.env.contextName }}
             - name: SYNC__CONTEXTNAME
-              value: {{ .Values.sync.contextName | quote }}
+              value: {{ .Values.env.contextName | quote }}
             {{- end }}
             # Mount secrets as environment variables
             {{- range $name, $ref := .Values.env.secrets }}

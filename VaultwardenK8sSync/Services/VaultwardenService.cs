@@ -43,6 +43,10 @@ public class VaultwardenService : IVaultwardenService
         };
         _httpClient = httpClientFactory?.CreateClient("Vaultwarden") ?? new HttpClient(handler);
         _httpClient.Timeout = TimeSpan.FromSeconds(60);
+
+        // Bitwarden/Vaultwarden requires a valid semver in the Bitwarden-Client-Version header
+        // on API requests. Without this, Bitwarden-compatible servers may reject requests.
+        _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Bitwarden-Client-Version", "2024.12.0");
     }
 
     public async Task<bool> AuthenticateAsync()
