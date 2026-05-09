@@ -27,15 +27,7 @@ public class E2ETestFixture : IAsyncLifetime
     
     public const string TestEmail = "e2e-test@vaultwarden.local";
     public const string TestMasterPassword = "MasterPassword123";
-    private const string Sqlite3BinaryPath = "tests/e2e/data/sqlite3.static";
-    // Password hash stored by vaultwarden (Argon2id(masterPasswordHash, salt, iterations)).
-    // Must match what vaultwarden computes during registration.
-    private static readonly byte[] VaultwardenPasswordHash = Convert.FromHexString(
-        "5bed4dc6c7fdbefa17ed78f08feed97f981f35ca9b70a5f3d58ad46ed7c4ddce");
-    private static readonly byte[] VaultwardenSalt = Convert.FromHexString(
-        "8cbc4602971e01c00d9e5547f0fc48eb419a989eaab01f62449c311c134da59b19d87d045fa390c231c5fb6cb5ebb711c81aed9f8115650c77f26867b67a6e9e");
-    private const string VaultwardenAKey = "2.onVkRKVKt6gHxTAN383oaw==|IKXKIj2GBwKDx5Nm8tiSVWZ3lUQeAm+F1IX6Bu5ROtMvBHF4GwbN738lk83j5wwXMLpYUwNU6+PBVT63qnJLW2p6KndbOIGPCOCFDZIPZJs=";
-    
+    private const string TestApiKey = "4mOVRsbQ5mR4y1GvXr8kSHtKjW9nL2";
     private readonly string _projectRoot;
     private bool _clusterCreated;
     private Process? _apiPortForwardProcess;
@@ -203,33 +195,31 @@ nodes:
             $"get pod -n {VaultwardenNamespace} -l app=vaultwarden " +
             $"-o jsonpath='{{.items[0].metadata.name}}'")).Trim('\'', '"', '\n', ' ');
         
-        // Insert test user directly into vaultwarden's database.
-        // The password_hash and salt are from a correctly-registered vaultwarden user.
-        // vaultwarden computes Argon2id(masterPasswordHash, salt, iterations) on registration.
-        // We write the SQL to a file, copy it into the pod, and pipe it to sqlite3
-        // to avoid quoting issues with shell metacharacters and X'...' hex literals.
         // Vaultwarden images >= 1.30.1 are Debian-based, so we install sqlite3 via apt.
         await RunCommand("kubectl",
             $"exec -n {VaultwardenNamespace} {podName} -- " +
             $"sh -c \"apt-get update -qq && apt-get install -y -qq sqlite3\"",
             throwOnError: false);
         
+        // Insert test user with a known api_key. We authenticate via OAuth2 client_credentials
+        // using the API key instead of password, which avoids version-specific password hashing differences.
+        // The client_id format for user API key login is "user.{uuid}".
+        _seededUserId = Guid.NewGuid();
+        var securityStamp = Guid.NewGuid();
         var insertSql = string.Format(
             "INSERT OR IGNORE INTO users " +
             "(uuid,created_at,updated_at,email,name,password_hash,salt,password_iterations," +
             "akey,security_stamp,equivalent_domains,excluded_globals," +
-            "client_kdf_type,client_kdf_iter,enabled) " +
+            "client_kdf_type,client_kdf_iter,api_key,enabled) " +
             "VALUES (\"{0}\",datetime(\"now\"),datetime(\"now\"),\"{1}\",\"{2}\"," +
-            "X\'{3}\',X\'{4}\',{5}," +
-            "\"{6}\",\"{7}\",\"[]\",\"[]\"," +
-            "{8},{9},1)",
-            Guid.NewGuid(), TestEmail, "E2E Test User",
-            Convert.ToHexString(VaultwardenPasswordHash).ToLower(),
-            Convert.ToHexString(VaultwardenSalt).ToLower(),
+            "\"x\",\"x\",{3}," +
+            "\"x\",\"{4}\",\"[]\",\"[]\"," +
+            "{5},{6},\"{7}\",1)",
+            _seededUserId, TestEmail, "E2E Test User",
             600000,
-            VaultwardenAKey,
-            Guid.NewGuid(),
-            0, 600000);
+            securityStamp,
+            0, 600000,
+            TestApiKey);
         
         var sqlFile = Path.Combine(Path.GetTempPath(), $"vaultwarden-seed-{Guid.NewGuid()}.sql");
         try
@@ -247,6 +237,7 @@ nodes:
         }
     }
     
+    private Guid _seededUserId;
     private byte[]? _encryptionKey;
     private byte[]? _macKey;
     
@@ -264,80 +255,50 @@ nodes:
         await AnsiConsole.Status()
             .StartAsync("Setting up test user...", async ctx =>
             {
+                // Generate local encryption keys (same approach as registration)
+                ctx.Status("Generating encryption keys...");
+                var symKey = GenerateEncryptionKey();
+                _encryptionKey = symKey[..32];
+                _macKey = symKey[32..];
+                
+                // Seed user with known API key (avoids version-specific password hashing)
+                ctx.Status("Seeding vaultwarden database with test user...");
+                await SeedVaultwardenDatabase();
+                
+                // Authenticate via OAuth2 client_credentials with the API key.
+                // This works on ALL vaultwarden versions since user API key login was introduced.
+                ctx.Status("Logging in via API key...");
                 using var client = CreateHttpClient();
-                const int kdfIterations = 600000;
-                var masterKey = DeriveKey(TestMasterPassword, TestEmail.ToLowerInvariant(), kdfIterations);
-                
-                // Try to login first (user might already exist)
-                ctx.Status("Attempting login via API...");
-                string? accessToken = null;
-                string? encryptedKey = null;
-                
-                try
+                var tokenUrl = $"{VaultwardenUrl}/identity/connect/token";
+                var loginContent = new FormUrlEncodedContent(new Dictionary<string, string>
                 {
-                    (accessToken, encryptedKey) = await LoginViaApi(client, TestEmail, TestMasterPassword);
-                }
-                catch
+                    ["grant_type"] = "client_credentials",
+                    ["client_id"] = $"user.{_seededUserId}",
+                    ["client_secret"] = TestApiKey,
+                    ["scope"] = "api offline_access",
+                    ["deviceType"] = "8",
+                    ["deviceIdentifier"] = Guid.NewGuid().ToString(),
+                    ["deviceName"] = "e2e-test"
+                });
+                
+                var response = await client.PostAsync(tokenUrl, loginContent);
+                if (!response.IsSuccessStatusCode)
                 {
-                    // User doesn't exist or registration endpoint missing.
-                    // Try to register via API first (works on v1.30.x, v1.33.x).
-                    ctx.Status("Registering new user via API...");
-                    var symKey = GenerateEncryptionKey();
-                    
-                    try
-                    {
-                        await RegisterUserViaApi(TestEmail, TestMasterPassword, symKey);
-                        _encryptionKey = symKey[..32];
-                        _macKey = symKey[32..];
-                        
-                        ctx.Status("Logging in after registration...");
-                        await Task.Delay(500);
-                        (accessToken, encryptedKey) = await LoginViaApi(client, TestEmail, TestMasterPassword);
-                    }
-                    catch (InvalidOperationException regEx) when (regEx.Message.Contains("404"))
-                    {
-                        // Registration endpoint not available (Vaultwarden v1.35+).
-                        // Deploy pre-seeded database with test user instead.
-                        ctx.Status("Seeding vaultwarden database with test user...");
-                        await SeedVaultwardenDatabase();
-                        
-                        ctx.Status("Logging in after DB seed...");
-                        await Task.Delay(1000);
-                        (accessToken, encryptedKey) = await LoginViaApi(client, TestEmail, TestMasterPassword);
-                        
-                        if (!string.IsNullOrEmpty(encryptedKey))
-                        {
-                            var decryptedKey = DecryptSymmetricKey(encryptedKey, masterKey);
-                            _encryptionKey = decryptedKey[..32];
-                            _macKey = decryptedKey[32..];
-                        }
-                    }
+                    var error = await response.Content.ReadAsStringAsync();
+                    throw new InvalidOperationException($"API key login failed: {response.StatusCode} - {error}");
                 }
                 
-                if (string.IsNullOrEmpty(accessToken))
-                {
-                    throw new InvalidOperationException("Failed to obtain access token");
-                }
-                
-                // If we didn't just register, decrypt the key from the server
-                if (_encryptionKey == null && !string.IsNullOrEmpty(encryptedKey))
-                {
-                    var symKey = DecryptSymmetricKey(encryptedKey, masterKey);
-                    _encryptionKey = symKey[..32];
-                    _macKey = symKey[32..];
-                }
-                
-                // Get API key for operator authentication
-                ctx.Status("Getting API key...");
-                var (clientId, clientSecret) = await GetApiKeyViaApi(client, accessToken, TestMasterPassword);
+                var tokenData = await response.Content.ReadFromJsonAsync<JsonElement>();
+                var accessToken = tokenData.GetProperty("access_token").GetString()
+                    ?? throw new InvalidOperationException("No access_token in API key login response");
                 
                 Credentials = new TestCredentials
                 {
                     Email = TestEmail,
                     MasterPassword = TestMasterPassword,
                     SessionKey = accessToken,
-                    ClientId = clientId,
-                    ClientSecret = clientSecret,
+                    ClientId = $"user.{_seededUserId}",
+                    ClientSecret = TestApiKey,
                     VaultwardenUrl = VaultwardenUrl,
                     EncryptionKey = _encryptionKey,
                     MacKey = _macKey
