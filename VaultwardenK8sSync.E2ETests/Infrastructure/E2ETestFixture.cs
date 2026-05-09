@@ -203,17 +203,17 @@ nodes:
             $"get pod -n {VaultwardenNamespace} -l app=vaultwarden " +
             $"-o jsonpath='{{.items[0].metadata.name}}'")).Trim('\'', '"', '\n', ' ');
         
-        // Copy static sqlite3 binary into the pod. kubectl cp uses tar internally,
-        // which is available in all Alpine-based vaultwarden images.
-        var sqlitePath = Path.Combine(_projectRoot, Sqlite3BinaryPath);
-        await RunCommand("kubectl",
-            $"cp {sqlitePath} {VaultwardenNamespace}/{podName}:/tmp/sqlite3");
-        
         // Insert test user directly into vaultwarden's database.
         // The password_hash and salt are from a correctly-registered vaultwarden user.
         // vaultwarden computes Argon2id(masterPasswordHash, salt, iterations) on registration.
-        // We write the SQL to a file and pipe it into the pod to avoid quoting issues
-        // with shell metacharacters and X'...' hex literals.
+        // We write the SQL to a file, copy it into the pod, and pipe it to sqlite3
+        // to avoid quoting issues with shell metacharacters and X'...' hex literals.
+        // Vaultwarden images >= 1.30.1 are Debian-based, so we install sqlite3 via apt.
+        await RunCommand("kubectl",
+            $"exec -n {VaultwardenNamespace} {podName} -- " +
+            $"apt-get update -qq && apt-get install -y -qq sqlite3",
+            throwOnError: false);
+        
         var insertSql = string.Format(
             "INSERT OR IGNORE INTO users " +
             "(uuid,created_at,updated_at,email,name,password_hash,salt,password_iterations," +
@@ -239,7 +239,7 @@ nodes:
                 $"cp {sqlFile} {VaultwardenNamespace}/{podName}:/tmp/seed.sql");
             await RunCommand("kubectl",
                 $"exec -n {VaultwardenNamespace} {podName} -- " +
-                $"sh -c \"chmod +x /tmp/sqlite3 && /tmp/sqlite3 /data/db.sqlite3 < /tmp/seed.sql\"");
+                $"sh -c \"sqlite3 /data/db.sqlite3 < /tmp/seed.sql\"");
         }
         finally
         {
