@@ -203,9 +203,12 @@ nodes:
         await RunCommand("kubectl",
             $"exec -n {VaultwardenNamespace} {podName} -- tar xzf /tmp/seed.tar.gz -C /data/");
         
-        await RunCommand("kubectl",
-            $"delete pod -n {VaultwardenNamespace} -l app=vaultwarden");
+        // Restart vaultwarden process to load seeded DB (emptyDir persists across
+        // container restarts within the same pod, but not across pod deletion)
+        await RunCommand("kubectl", $"exec -n {VaultwardenNamespace} {podName} -- kill 1",
+            throwOnError: false);
         
+        // Wait for old pod termination and new readiness
         await RunCommand("kubectl",
             $"wait --for=condition=Ready pod -l app=vaultwarden -n {VaultwardenNamespace} --timeout=180s");
         
