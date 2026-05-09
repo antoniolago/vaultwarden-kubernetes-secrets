@@ -111,9 +111,6 @@ services:
     container_name: vw-e2e-api
     ports:
       - "5000:8080"
-    depends_on:
-      sync:
-        condition: service_completed_successfully
     environment:
       ConnectionStrings__DefaultConnection: Data Source=/data/sync.db
       METRICS__ENABLED: "false"
