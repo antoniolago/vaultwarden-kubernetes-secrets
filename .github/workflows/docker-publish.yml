@@ -63,6 +63,8 @@ jobs:
       run: |
         echo "🔨 Building operator image for E2E tests..."
         docker build -t vaultwarden-kubernetes-secrets:e2e-test -f VaultwardenK8sSync/Dockerfile .
+        echo "🔨 Building API image for E2E tests..."
+        docker build -t vaultwarden-kubernetes-secrets-api:e2e-test -f VaultwardenK8sSync.Api/Dockerfile .
 
     - name: Run E2E Tests
       env:

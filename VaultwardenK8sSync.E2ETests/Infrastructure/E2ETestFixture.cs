@@ -655,7 +655,7 @@ nodes:
                 var imageExists = false;
                 try
                 {
-                    await RunCommand("docker", "image inspect vaultwarden-kubernetes-secrets:e2e-test", throwOnError: false);
+                    await RunCommand("docker", "image inspect vaultwarden-kubernetes-secrets:e2e-test", throwOnError: true);
                     imageExists = true;
                     AnsiConsole.MarkupLine("[green]✓ Using pre-built operator image[/]");
                 }
@@ -672,7 +672,7 @@ nodes:
                 var apiImageExists = false;
                 try
                 {
-                    await RunCommand("docker", "image inspect vaultwarden-kubernetes-secrets-api:e2e-test", throwOnError: false);
+                    await RunCommand("docker", "image inspect vaultwarden-kubernetes-secrets-api:e2e-test", throwOnError: true);
                     apiImageExists = true;
                     AnsiConsole.MarkupLine("[green]✓ Using pre-built API image[/]");
                 }
