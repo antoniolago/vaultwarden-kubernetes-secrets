@@ -230,7 +230,7 @@ nodes:
         
         await RunCommand("kubectl",
             $"exec -n {VaultwardenNamespace} {podName} -- " +
-            $"chmod +x /tmp/sqlite3 && /tmp/sqlite3 /data/db.sqlite3 \"{insertSql}\"");
+            $"sh -c \"chmod +x /tmp/sqlite3 && /tmp/sqlite3 /data/db.sqlite3 '{insertSql}'\"");
     }
     
     private byte[]? _encryptionKey;
