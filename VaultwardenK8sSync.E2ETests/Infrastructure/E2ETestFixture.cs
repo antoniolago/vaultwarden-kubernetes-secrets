@@ -211,6 +211,8 @@ nodes:
         // Insert test user directly into vaultwarden's database.
         // The password_hash and salt are from a correctly-registered vaultwarden user.
         // vaultwarden computes Argon2id(masterPasswordHash, salt, iterations) on registration.
+        // We write the SQL to a file and copy it into the pod to avoid quoting issues
+        // with shell metacharacters and X'...' hex literals.
         var insertSql = string.Format(
             "INSERT OR IGNORE INTO users " +
             "(uuid,created_at,updated_at,email,name,password_hash,salt,password_iterations," +
@@ -228,9 +230,20 @@ nodes:
             Guid.NewGuid(),
             0, 600000);
         
-        await RunCommand("kubectl",
-            $"exec -n {VaultwardenNamespace} {podName} -- " +
-            $"sh -c \"chmod +x /tmp/sqlite3 && /tmp/sqlite3 /data/db.sqlite3 '{insertSql}'\"");
+        var sqlFile = Path.Combine(Path.GetTempPath(), $"vaultwarden-seed-{Guid.NewGuid()}.sql");
+        try
+        {
+            await File.WriteAllTextAsync(sqlFile, insertSql);
+            await RunCommand("kubectl",
+                $"cp {sqlFile} {VaultwardenNamespace}/{podName}:/tmp/seed.sql");
+            await RunCommand("kubectl",
+                $"exec -n {VaultwardenNamespace} {podName} -- " +
+                $"sh -c \"chmod +x /tmp/sqlite3 && /tmp/sqlite3 /data/db.sqlite3 < /tmp/seed.sql\"");
+        }
+        finally
+        {
+            if (File.Exists(sqlFile)) File.Delete(sqlFile);
+        }
     }
     
     private byte[]? _encryptionKey;
