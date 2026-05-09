@@ -251,40 +251,41 @@ nodes:
                 {
                     (accessToken, encryptedKey) = await LoginViaApi(client, TestEmail, TestMasterPassword);
                 }
-                catch (InvalidOperationException ex) when (ex.Message.Contains("404"))
-                {
-                    // Registration endpoint not available (Vaultwarden v1.35+).
-                    // Deploy pre-seeded database with test user instead.
-                    ctx.Status("Seeding vaultwarden database with test user...");
-                    await SeedVaultwardenDatabase();
-                    
-                    ctx.Status("Logging in after DB seed...");
-                    await Task.Delay(1000);
-                    (accessToken, encryptedKey) = await LoginViaApi(client, TestEmail, TestMasterPassword);
-                    
-                    // Decrypt the key from the server
-                    if (!string.IsNullOrEmpty(encryptedKey))
-                    {
-                        var symKey = DecryptSymmetricKey(encryptedKey, masterKey);
-                        _encryptionKey = symKey[..32];
-                        _macKey = symKey[32..];
-                    }
-                }
                 catch
                 {
-                    // User doesn't exist, need to register
+                    // User doesn't exist or registration endpoint missing.
+                    // Try to register via API first (works on v1.30.x, v1.33.x).
                     ctx.Status("Registering new user via API...");
                     var symKey = GenerateEncryptionKey();
-                    await RegisterUserViaApi(TestEmail, TestMasterPassword, symKey);
                     
-                    // Store the key we just created
-                    _encryptionKey = symKey[..32];
-                    _macKey = symKey[32..];
-                    
-                    // Now login
-                    ctx.Status("Logging in after registration...");
-                    await Task.Delay(500);
-                    (accessToken, encryptedKey) = await LoginViaApi(client, TestEmail, TestMasterPassword);
+                    try
+                    {
+                        await RegisterUserViaApi(TestEmail, TestMasterPassword, symKey);
+                        _encryptionKey = symKey[..32];
+                        _macKey = symKey[32..];
+                        
+                        ctx.Status("Logging in after registration...");
+                        await Task.Delay(500);
+                        (accessToken, encryptedKey) = await LoginViaApi(client, TestEmail, TestMasterPassword);
+                    }
+                    catch (InvalidOperationException regEx) when (regEx.Message.Contains("404"))
+                    {
+                        // Registration endpoint not available (Vaultwarden v1.35+).
+                        // Deploy pre-seeded database with test user instead.
+                        ctx.Status("Seeding vaultwarden database with test user...");
+                        await SeedVaultwardenDatabase();
+                        
+                        ctx.Status("Logging in after DB seed...");
+                        await Task.Delay(1000);
+                        (accessToken, encryptedKey) = await LoginViaApi(client, TestEmail, TestMasterPassword);
+                        
+                        if (!string.IsNullOrEmpty(encryptedKey))
+                        {
+                            var decryptedKey = DecryptSymmetricKey(encryptedKey, masterKey);
+                            _encryptionKey = decryptedKey[..32];
+                            _macKey = decryptedKey[32..];
+                        }
+                    }
                 }
                 
                 if (string.IsNullOrEmpty(accessToken))
