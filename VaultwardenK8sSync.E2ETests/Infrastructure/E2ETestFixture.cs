@@ -275,7 +275,7 @@ nodes:
                     ["grant_type"] = "client_credentials",
                     ["client_id"] = $"user.{_seededUserId}",
                     ["client_secret"] = TestApiKey,
-                    ["scope"] = "api offline_access",
+                    ["scope"] = "api",
                     ["deviceType"] = "8",
                     ["deviceIdentifier"] = Guid.NewGuid().ToString(),
                     ["deviceName"] = "e2e-test"
