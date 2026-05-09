@@ -203,15 +203,16 @@ nodes:
             $"get pod -n {VaultwardenNamespace} -l app=vaultwarden " +
             $"-o jsonpath='{{.items[0].metadata.name}}'")).Trim('\'', '"', '\n', ' ');
         
-        // Copy static sqlite3 binary into the pod
-        var sqlitePath = Path.Combine(_projectRoot, Sqlite3BinaryPath);
+        // Install sqlite3 CLI in the vaultwarden pod (Alpine-based, apk available).
+        // We need this to modify vaultwarden's own database directly.
         await RunCommand("kubectl",
-            $"cp {sqlitePath} {VaultwardenNamespace}/{podName}:/tmp/sqlite3");
+            $"exec -n {VaultwardenNamespace} {podName} -- apk add --no-cache sqlite3",
+            throwOnError: false);
         
         // Insert test user directly into vaultwarden's database.
         // The password_hash and salt are from a correctly-registered vaultwarden user.
         // vaultwarden computes Argon2id(masterPasswordHash, salt, iterations) on registration.
-        // We write the SQL to a file and copy it into the pod to avoid quoting issues
+        // We write the SQL to a file and pipe it into the pod to avoid quoting issues
         // with shell metacharacters and X'...' hex literals.
         var insertSql = string.Format(
             "INSERT OR IGNORE INTO users " +
@@ -238,7 +239,7 @@ nodes:
                 $"cp {sqlFile} {VaultwardenNamespace}/{podName}:/tmp/seed.sql");
             await RunCommand("kubectl",
                 $"exec -n {VaultwardenNamespace} {podName} -- " +
-                $"sh -c \"chmod +x /tmp/sqlite3 && /tmp/sqlite3 /data/db.sqlite3 < /tmp/seed.sql\"");
+                $"sh -c \"sqlite3 /data/db.sqlite3 < /tmp/seed.sql\"");
         }
         finally
         {
