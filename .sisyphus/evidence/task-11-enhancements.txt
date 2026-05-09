@@ -1,0 +1,5 @@
+Task: Create enhancement suggestions document
+File: /home/tonio/Documentos/GitHub/vaultwarden-kubernetes-secrets/.sisyphus/drafts/enhancement-suggestions.md
+Line count: 512
+Suggestions: 12 (10 required + 2 bonus)
+Date: 2026-04-28

@@ -900,8 +900,8 @@ kind: ConfigMap
         var result = await ExtractSecretDataAsync(item);
 
         Assert.DoesNotContain("context-name", result.Keys);
-        Assert.Contains("username", result.Keys);
-        Assert.Contains("password", result.Keys);
+        Assert.Contains("context-test-username", result.Keys);
+        Assert.Contains("context-test", result.Keys);
     }
 
     #endregion

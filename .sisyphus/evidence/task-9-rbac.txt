@@ -1,0 +1,9 @@
+grep -c "ClusterRole\|permission\|RBAC" .sisyphus/drafts/prod-readiness-checklist.md
+Result: 19
+
+These references span the RBAC Analysis section (Section 4.1) and permission matrix within the prod-readiness-checklist.md document, covering:
+- Current RBAC rules from rbac.yaml (ClusterRole/Role for secrets + namespaces)
+- The permission gap for YAML attachment resources (ConfigMap, etc.)
+- Four proposed solution options with RBAC implications
+- Permission matrix table for each component
+- RBAC-related checkboxes in the Security section

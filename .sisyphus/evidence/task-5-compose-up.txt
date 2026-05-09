@@ -1,0 +1,1 @@
+docker compose -f /home/tonio/Documentos/GitHub/vaultwarden-kubernetes-secrets/docker-compose.e2e.yml down -v Tue Apr 28 01:42:54 -03 2026

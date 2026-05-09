@@ -1,0 +1,16 @@
+# Production Readiness Checklist — Vaultwarden Kubernetes Secrets
+
+> **Project**: Vaultwarden Kubernetes Secrets  
+> **Components**: Sync Service (`VaultwardenK8sSync`), REST API (`VaultwardenK8sSync.Api`), Dashboard (`dashboard/`), Database (`VaultwardenK8sSync.Database`)  
+> **Purpose**: Validate all aspects of running the service in a production Kubernetes cluster.
+
+---
+
+## 1. Monitoring
+
+> **Stack**: prometheus-net (`8.2.1`) exposed via embedded MetricsServer on the sync service, plus prometheus-net.AspNetCore on the API.
+
+- [ ] **Metrics endpoint confirmed accessible**
+  - Sync service: `http://<pod>:9090/metrics` (configurable via `METRICS__PORT`, default `9090`, `METRICS__ENABLED` defaults `true`)
+  - API: `http://<api-pod>:8080/metrics` (provided by `prometheus-net.AspNetCore`)
+  - Implementation: `Infrastructure/MetricsServer.cs` line 63 `_app.MapMetrics("/metrics")`; API `Program.cs` line 376-380

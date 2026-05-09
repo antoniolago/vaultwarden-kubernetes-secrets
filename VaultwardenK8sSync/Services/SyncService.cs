@@ -889,13 +889,23 @@ public class SyncService : ISyncService
             }
         }
 
+        // Helper: get the effective item name for use as default secret key
+        var extractedSecName = item.ExtractSecretName();
+        var effectiveItemName = !string.IsNullOrEmpty(extractedSecName) 
+            ? extractedSecName 
+            : (item.Name ?? string.Empty);
+
         var username = GetUsername(item);
         if (!string.IsNullOrEmpty(username))
         {
             var usernameKey = item.ExtractSecretKeyUsername();
             if (string.IsNullOrEmpty(usernameKey))
             {
-                usernameKey = "username";
+                // Use the sanitized secret name (which preserves hyphens) instead of item name
+                var secretName = !string.IsNullOrEmpty(extractedSecName) 
+                    ? SanitizeSecretName(extractedSecName) 
+                    : SanitizeSecretName(item.Name ?? string.Empty);
+                usernameKey = $"{SanitizeFieldName(secretName)}-username";
             }
             data[usernameKey] = FormatMultilineValue(username);
         }
@@ -912,7 +922,8 @@ public class SyncService : ISyncService
             }
             else
             {
-                passwordKeyResolved = "password";
+                // Use the sanitized item name for the field key (preserves case and uses underscores)
+                passwordKeyResolved = SanitizeFieldName(effectiveItemName);
             }
         }
 

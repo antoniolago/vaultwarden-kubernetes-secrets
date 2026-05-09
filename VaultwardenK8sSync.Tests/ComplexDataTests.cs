@@ -86,8 +86,8 @@ public class ComplexDataTests : IDisposable
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        result.Should().ContainKey("password");
-        result["password"].Should().Be(password);
+        result.Should().ContainKey("Test-Item");
+        result["Test-Item"].Should().Be(password);
     }
 
     [Fact]
@@ -112,8 +112,8 @@ public class ComplexDataTests : IDisposable
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        result.Should().ContainKey("password");
-        result["password"].Should().Be(password);
+        result.Should().ContainKey("Test-Item");
+        result["Test-Item"].Should().Be(password);
     }
 
     [Fact]
@@ -138,8 +138,8 @@ public class ComplexDataTests : IDisposable
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        result.Should().ContainKey("password");
-        result["password"].Should().Be(password);
+        result.Should().ContainKey("Test-Item");
+        result["Test-Item"].Should().Be(password);
     }
 
     [Fact]
@@ -164,8 +164,8 @@ public class ComplexDataTests : IDisposable
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        result.Should().ContainKey("password");
-        result["password"].Should().Be(password);
+        result.Should().ContainKey("Test-Item");
+        result["Test-Item"].Should().Be(password);
     }
 
     [Fact]
@@ -190,8 +190,8 @@ public class ComplexDataTests : IDisposable
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        result.Should().ContainKey("password");
-        result["password"].Should().Be(password);
+        result.Should().ContainKey("Test-Item");
+        result["Test-Item"].Should().Be(password);
     }
 
     [Fact]
@@ -216,8 +216,8 @@ public class ComplexDataTests : IDisposable
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        result.Should().ContainKey("password");
-        result["password"].Should().Be(password, "Environment variables should not be expanded");
+        result.Should().ContainKey("Test-Item");
+        result["Test-Item"].Should().Be(password, "Environment variables should not be expanded");
     }
 
     #endregion
@@ -246,8 +246,8 @@ public class ComplexDataTests : IDisposable
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        result.Should().ContainKey("password");
-        result["password"].Should().Be(password);
+        result.Should().ContainKey("Test-Item");
+        result["Test-Item"].Should().Be(password);
     }
 
     [Fact]
@@ -272,8 +272,8 @@ public class ComplexDataTests : IDisposable
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        result.Should().ContainKey("password");
-        result["password"].Should().Be(password);
+        result.Should().ContainKey("Test-Item");
+        result["Test-Item"].Should().Be(password);
     }
 
     [Fact]
@@ -298,8 +298,8 @@ public class ComplexDataTests : IDisposable
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        result.Should().ContainKey("password");
-        result["password"].Should().Be(password);
+        result.Should().ContainKey("Test-Item");
+        result["Test-Item"].Should().Be(password);
     }
 
     [Fact]
@@ -324,8 +324,8 @@ public class ComplexDataTests : IDisposable
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        result.Should().ContainKey("password");
-        result["password"].Should().Be(password);
+        result.Should().ContainKey("Test-Item");
+        result["Test-Item"].Should().Be(password);
     }
 
     #endregion
@@ -366,10 +366,10 @@ CgKCAQEA12345678901234567890
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        result.Should().ContainKey("password");
-        result["password"].Should().Contain("BEGIN CERTIFICATE");
-        result["password"].Should().Contain("END CERTIFICATE");
-        result["password"].Should().Contain("\n", "Multi-line should be preserved");
+        result.Should().ContainKey("TLS-Certificate");
+        result["TLS-Certificate"].Should().Contain("BEGIN CERTIFICATE");
+        result["TLS-Certificate"].Should().Contain("END CERTIFICATE");
+        result["TLS-Certificate"].Should().Contain("\n", "Multi-line should be preserved");
     }
 
     [Fact]
@@ -397,9 +397,9 @@ F0bvGdXPRm7iKTBKpT9QmZV5O8Wy6JyLZJKwVGHmxFaG3D4qR8qZzD5W3bKJ5xP9
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        result.Should().ContainKey("password");
-        result["password"].Should().Contain("BEGIN PRIVATE KEY");
-        result["password"].Should().Contain("END PRIVATE KEY");
+        result.Should().ContainKey("Private-Key");
+        result["Private-Key"].Should().Contain("BEGIN PRIVATE KEY");
+        result["Private-Key"].Should().Contain("END PRIVATE KEY");
     }
 
     [Fact]
@@ -421,8 +421,8 @@ F0bvGdXPRm7iKTBKpT9QmZV5O8Wy6JyLZJKwVGHmxFaG3D4qR8qZzD5W3bKJ5xP9
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        result.Should().ContainKey("password");
-        result["password"].Should().Be(noteContent);
+        result.Should().ContainKey("Trailing-Newline-Note");
+        result["Trailing-Newline-Note"].Should().Be(noteContent);
     }
 
     [Fact]
@@ -444,8 +444,8 @@ F0bvGdXPRm7iKTBKpT9QmZV5O8Wy6JyLZJKwVGHmxFaG3D4qR8qZzD5W3bKJ5xP9
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        result.Should().ContainKey("password");
-        result["password"].Should().Be(noteContent);
+        result.Should().ContainKey("Leading-Newline-Note");
+        result["Leading-Newline-Note"].Should().Be(noteContent);
     }
 
     #endregion
@@ -474,9 +474,9 @@ F0bvGdXPRm7iKTBKpT9QmZV5O8Wy6JyLZJKwVGHmxFaG3D4qR8qZzD5W3bKJ5xP9
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        result.Should().ContainKey("password");
-        result["password"].Should().HaveLength(1024);
-        result["password"].Should().Be(password);
+        result.Should().ContainKey("Large-Password");
+        result["Large-Password"].Should().HaveLength(1024);
+        result["Large-Password"].Should().Be(password);
     }
 
     [Fact]
@@ -501,8 +501,8 @@ F0bvGdXPRm7iKTBKpT9QmZV5O8Wy6JyLZJKwVGHmxFaG3D4qR8qZzD5W3bKJ5xP9
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        result.Should().ContainKey("password");
-        result["password"].Should().HaveLength(10240);
+        result.Should().ContainKey("Very-Large-Password");
+        result["Very-Large-Password"].Should().HaveLength(10240);
     }
 
     [Fact]
@@ -570,10 +570,10 @@ F0bvGdXPRm7iKTBKpT9QmZV5O8Wy6JyLZJKwVGHmxFaG3D4qR8qZzD5W3bKJ5xP9
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        result.Should().ContainKey("password");
-        result["password"].Should().NotBeNull();
+        result.Should().ContainKey("Empty-Password");
+        result["Empty-Password"].Should().NotBeNull();
         // Empty password results in item name as fallback
-        result["password"].Should().Be("Empty Password");
+        result["Empty-Password"].Should().Be("Empty Password");
     }
 
     [Fact]
@@ -598,8 +598,8 @@ F0bvGdXPRm7iKTBKpT9QmZV5O8Wy6JyLZJKwVGHmxFaG3D4qR8qZzD5W3bKJ5xP9
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        result.Should().ContainKey("password");
-        result["password"].Should().Be(password);
+        result.Should().ContainKey("Whitespace-Password");
+        result["Whitespace-Password"].Should().Be(password);
     }
 
     [Fact]
