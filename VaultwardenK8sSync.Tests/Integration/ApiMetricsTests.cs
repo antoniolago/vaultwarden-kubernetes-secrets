@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
 using FluentAssertions;
 using System.Net;
+using Prometheus;
 
 namespace VaultwardenK8sSync.Tests.Integration;
 
@@ -11,7 +12,17 @@ public class ApiMetricsTests : IClassFixture<WebApplicationFactory<global::Progr
 
     public ApiMetricsTests(WebApplicationFactory<global::Program> factory)
     {
-        _factory = factory;
+        _factory = factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("DatabasePath", Path.GetTempFileName());
+        });
+        // Pre-register expected prometheus-net metrics. The API's Program.cs serves
+        // /metrics via MapMetrics() but doesn't construct MetricsService (that's a
+        // sync-service concern). Without this, vaultwarden_* metrics never appear.
+        Metrics.CreateCounter("vaultwarden_sync_total", "Total number of sync operations");
+        Metrics.CreateHistogram("vaultwarden_sync_duration_seconds", "Duration of sync operations");
+        Metrics.CreateCounter("vaultwarden_secrets_synced_total", "Total secrets synced");
+        Metrics.CreateGauge("vaultwarden_items_watched", "Number of items being watched");
     }
 
     [Fact]
