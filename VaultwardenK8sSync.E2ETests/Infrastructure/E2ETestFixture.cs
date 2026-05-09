@@ -27,7 +27,14 @@ public class E2ETestFixture : IAsyncLifetime
     
     public const string TestEmail = "e2e-test@vaultwarden.local";
     public const string TestMasterPassword = "MasterPassword123";
-    private const string SeedArchivePath = "tests/e2e/data/vaultwarden-seed.tar.gz";
+    private const string Sqlite3BinaryPath = "tests/e2e/data/sqlite3.static";
+    // Password hash stored by vaultwarden (Argon2id(masterPasswordHash, salt, iterations)).
+    // Must match what vaultwarden computes during registration.
+    private static readonly byte[] VaultwardenPasswordHash = Convert.FromHexString(
+        "5bed4dc6c7fdbefa17ed78f08feed97f981f35ca9b70a5f3d58ad46ed7c4ddce");
+    private static readonly byte[] VaultwardenSalt = Convert.FromHexString(
+        "8cbc4602971e01c00d9e5547f0fc48eb419a989eaab01f62449c311c134da59b19d87d045fa390c231c5fb6cb5ebb711c81aed9f8115650c77f26867b67a6e9e");
+    private const string VaultwardenAKey = "2.onVkRKVKt6gHxTAN383oaw==|IKXKIj2GBwKDx5Nm8tiSVWZ3lUQeAm+F1IX6Bu5ROtMvBHF4GwbN738lk83j5wwXMLpYUwNU6+PBVT63qnJLW2p6KndbOIGPCOCFDZIPZJs=";
     
     private readonly string _projectRoot;
     private bool _clusterCreated;
@@ -196,23 +203,34 @@ nodes:
             $"get pod -n {VaultwardenNamespace} -l app=vaultwarden " +
             $"-o jsonpath='{{.items[0].metadata.name}}'")).Trim('\'', '"', '\n', ' ');
         
-        var seedPath = Path.Combine(_projectRoot, SeedArchivePath);
+        // Copy static sqlite3 binary into the pod
+        var sqlitePath = Path.Combine(_projectRoot, Sqlite3BinaryPath);
         await RunCommand("kubectl",
-            $"cp {seedPath} {VaultwardenNamespace}/{podName}:/tmp/seed.tar.gz");
+            $"cp {sqlitePath} {VaultwardenNamespace}/{podName}:/tmp/sqlite3");
+        
+        // Insert test user directly into vaultwarden's database.
+        // The password_hash and salt are from a correctly-registered vaultwarden user.
+        // vaultwarden computes Argon2id(masterPasswordHash, salt, iterations) on registration.
+        var insertSql = string.Format(
+            "INSERT OR IGNORE INTO users " +
+            "(uuid,created_at,updated_at,email,name,password_hash,salt,password_iterations," +
+            "akey,security_stamp,equivalent_domains,excluded_globals," +
+            "client_kdf_type,client_kdf_iter,enabled) " +
+            "VALUES (\"{0}\",datetime(\"now\"),datetime(\"now\"),\"{1}\",\"{2}\"," +
+            "X\'{3}\',X\'{4}\',{5}," +
+            "\"{6}\",\"{7}\",\"[]\",\"[]\"," +
+            "{8},{9},1)",
+            Guid.NewGuid(), TestEmail, "E2E Test User",
+            Convert.ToHexString(VaultwardenPasswordHash).ToLower(),
+            Convert.ToHexString(VaultwardenSalt).ToLower(),
+            600000,
+            VaultwardenAKey,
+            Guid.NewGuid(),
+            0, 600000);
         
         await RunCommand("kubectl",
-            $"exec -n {VaultwardenNamespace} {podName} -- tar xzf /tmp/seed.tar.gz -C /data/");
-        
-        // Restart vaultwarden process to load seeded DB (emptyDir persists across
-        // container restarts within the same pod, but not across pod deletion)
-        await RunCommand("kubectl", $"exec -n {VaultwardenNamespace} {podName} -- kill 1",
-            throwOnError: false);
-        
-        // Wait for old pod termination and new readiness
-        await RunCommand("kubectl",
-            $"wait --for=condition=Ready pod -l app=vaultwarden -n {VaultwardenNamespace} --timeout=180s");
-        
-        await WaitForUrl($"{VaultwardenUrl}/api/alive", TimeSpan.FromSeconds(30), ignoreSslErrors: true);
+            $"exec -n {VaultwardenNamespace} {podName} -- " +
+            $"chmod +x /tmp/sqlite3 && /tmp/sqlite3 /data/db.sqlite3 \"{insertSql}\"");
     }
     
     private byte[]? _encryptionKey;
