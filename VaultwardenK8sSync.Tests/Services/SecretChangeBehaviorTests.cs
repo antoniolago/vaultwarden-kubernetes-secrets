@@ -572,7 +572,7 @@ public class SecretChangeBehaviorTests
             .ReturnsAsync((string?)null);
         _kubernetesServiceMock.Setup(x => x.CreateSecretAsync(
             namespaceName, "merged-secret",
-            It.Is<Dictionary<string, string>>(d => d.ContainsKey("merged-secret") && d.ContainsKey("merged-secret-username")),
+            It.Is<Dictionary<string, string>>(d => d.ContainsKey("username") && d.ContainsKey("password")),
             It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string>()))
             .ReturnsAsync(OperationResult.Successful());
 

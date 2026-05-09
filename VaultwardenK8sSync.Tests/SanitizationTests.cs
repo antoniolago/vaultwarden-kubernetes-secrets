@@ -269,10 +269,10 @@ public class SanitizationTests
         var result = await ExtractSecretDataAsync(item);
 
         // Assert
-        Assert.Contains("test-se-cret-default", result.Keys);
-        Assert.Contains("test-se-cret-default-username", result.Keys);
-        Assert.Equal("testpass", result["test-se-cret-default"]);
-        Assert.Equal("testuser", result["test-se-cret-default-username"]);
+        Assert.Contains("password", result.Keys);
+        Assert.Contains("username", result.Keys);
+        Assert.Equal("testpass", result["password"]);
+        Assert.Equal("testuser", result["username"]);
     }
 
     [Fact]
@@ -300,10 +300,10 @@ public class SanitizationTests
         var result = ExtractSecretDataAsync(item).Result;
 
         // Assert
-        Assert.Contains("my-custom-secret", result.Keys);
-        Assert.Contains("my-custom-secret-username", result.Keys);
-        Assert.Equal("testpass", result["my-custom-secret"]);
-        Assert.Equal("testuser", result["my-custom-secret-username"]);
+        Assert.Contains("password", result.Keys);
+        Assert.Contains("username", result.Keys);
+        Assert.Equal("testpass", result["password"]);
+        Assert.Equal("testuser", result["username"]);
     }
 
     [Fact]
@@ -398,8 +398,8 @@ public class SanitizationTests
 
         // Assert
         Assert.DoesNotContain("SMTP_PASSWORD", result.Keys);
-        Assert.Contains("Test-Item", result.Keys); // Default password key
-        Assert.Contains("test-item-username", result.Keys); // Default username key
+        Assert.Contains("password", result.Keys); // Default password key
+        Assert.Contains("username", result.Keys); // Default username key
     }
 
     [Fact]
