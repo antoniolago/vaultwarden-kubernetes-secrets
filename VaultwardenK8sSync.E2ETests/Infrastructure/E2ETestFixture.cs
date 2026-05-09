@@ -211,7 +211,7 @@ nodes:
         // Vaultwarden images >= 1.30.1 are Debian-based, so we install sqlite3 via apt.
         await RunCommand("kubectl",
             $"exec -n {VaultwardenNamespace} {podName} -- " +
-            $"apt-get update -qq && apt-get install -y -qq sqlite3",
+            $"sh -c \"apt-get update -qq && apt-get install -y -qq sqlite3\"",
             throwOnError: false);
         
         var insertSql = string.Format(
