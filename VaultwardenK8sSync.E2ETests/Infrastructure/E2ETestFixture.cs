@@ -27,6 +27,7 @@ public class E2ETestFixture : IAsyncLifetime
     
     public const string TestEmail = "e2e-test@vaultwarden.local";
     public const string TestMasterPassword = "MasterPassword123";
+    private const string SeedArchivePath = "tests/e2e/data/vaultwarden-seed.tar.gz";
     
     private readonly string _projectRoot;
     private bool _clusterCreated;
@@ -189,6 +190,37 @@ nodes:
         AnsiConsole.MarkupLine("[green]✓ Vaultwarden deployed[/]");
     }
     
+    private async Task SeedVaultwardenDatabase()
+    {
+        await AnsiConsole.Status()
+            .StartAsync("Seeding vaultwarden database...", async ctx =>
+            {
+                var podName = (await RunCommand("kubectl",
+                    $"get pod -n {VaultwardenNamespace} -l app=vaultwarden " +
+                    $"-o jsonpath='{{.items[0].metadata.name}}'")).Trim('\'', '"', '\n', ' ');
+                
+                ctx.Status($"Copying seed archive to pod {podName}...");
+                var seedPath = Path.Combine(_projectRoot, SeedArchivePath);
+                await RunCommand("kubectl",
+                    $"cp {seedPath} {VaultwardenNamespace}/{podName}:/tmp/seed.tar.gz");
+                
+                ctx.Status("Extracting seed data into vaultwarden data directory...");
+                await RunCommand("kubectl",
+                    $"exec -n {VaultwardenNamespace} {podName} -- tar xzf /tmp/seed.tar.gz -C /data/");
+                
+                ctx.Status("Restarting vaultwarden with seeded database...");
+                await RunCommand("kubectl",
+                    $"delete pod -n {VaultwardenNamespace} -l app=vaultwarden");
+                
+                ctx.Status("Waiting for vaultwarden to restart...");
+                await RunCommand("kubectl",
+                    $"wait --for=condition=Ready pod -l app=vaultwarden -n {VaultwardenNamespace} --timeout=180s");
+                
+                ctx.Status("Waiting for vaultwarden API...");
+                await WaitForUrl($"{VaultwardenUrl}/api/alive", TimeSpan.FromSeconds(30), ignoreSslErrors: true);
+            });
+    }
+    
     private byte[]? _encryptionKey;
     private byte[]? _macKey;
     
@@ -218,6 +250,25 @@ nodes:
                 try
                 {
                     (accessToken, encryptedKey) = await LoginViaApi(client, TestEmail, TestMasterPassword);
+                }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("404"))
+                {
+                    // Registration endpoint not available (Vaultwarden v1.35+).
+                    // Deploy pre-seeded database with test user instead.
+                    ctx.Status("Seeding vaultwarden database with test user...");
+                    await SeedVaultwardenDatabase();
+                    
+                    ctx.Status("Logging in after DB seed...");
+                    await Task.Delay(1000);
+                    (accessToken, encryptedKey) = await LoginViaApi(client, TestEmail, TestMasterPassword);
+                    
+                    // Decrypt the key from the server
+                    if (!string.IsNullOrEmpty(encryptedKey))
+                    {
+                        var symKey = DecryptSymmetricKey(encryptedKey, masterKey);
+                        _encryptionKey = symKey[..32];
+                        _macKey = symKey[32..];
+                    }
                 }
                 catch
                 {
