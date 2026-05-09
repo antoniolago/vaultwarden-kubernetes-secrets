@@ -34,10 +34,14 @@ jobs:
       run: dotnet test VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj --no-build --verbosity normal --configuration Release
 
   e2e-test:
-    name: Run E2E Tests
+    name: Run E2E Tests (Vaultwarden ${{ matrix.vaultwarden-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [build-and-test]
+    strategy:
+      fail-fast: false
+      matrix:
+        vaultwarden-version: [1.30.1, 1.33.2, 1.35.4, 1.35.8, 1.36.0]
     
     steps:
     - name: Checkout code
@@ -61,8 +65,9 @@ jobs:
         E2E_CLUSTER_NAME: vks-e2e-ci
         E2E_KEEP_CLUSTER: false
         E2E_VERBOSE: false
+        VAULTWARDEN_VERSION: ${{ matrix.vaultwarden-version }}
       run: |
-        echo "🧪 Running E2E tests in Docker..."
+        echo "🧪 Running E2E tests with Vaultwarden $VAULTWARDEN_VERSION..."
         docker run --rm \
           --privileged \
           --network host \
@@ -70,6 +75,7 @@ jobs:
           -e E2E_CLUSTER_NAME=$E2E_CLUSTER_NAME \
           -e E2E_KEEP_CLUSTER=$E2E_KEEP_CLUSTER \
           -e E2E_VERBOSE=$E2E_VERBOSE \
+          -e VAULTWARDEN_VERSION=$VAULTWARDEN_VERSION \
           vaultwarden-kubernetes-secrets-e2e:local
 
     - name: Cleanup E2E cluster
@@ -80,10 +86,14 @@ jobs:
         docker network ls --filter "name=kind" -q | xargs -r docker network rm || true
 
   dashboard-e2e-test:
-    name: Dashboard E2E Tests (Playwright)
+    name: Dashboard E2E Tests (Vaultwarden ${{ matrix.vaultwarden-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [build-and-test]
+    strategy:
+      fail-fast: false
+      matrix:
+        vaultwarden-version: [1.30.1, 1.33.2, 1.35.4, 1.35.8, 1.36.0]
     
     steps:
     - name: Checkout code
@@ -93,7 +103,10 @@ jobs:
       uses: docker/setup-buildx-action@v3
 
     - name: Start e2e stack (vaultwarden + sync + api + dashboard)
+      env:
+        VAULTWARDEN_VERSION: ${{ matrix.vaultwarden-version }}
       run: |
+        echo "Starting e2e stack with Vaultwarden $VAULTWARDEN_VERSION..."
         # Pre-build images
         docker compose -f docker-compose.e2e.yml build sync api dashboard
         # Start all services (except playwright - we run that separately with richer output)
