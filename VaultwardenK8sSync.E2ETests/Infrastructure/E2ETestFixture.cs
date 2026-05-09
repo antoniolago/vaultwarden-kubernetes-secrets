@@ -192,33 +192,24 @@ nodes:
     
     private async Task SeedVaultwardenDatabase()
     {
-        await AnsiConsole.Status()
-            .StartAsync("Seeding vaultwarden database...", async ctx =>
-            {
-                var podName = (await RunCommand("kubectl",
-                    $"get pod -n {VaultwardenNamespace} -l app=vaultwarden " +
-                    $"-o jsonpath='{{.items[0].metadata.name}}'")).Trim('\'', '"', '\n', ' ');
-                
-                ctx.Status($"Copying seed archive to pod {podName}...");
-                var seedPath = Path.Combine(_projectRoot, SeedArchivePath);
-                await RunCommand("kubectl",
-                    $"cp {seedPath} {VaultwardenNamespace}/{podName}:/tmp/seed.tar.gz");
-                
-                ctx.Status("Extracting seed data into vaultwarden data directory...");
-                await RunCommand("kubectl",
-                    $"exec -n {VaultwardenNamespace} {podName} -- tar xzf /tmp/seed.tar.gz -C /data/");
-                
-                ctx.Status("Restarting vaultwarden with seeded database...");
-                await RunCommand("kubectl",
-                    $"delete pod -n {VaultwardenNamespace} -l app=vaultwarden");
-                
-                ctx.Status("Waiting for vaultwarden to restart...");
-                await RunCommand("kubectl",
-                    $"wait --for=condition=Ready pod -l app=vaultwarden -n {VaultwardenNamespace} --timeout=180s");
-                
-                ctx.Status("Waiting for vaultwarden API...");
-                await WaitForUrl($"{VaultwardenUrl}/api/alive", TimeSpan.FromSeconds(30), ignoreSslErrors: true);
-            });
+        var podName = (await RunCommand("kubectl",
+            $"get pod -n {VaultwardenNamespace} -l app=vaultwarden " +
+            $"-o jsonpath='{{.items[0].metadata.name}}'")).Trim('\'', '"', '\n', ' ');
+        
+        var seedPath = Path.Combine(_projectRoot, SeedArchivePath);
+        await RunCommand("kubectl",
+            $"cp {seedPath} {VaultwardenNamespace}/{podName}:/tmp/seed.tar.gz");
+        
+        await RunCommand("kubectl",
+            $"exec -n {VaultwardenNamespace} {podName} -- tar xzf /tmp/seed.tar.gz -C /data/");
+        
+        await RunCommand("kubectl",
+            $"delete pod -n {VaultwardenNamespace} -l app=vaultwarden");
+        
+        await RunCommand("kubectl",
+            $"wait --for=condition=Ready pod -l app=vaultwarden -n {VaultwardenNamespace} --timeout=180s");
+        
+        await WaitForUrl($"{VaultwardenUrl}/api/alive", TimeSpan.FromSeconds(30), ignoreSslErrors: true);
     }
     
     private byte[]? _encryptionKey;
