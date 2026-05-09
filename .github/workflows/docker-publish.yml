@@ -111,7 +111,7 @@ jobs:
     - name: Start e2e stack (vaultwarden + sync + api + dashboard)
       env:
         VAULTWARDEN_VERSION: ${{ matrix.vaultwarden-version }}
-        COMPOSE_PROFILES: with-dashboard
+        COMPOSE_PROFILES: with-dashboard,with-api
       run: |
         echo "Starting e2e stack with Vaultwarden $VAULTWARDEN_VERSION..."
         # Pre-build images
