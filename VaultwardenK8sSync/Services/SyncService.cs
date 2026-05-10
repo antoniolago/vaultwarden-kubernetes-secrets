@@ -27,6 +27,17 @@ public class SyncService : ISyncService
     private static readonly TimeSpan MissingNamespaceRecheckInterval = TimeSpan.FromMinutes(30);
     private int _syncCount;
 
+    private void LogMemoryUsage(string phase, long? previousMemory = null)
+    {
+        var currentMemory = GC.GetTotalMemory(false);
+        var delta = previousMemory.HasValue ? currentMemory - previousMemory.Value : 0;
+        _logger.LogInformation(
+            "[MEMORY] {Phase}: GC heap={CurrentMB:F1} MB{Delta}",
+            phase,
+            currentMemory / 1024.0 / 1024.0,
+            delta != 0 ? $", delta={delta / 1024.0 / 1024.0:F1} MB" : "");
+    }
+
     public SyncService(
         ILogger<SyncService> logger,
         IVaultwardenService vaultwardenService,
@@ -89,10 +100,12 @@ public class SyncService : ISyncService
             progress.SetPhase("Authenticating and fetching items");
 
             _logger.LogDebug("Starting sync");
+            LogMemoryUsage("before item fetch");
 
             // Get all items from Vaultwarden
             var items = await _vaultwardenService.GetItemsAsync();
             summary.TotalItemsFromVaultwarden = items.Count;
+            LogMemoryUsage($"after item fetch ({items.Count} items)");
             
             // Start sync log in database
             syncLogId = await _dbLogger.StartSyncLogAsync("Full Sync", items.Count);
@@ -171,6 +184,7 @@ public class SyncService : ISyncService
 
             var (itemsByNamespace, itemsWithNamespaces, itemsSkippedByContext, filteredItems) =
                 FilterAndGroupByNamespace(items, effectiveContextName, _logger);
+            LogMemoryUsage("after namespace grouping");
 
             if (itemsSkippedByContext > 0)
             {
@@ -204,6 +218,7 @@ public class SyncService : ISyncService
                 }
             }
 
+            LogMemoryUsage("before namespace sync loop");
             // Sync each namespace (skip known-missing namespaces, with periodic re-check)
             foreach (var (namespaceName, namespaceItems) in itemsByNamespace)
             {
@@ -254,6 +269,7 @@ public class SyncService : ISyncService
                 }
             }
 
+            LogMemoryUsage("after namespace sync loop");
             // Process items without namespaces that contain Kubernetes YAML in notes
             // These are raw K8s manifests that declare their own namespace in metadata.namespace
             var nonNamespaceItems = items.Where(i => !i.ExtractNamespaces().Any()).ToList();

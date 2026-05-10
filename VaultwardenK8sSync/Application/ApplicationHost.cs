@@ -113,6 +113,7 @@ public class ApplicationHost
             }
             
             _logger.LogInformation("Database initialized successfully at {Path}", dbPath);
+            LogDbSize(dbPath);
             
             // Clean up orphaned InProgress sync logs from crashed/killed previous runs
             CleanupOrphanedSyncLogs();
@@ -120,6 +121,22 @@ public class ApplicationHost
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to initialize database - database logging will be disabled");
+        }
+    }
+    
+    private void LogDbSize(string dbPath)
+    {
+        try
+        {
+            if (File.Exists(dbPath))
+            {
+                var info = new FileInfo(dbPath);
+                _logger.LogInformation("Database file size: {SizeMB:F2} MB", info.Length / 1024.0 / 1024.0);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not check database file size");
         }
     }
     
@@ -199,7 +216,15 @@ public class ApplicationHost
             await StartMetricsServerAsync();
 
             var commandHandler = _serviceProvider.GetRequiredService<ICommandHandler>();
+            var memBefore = GC.GetTotalMemory(false);
+            _logger.LogInformation("[MEMORY] Before command handler: {MemoryMB:F1} MB", memBefore / 1024.0 / 1024.0);
+            
             var success = await commandHandler.HandleCommandAsync(args);
+            
+            var memAfter = GC.GetTotalMemory(false);
+            _logger.LogInformation("[MEMORY] After command handler: {MemoryMB:F1} MB (delta={DeltaMB:F1} MB)", 
+                memAfter / 1024.0 / 1024.0,
+                (memAfter - memBefore) / 1024.0 / 1024.0);
             
             // Logout from Vaultwarden
             var vaultwardenService = _serviceProvider.GetRequiredService<IVaultwardenService>();
