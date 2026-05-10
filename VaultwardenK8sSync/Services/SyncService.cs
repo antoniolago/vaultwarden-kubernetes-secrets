@@ -182,7 +182,7 @@ public class SyncService : ISyncService
                 _logger.LogDebug("No context name configured or auto-detected. Items with context-name field will NOT be filtered.");
             }
 
-            var (itemsByNamespace, itemsWithNamespaces, itemsSkippedByContext, filteredItems) =
+            var (itemsByNamespace, itemsWithNamespaces, itemsSkippedByContext) =
                 FilterAndGroupByNamespace(items, effectiveContextName, _logger);
             LogMemoryUsage("after namespace grouping");
 
@@ -319,6 +319,7 @@ public class SyncService : ISyncService
                 }
             }
 
+            var filteredItems = itemsByNamespace.Values.SelectMany(x => x).DistinctBy(i => i.Id).ToList();
             // Cleanup orphaned secrets if enabled (reuse cached items)
             if (_syncConfig.DeleteOrphans)
             {
@@ -469,7 +470,7 @@ public class SyncService : ISyncService
                 !string.IsNullOrEmpty(_syncConfig.ContextName) ? "(configured)" : "(auto-detected)");
         }
 
-        var (itemsByNamespace, _, itemsSkippedByContext, _) =
+        var (itemsByNamespace, _, itemsSkippedByContext) =
             FilterAndGroupByNamespace(items, effectiveContextName, _logger);
 
         if (itemsSkippedByContext > 0)
@@ -2134,6 +2135,12 @@ public class SyncService : ISyncService
         if (exists)
         {
             _secretExistsCache[cacheKey] = now;
+            if (_secretExistsCache.Count > Constants.Cache.SecretExistsCacheMaxSize)
+            {
+                var oldest = _secretExistsCache.OrderBy(kvp => kvp.Value).Take(Constants.Cache.SecretExistsCacheEvictCount).Select(kvp => kvp.Key).ToList();
+                foreach (var key in oldest)
+                    _secretExistsCache.Remove(key);
+            }
         }
         else
         {
@@ -2606,7 +2613,7 @@ public class SyncService : ISyncService
         return string.Join("\n", chunks);
     }
 
-    private (Dictionary<string, List<Models.VaultwardenItem>> ItemsByNamespace, int ItemsWithNamespaces, int ItemsSkippedByContext, List<Models.VaultwardenItem> FilteredItems)
+    private (Dictionary<string, List<Models.VaultwardenItem>> ItemsByNamespace, int ItemsWithNamespaces, int ItemsSkippedByContext)
         FilterAndGroupByNamespace(IEnumerable<Models.VaultwardenItem> items, string? effectiveContextName, ILogger logger)
     {
         var itemsByNamespace = new Dictionary<string, List<Models.VaultwardenItem>>();
@@ -2642,8 +2649,7 @@ public class SyncService : ISyncService
             }
         }
 
-        var filteredItems = itemsByNamespace.Values.SelectMany(x => x).DistinctBy(i => i.Id).ToList();
-        return (itemsByNamespace, itemsWithNamespaces, itemsSkippedByContext, filteredItems);
+        return (itemsByNamespace, itemsWithNamespaces, itemsSkippedByContext);
     }
 
     // Attachment processing — preserved for reference, not currently called.

@@ -24,6 +24,8 @@ public static class Constants
     public static class Cache
     {
         public const int SecretExistsCacheTimeoutSeconds = 30;
+        public const int SecretExistsCacheMaxSize = 10000;
+        public const int SecretExistsCacheEvictCount = 1000;
     }
     
     public static class Delays
