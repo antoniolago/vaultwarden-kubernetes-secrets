@@ -29,7 +29,12 @@ public class StringDataAndK8sTests : IDisposable
             _kubernetesServiceMock.Setup(x => x.IsInitialized).Returns(true);
         _metricsServiceMock = new Mock<IMetricsService>();
         _dbLoggerMock = new Mock<IDatabaseLoggerService>();
-        _syncConfig = new SyncSettings();
+        _syncConfig = new SyncSettings
+        {
+            // Use a unique lock file per test instance to avoid contention
+            // when tests run in parallel (GlobalSyncLock uses a shared file-based lock)
+            LockFileName = $"vaultwarden-sync-test-{Guid.NewGuid():N}.lock"
+        };
         
         _dbLoggerMock.Setup(x => x.StartSyncLogAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool>()))
             .ReturnsAsync(1L);
@@ -1017,7 +1022,8 @@ kind: ConfigMap
     {
         var syncConfigWithContext = new SyncSettings
         {
-            ContextName = "production"
+            ContextName = "production",
+            LockFileName = $"vaultwarden-sync-test-{Guid.NewGuid():N}.lock"
         };
         
         _kubernetesServiceMock.Setup(x => x.GetContextName())

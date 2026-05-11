@@ -27,7 +27,10 @@ public class NoChangesSummaryTests
         var mockMetrics = new Mock<IMetricsService>();
         var mockDbLogger = new Mock<IDatabaseLoggerService>();
         
-        var syncConfig = new SyncSettings();
+        var syncConfig = new SyncSettings
+        {
+            LockFileName = $"vaultwarden-sync-test-{Guid.NewGuid():N}.lock"
+        };
         
         // Setup: Return 3 items with namespaces
         var vaultItems = new List<VaultwardenItem>
@@ -178,7 +181,10 @@ public class NoChangesSummaryTests
         var mockMetrics = new Mock<IMetricsService>();
         var mockDbLogger = new Mock<IDatabaseLoggerService>();
         
-        var syncConfig = new SyncSettings();
+        var syncConfig = new SyncSettings
+        {
+            LockFileName = $"vaultwarden-sync-test-{Guid.NewGuid():N}.lock"
+        };
         
         var vaultItems = new List<VaultwardenItem>
         {
@@ -280,7 +286,10 @@ public class NoChangesSummaryTests
         var mockMetrics = new Mock<IMetricsService>();
         var mockDbLogger = new Mock<IDatabaseLoggerService>();
         
-        var syncConfig = new SyncSettings();
+        var syncConfig = new SyncSettings
+        {
+            LockFileName = $"vaultwarden-sync-test-{Guid.NewGuid():N}.lock"
+        };
         
         var vaultItems = new List<VaultwardenItem>
         {

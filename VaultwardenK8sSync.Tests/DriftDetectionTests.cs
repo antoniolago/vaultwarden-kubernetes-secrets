@@ -31,7 +31,10 @@ public class DriftDetectionTests
         _kubernetesServiceMock.Setup(x => x.IsInitialized).Returns(true);
         _metricsServiceMock = new Mock<IMetricsService>();
         _dbLoggerMock = new Mock<IDatabaseLoggerService>();
-        _syncConfig = new SyncSettings();
+        _syncConfig = new SyncSettings
+        {
+            LockFileName = $"vaultwarden-sync-test-{Guid.NewGuid():N}.lock"
+        };
 
         // Default database logger setups
         _dbLoggerMock.Setup(x => x.StartSyncLogAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool>()))

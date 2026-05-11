@@ -130,6 +130,14 @@ public class SyncSettings
     public int SyncIntervalSeconds { get; set; } = 3600; // 60 minutes in seconds
     public bool ContinuousSync { get; set; } = false;
     public string? ContextName { get; set; }
+    
+    /// <summary>
+    /// Optional unique name for the global sync lock file.
+    /// When set, overrides the default "vaultwarden-sync-operation.lock".
+    /// Each SyncService instance should have a unique lock name in tests
+    /// to avoid contention when tests run in parallel.
+    /// </summary>
+    public string? LockFileName { get; set; }
 }
 
 public class LoggingSettings
