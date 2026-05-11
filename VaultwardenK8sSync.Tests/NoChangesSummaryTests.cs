@@ -223,11 +223,29 @@ public class NoChangesSummaryTests
             .ReturnsAsync(new List<string> { "default" });
         mockKubernetesService.Setup(x => x.NamespaceExistsAsync(It.IsAny<string>()))
             .ReturnsAsync(true);
+        
+        // Track whether the secret exists (created during first sync)
+        var secretCreated = false;
+        var secretAnnotations = new Dictionary<string, Dictionary<string, string>>();
         mockKubernetesService.Setup(x => x.SecretExistsAsync(It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(false);
+            .ReturnsAsync(() => secretCreated);
+        mockKubernetesService.Setup(x => x.GetSecretAnnotationsAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(() => secretCreated ? secretAnnotations.GetValueOrDefault("default/test-secret") : null);
+        mockKubernetesService.Setup(x => x.GetSecretsWithManagedKeysAsync(It.IsAny<string>()))
+            .ReturnsAsync(() => secretCreated ? new List<string> { "test-secret" } : new List<string>());
         mockKubernetesService.Setup(x => x.CreateSecretAsync(It.IsAny<string>(), It.IsAny<string>(), 
             It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string>()))
-            .ReturnsAsync(OperationResult.Successful());
+            .ReturnsAsync((string ns, string name, Dictionary<string, string> data, Dictionary<string, string> annotations, Dictionary<string, string> labels, string secretType) =>
+            {
+                secretCreated = true;
+                if (annotations != null)
+                    secretAnnotations[$"{ns}/{name}"] = new Dictionary<string, string>(annotations);
+                return OperationResult.Successful();
+            });
+        mockKubernetesService.Setup(x => x.GetSecretDataAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(() => secretCreated ? new Dictionary<string, string>() : null);
+        mockKubernetesService.Setup(x => x.GetSecretTypeAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync("Opaque");
         
         var syncService = new SyncService(
             mockLogger.Object,

@@ -141,25 +141,40 @@ public class SyncService : ISyncService
             
             if (shouldSkipReconciliation)
             {
-                _logger.LogDebug("No changes detected in Vaultwarden items - skipping reconciliation");
-                summary.HasChanges = false;
-                summary.TotalNamespaces = 0;
+                _logger.LogDebug("No changes detected in Vaultwarden items - checking K8s state for drift");
                 
-                // Still update database and metrics for a clean no-op cycle
-                summary.EndTime = DateTime.UtcNow;
-                var noOpStatus = "UP-TO-DATE";
-                await _dbLogger.UpdateSyncProgressAsync(syncLogId, 0, 0, 0, 0, 0, 0);
-                await _dbLogger.CompleteSyncLogAsync(syncLogId, noOpStatus, null);
+                // Verify that K8s secrets still match expected state
+                var hasDrift = await VerifyK8sStateAsync(items, effectiveContextName);
                 
-                var noOpDuration = (summary.EndTime - syncStartTime).TotalSeconds;
-                _metricsService.RecordSyncDuration(noOpDuration, true);
-                if (summary.OverallSuccess)
+                if (hasDrift)
                 {
-                    _metricsService.SetLastSuccessfulSync();
+                    _logger.LogDebug("K8s state drift detected - forcing full reconciliation");
+                    _lastItemsHash = null; // Force full reconciliation
+                    // Reset the current hash so the comparison below won't match
+                    _currentItemsHash = null;
                 }
-                
-                progress.Complete();
-                return summary;
+                else
+                {
+                    _logger.LogDebug("K8s state verified - no drift detected, skipping reconciliation");
+                    summary.HasChanges = false;
+                    summary.TotalNamespaces = 0;
+                    
+                    // Still update database and metrics for a clean no-op cycle
+                    summary.EndTime = DateTime.UtcNow;
+                    var noOpStatus = "UP-TO-DATE";
+                    await _dbLogger.UpdateSyncProgressAsync(syncLogId, 0, 0, 0, 0, 0, 0);
+                    await _dbLogger.CompleteSyncLogAsync(syncLogId, noOpStatus, null);
+                    
+                    var noOpDuration = (summary.EndTime - syncStartTime).TotalSeconds;
+                    _metricsService.RecordSyncDuration(noOpDuration, true);
+                    if (summary.OverallSuccess)
+                    {
+                        _metricsService.SetLastSuccessfulSync();
+                    }
+                    
+                    progress.Complete();
+                    return summary;
+                }
             }
             
             await LogItemChangesAsync(items);
@@ -2716,5 +2731,112 @@ public class SyncService : ISyncService
         return !string.IsNullOrEmpty(_syncConfig.ContextName)
             ? _syncConfig.ContextName.Trim()
             : _kubernetesService.GetContextName()?.Trim();
+    }
+
+    /// <summary>
+    /// Verifies that all expected K8s secrets still exist with correct content hashes,
+    /// and that there are no unexpected managed secrets. Returns true if any drift is detected.
+    /// This is a lightweight check used when Vaultwarden items haven't changed,
+    /// to detect K8s state changes made outside the sync service.
+    /// </summary>
+    private async Task<bool> VerifyK8sStateAsync(List<Models.VaultwardenItem> items, string? effectiveContextName)
+    {
+        _logger.LogDebug("Verifying K8s state matches expected state from Vaultwarden items");
+
+        // Group items by namespace (same logic as the main sync flow)
+        var (itemsByNamespace, _, _) = FilterAndGroupByNamespace(items, effectiveContextName, _logger);
+
+        if (itemsByNamespace.Count == 0)
+        {
+            _logger.LogDebug("No namespaces to verify - items may have no namespace assignments");
+            return false;
+        }
+
+        var hasDrift = false;
+        var driftReasons = new List<string>();
+
+        foreach (var (namespaceName, namespaceItems) in itemsByNamespace)
+        {
+            // Group namespace items by secret name
+            var itemsBySecretName = GroupItemsBySecretName(namespaceItems);
+
+            // Verify each expected secret
+            foreach (var (secretName, secretItems) in itemsBySecretName)
+            {
+                // Compute expected combined hash (same logic as SyncSecretAsync)
+                var itemHashes = new List<string>();
+                foreach (var item in secretItems)
+                {
+                    itemHashes.Add(CalculateItemHash(item));
+                }
+                var expectedCombinedHash = string.Join("|", itemHashes.OrderBy(h => h));
+
+                // Check if secret exists in K8s
+                var secretExists = await _kubernetesService.SecretExistsAsync(namespaceName, secretName);
+                if (!secretExists)
+                {
+                    _logger.LogDebug("Drift detected: secret {SecretName} in namespace {Namespace} is missing",
+                        secretName, namespaceName);
+                    driftReasons.Add($"Secret '{namespaceName}/{secretName}' is missing");
+                    hasDrift = true;
+                    continue;
+                }
+
+                // Check hash annotation on the secret
+                var annotations = await _kubernetesService.GetSecretAnnotationsAsync(namespaceName, secretName);
+                if (annotations == null ||
+                    !annotations.TryGetValue(Constants.Kubernetes.HashAnnotationKey, out var annotationHash) ||
+                    annotationHash != expectedCombinedHash)
+                {
+                    _logger.LogDebug(
+                        "Drift detected: secret {SecretName} in namespace {Namespace} hash annotation mismatch. " +
+                        "Expected: {ExpectedHash}, Found: {FoundHash}",
+                        secretName, namespaceName, expectedCombinedHash,
+                        annotations?.GetValueOrDefault(Constants.Kubernetes.HashAnnotationKey) ?? "(no annotation)");
+                    driftReasons.Add($"Secret '{namespaceName}/{secretName}' hash mismatch");
+                    hasDrift = true;
+                }
+            }
+
+            // Check for unexpected managed secrets (orphans that exist in K8s but not in VW items)
+            try
+            {
+                var secretsWithManagedKeys = await _kubernetesService.GetSecretsWithManagedKeysAsync(namespaceName);
+                if (secretsWithManagedKeys.Count > 0)
+                {
+                    var expectedSecretNames = itemsBySecretName.Keys.ToHashSet();
+                    var unexpectedSecrets = secretsWithManagedKeys
+                        .Where(s => !expectedSecretNames.Contains(s))
+                        .ToList();
+
+                    if (unexpectedSecrets.Count > 0)
+                    {
+                        _logger.LogDebug(
+                            "Drift detected: found {Count} unexpected managed secret(s) in namespace {Namespace}: {Secrets}",
+                            unexpectedSecrets.Count, namespaceName, string.Join(", ", unexpectedSecrets));
+                        driftReasons.Add(
+                            $"Namespace '{namespaceName}' has {unexpectedSecrets.Count} unexpected managed secret(s)");
+                        hasDrift = true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to check for unexpected managed secrets in namespace {Namespace}",
+                    namespaceName);
+                // Transient error - don't treat as drift
+            }
+        }
+
+        if (hasDrift)
+        {
+            _logger.LogInformation("K8s state drift detected: {Reasons}", string.Join("; ", driftReasons));
+        }
+        else
+        {
+            _logger.LogDebug("K8s state verification passed - all secrets match expected state");
+        }
+
+        return hasDrift;
     }
 }
