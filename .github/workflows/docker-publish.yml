@@ -132,24 +132,27 @@ jobs:
         done
 
     - name: Seed Vaultwarden with test user and items
+      env:
+        VW_SERVER: http://localhost:8080
+        VW_EMAIL: e2e-test@example.com
+        VW_PASSWORD: test-e2e-password
       run: |
         echo "Registering E2E test user..."
         pip3 install -q cryptography 2>/dev/null || true
         
         export HELPER="python3 scripts/e2e-helper.py"
-        export SERVER="http://localhost:8080"
         
         # Register user via helper (matches login hash)
-        $HELPER register --server "$SERVER" --email "e2e-test@example.com" --password "test-e2e-password" 2>&1 || echo "User may already exist"
+        $HELPER register 2>&1 || echo "User may already exist"
         sleep 1
         
         # Generate API key
         echo "Generating API key..."
-        $HELPER api-key --server "$SERVER" --email "e2e-test@example.com" --password "test-e2e-password" 2>&1 > /tmp/e2e-data.json
+        $HELPER api-key 2>&1 > /tmp/e2e-data.json
         
         # Create test items (optional, for richer test data)
         echo "Creating E2E test items..."
-        $HELPER create-items 3 --server "$SERVER" --email "e2e-test@example.com" --password "test-e2e-password" 2>&1 || true
+        $HELPER create-items 3 2>&1 || true
         
         # Export credentials for subsequent steps
         E2E_BW_CLIENTID=$(python3 -c "import json; print(json.load(open('/tmp/e2e-data.json'))['clientId'])" 2>/dev/null || echo "user.e2e-test")
