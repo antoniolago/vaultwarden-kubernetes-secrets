@@ -116,8 +116,56 @@ jobs:
         echo "Starting e2e stack with Vaultwarden $VAULTWARDEN_VERSION..."
         # Pre-build images
         docker compose -f docker-compose.e2e.yml build sync api dashboard
-        # Start all services (except playwright - we run that separately with richer output)
-        docker compose -f docker-compose.e2e.yml up -d vaultwarden tls-proxy mock-k8s sync api dashboard
+        # Start vaultwarden + proxy + mock-k8s first (sync depends on vaultwarden being healthy)
+        docker compose -f docker-compose.e2e.yml up -d vaultwarden tls-proxy mock-k8s
+
+    - name: Wait for vaultwarden to be healthy
+      run: |
+        echo "Waiting for Vaultwarden to be healthy..."
+        for i in $(seq 1 30); do
+          if curl -sf http://localhost:8080/ > /dev/null 2>&1; then
+            echo "Vaultwarden is ready!"
+            break
+          fi
+          echo "Attempt $i/30..."
+          sleep 5
+        done
+
+    - name: Seed Vaultwarden with test user and items
+      run: |
+        echo "Registering E2E test user..."
+        pip3 install -q cryptography 2>/dev/null || true
+        
+        # Register user
+        python3 scripts/register-user.py \
+          --server "http://localhost:8080" \
+          --email "e2e-test@example.com" \
+          --password "test-e2e-password" 2>&1
+        
+        # Create test items
+        echo "Creating E2E test items..."
+        python3 scripts/e2e-helper.py create-items 5 --server "http://localhost:8080" \
+          --email "e2e-test@example.com" \
+          --password "test-e2e-password" 2>&1 || true
+        
+        # Generate API key
+        echo "Generating API key..."
+        python3 scripts/e2e-helper.py api-key --server "http://localhost:8080" \
+          --email "e2e-test@example.com" \
+          --password "test-e2e-password" 2>&1 > /tmp/e2e-data.json
+        
+        # Export credentials for subsequent steps
+        E2E_BW_CLIENTID=$(python3 -c "import json; print(json.load(open('/tmp/e2e-data.json'))['client_id'])" 2>/dev/null || echo "user.e2e-test")
+        E2E_BW_CLIENTSECRET=$(python3 -c "import json; print(json.load(open('/tmp/e2e-data.json'))['client_secret'])" 2>/dev/null || echo "e2e-secret")
+        echo "E2E_BW_CLIENTID=$E2E_BW_CLIENTID" >> $GITHUB_ENV
+        echo "E2E_BW_CLIENTSECRET=$E2E_BW_CLIENTSECRET" >> $GITHUB_ENV
+
+    - name: Start sync, API and dashboard
+      env:
+        E2E_BW_CLIENTID: ${{ env.E2E_BW_CLIENTID }}
+        E2E_BW_CLIENTSECRET: ${{ env.E2E_BW_CLIENTSECRET }}
+      run: |
+        docker compose -f docker-compose.e2e.yml up -d sync api dashboard
 
     - name: Wait for API to be healthy
       run: |
