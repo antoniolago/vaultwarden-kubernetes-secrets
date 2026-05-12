@@ -108,6 +108,15 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v4
 
+    - name: Generate self-signed SSL certs for TLS proxy
+      run: |
+        echo "Generating self-signed SSL certificates for E2E tests..."
+        mkdir -p e2e-ssl
+        openssl req -x509 -nodes -days 30 -newkey rsa:2048 \
+          -keyout e2e-ssl/key.pem \
+          -out e2e-ssl/cert.pem \
+          -subj "/CN=vaultwarden-e2e"
+
     - name: Start e2e stack (vaultwarden + sync + api + dashboard)
       env:
         VAULTWARDEN_VERSION: ${{ matrix.vaultwarden-version }}
