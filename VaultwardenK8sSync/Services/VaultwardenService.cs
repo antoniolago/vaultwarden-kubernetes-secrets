@@ -51,44 +51,94 @@ public class VaultwardenService : IVaultwardenService
 
     public async Task<bool> AuthenticateAsync()
     {
-        try
+        // Validate configuration first (non-transient, no retry needed)
+        if (string.IsNullOrEmpty(_config.ServerUrl))
         {
-            if (string.IsNullOrEmpty(_config.ServerUrl))
-            {
-                _logger.LogError("ServerUrl is not configured");
-                return false;
-            }
-
-            if (!IsValidServerUrl(_config.ServerUrl))
-            {
-                _logger.LogError("Invalid ServerUrl format: {ServerUrl}", _config.ServerUrl);
-                return false;
-            }
-
-            // Step 1: Login with API key to get access token
-            var loginSuccess = await LoginWithApiKeyAsync();
-            if (!loginSuccess)
-            {
-                _logger.LogError("API key login failed");
-                return false;
-            }
-
-            // Step 2: Get encryption keys by "unlocking" with master password
-            var unlockSuccess = await UnlockVaultAsync();
-            if (!unlockSuccess)
-            {
-                _logger.LogError("Vault unlock (key derivation) failed");
-                return false;
-            }
-
-            _isAuthenticated = true;
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Authentication failed: {Message}", ex.Message);
+            _logger.LogError("ServerUrl is not configured");
             return false;
         }
+
+        if (!IsValidServerUrl(_config.ServerUrl))
+        {
+            _logger.LogError("Invalid ServerUrl format: {ServerUrl}", _config.ServerUrl);
+            return false;
+        }
+
+        // Retry with exponential backoff for transient network failures
+        // e.g., TLS proxy not ready yet, DNS resolution race, socket exhaustion
+        int maxRetries = 5;
+        int delayMs = 1000;
+        int maxDelayMs = 8000;
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                // Step 1: Login with API key to get access token
+                var loginSuccess = await LoginWithApiKeyAsync();
+                if (!loginSuccess)
+                {
+                    // LoginWithApiKeyAsync already logged details; non-transient failures
+                    // (bad credentials, invalid config) return false without throwing
+                    _logger.LogError("API key login failed");
+                    return false;
+                }
+
+                // Step 2: Get encryption keys by "unlocking" with master password
+                var unlockSuccess = await UnlockVaultAsync();
+                if (!unlockSuccess)
+                {
+                    _logger.LogError("Vault unlock (key derivation) failed");
+                    return false;
+                }
+
+                _isAuthenticated = true;
+                return true;
+            }
+            catch (HttpRequestException ex) when (IsTransientHttpException(ex))
+            {
+                if (attempt < maxRetries)
+                {
+                    _logger.LogWarning(ex,
+                        "Transient connection failure during authentication (attempt {Attempt}/{MaxRetries}), retrying in {Delay}ms...",
+                        attempt, maxRetries, delayMs);
+                    await Task.Delay(delayMs);
+                    delayMs = Math.Min(delayMs * 2, maxDelayMs);
+                }
+                else
+                {
+                    _logger.LogError(ex,
+                        "Authentication failed after {MaxRetries} attempts due to persistent connection issues: {Message}",
+                        maxRetries, ex.Message);
+                    return false;
+                }
+            }
+            catch (SocketException ex)
+            {
+                if (attempt < maxRetries)
+                {
+                    _logger.LogWarning(ex,
+                        "Transient socket failure during authentication (attempt {Attempt}/{MaxRetries}), retrying in {Delay}ms...",
+                        attempt, maxRetries, delayMs);
+                    await Task.Delay(delayMs);
+                    delayMs = Math.Min(delayMs * 2, maxDelayMs);
+                }
+                else
+                {
+                    _logger.LogError(ex,
+                        "Authentication failed after {MaxRetries} attempts due to persistent socket issues: {Message}",
+                        maxRetries, ex.Message);
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Authentication failed: {Message}", ex.Message);
+                return false;
+            }
+        }
+
+        return false;
     }
 
     private async Task<bool> LoginWithApiKeyAsync()
@@ -149,6 +199,11 @@ public class VaultwardenService : IVaultwardenService
 
             _logger.LogInformation("API key login successful");
             return true;
+        }
+        catch (HttpRequestException ex) when (IsTransientHttpException(ex))
+        {
+            _logger.LogWarning(ex, "API key login transient failure: {Message}", ex.Message);
+            throw; // propagate to AuthenticateAsync retry loop
         }
         catch (Exception ex)
         {
@@ -317,6 +372,11 @@ public class VaultwardenService : IVaultwardenService
 
             _logger.LogInformation("Vault unlocked successfully");
             return true;
+        }
+        catch (HttpRequestException ex) when (IsTransientHttpException(ex))
+        {
+            _logger.LogWarning(ex, "Vault unlock transient failure: {Message}", ex.Message);
+            throw; // propagate to AuthenticateAsync retry loop
         }
         catch (Exception ex)
         {
@@ -1244,6 +1304,23 @@ public class VaultwardenService : IVaultwardenService
         {
             return null;
         }
+    }
+
+    private static bool IsTransientHttpException(HttpRequestException ex)
+    {
+        // SocketException (e.g., "Resource temporarily unavailable") indicates
+        // transient network/DNS issues that should be retried
+        if (ex.InnerException is SocketException)
+            return true;
+
+        // Certain HTTP status codes are safe to retry
+        if (ex.StatusCode.HasValue)
+        {
+            var code = (int)ex.StatusCode.Value;
+            return code == 503 || code == 502 || code == 504 || code == 429;
+        }
+
+        return false;
     }
 
     private static bool IsValidServerUrl(string url)
