@@ -338,7 +338,7 @@ jobs:
         with:
           context: .
           file: ./VaultwardenK8sSync/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets:latest', github.repository_owner) || '' }}
@@ -396,7 +396,7 @@ jobs:
         with:
           context: .
           file: VaultwardenK8sSync.Api/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets-api:latest', github.repository_owner) || '' }}
@@ -454,7 +454,7 @@ jobs:
         with:
           context: dashboard
           file: dashboard/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets-dashboard:latest', github.repository_owner) || '' }}
