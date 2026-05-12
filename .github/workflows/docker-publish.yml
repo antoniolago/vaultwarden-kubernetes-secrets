@@ -195,9 +195,9 @@ jobs:
       run: |
         echo "Waiting for sync to complete..."
         for i in $(seq 1 60); do
-          OVERVIEW=$(curl -sf http://localhost:5000/api/dashboard/overview 2>/dev/null)
+          OVERVIEW=$(curl -s http://localhost:5000/api/dashboard/overview 2>/dev/null) || OVERVIEW=""
           if [ -n "$OVERVIEW" ]; then
-            TOTAL_SYNCS=$(echo "$OVERVIEW" | python3 -c "import sys,json; print(json.load(sys.stdin).get('totalSyncs', 0))" 2>/dev/null)
+            TOTAL_SYNCS=$(echo "$OVERVIEW" | python3 -c "import sys,json; print(json.load(sys.stdin).get('totalSyncs', 0))" 2>/dev/null) || TOTAL_SYNCS="0"
             if [ "$TOTAL_SYNCS" -gt 0 ] 2>/dev/null; then
               echo "Sync completed with $TOTAL_SYNCS sync(s)!"
               break
@@ -206,6 +206,12 @@ jobs:
           echo "Attempt $i/60 (waiting for first sync)..."
           sleep 2
         done
+
+    - name: Dump sync container logs
+      if: always()
+      run: |
+        echo "=== SYNC CONTAINER LOGS ==="
+        docker logs vw-e2e-sync 2>&1 || echo "(no sync container logs)"
 
     - name: Run Playwright tests
       run: |
