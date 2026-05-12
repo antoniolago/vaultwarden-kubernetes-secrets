@@ -153,11 +153,21 @@ jobs:
         
         # Register user via helper (matches login hash)
         $HELPER register 2>&1 || echo "User may already exist"
-        sleep 1
+        sleep 2
         
-        # Generate API key
+        # Generate API key (retry up to 3 times if empty/invalid)
         echo "Generating API key..."
-        $HELPER api-key 2>&1 > /tmp/e2e-data.json
+        for attempt in 1 2 3; do
+          $HELPER api-key 2>&1 > /tmp/e2e-data.json
+          E2E_BW_CLIENTID_TMP=$(python3 -c "import json; d=json.load(open('/tmp/e2e-data.json')); print(d.get('clientId',''))" 2>/dev/null || echo "")
+          if [ -n "$E2E_BW_CLIENTID_TMP" ] && [ "$E2E_BW_CLIENTID_TMP" != "user." ]; then
+            echo "API key generated successfully (attempt $attempt)"
+            break
+          fi
+          echo "API key empty on attempt $attempt, retrying..."
+          cat /tmp/e2e-data.json 2>/dev/null || echo "(no file)"
+          sleep 3
+        done
         
         # Create test items (optional, for richer test data)
         echo "Creating E2E test items..."
