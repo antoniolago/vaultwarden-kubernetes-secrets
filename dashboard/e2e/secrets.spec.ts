@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { API_URL, DASHBOARD_URL } from './shared'
+import { API_URL, DASHBOARD_URL, waitForSyncComplete } from './shared'
 
 interface SecretState {
   id: number
@@ -19,6 +19,8 @@ test.describe('Secrets Page E2E Tests', () => {
   let apiSecrets: SecretState[]
 
   test.beforeAll(async ({ request }) => {
+    await waitForSyncComplete(request)
+
     // Fetch all secrets from API
     const secretsResponse = await request.get(`${API_URL}/secrets`)
     expect(secretsResponse.ok()).toBeTruthy()

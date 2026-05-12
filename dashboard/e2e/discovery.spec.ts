@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test'
+import { API_URL, DASHBOARD_URL, waitForSyncComplete } from './shared'
 
 test.describe('Discovery Page E2E Tests', () => {
+  test.beforeAll(async ({ request }) => {
+    await waitForSyncComplete(request)
+  })
+
   test.beforeEach(async ({ page }) => {
     await page.goto('http://localhost:3000/discovery')
   })
