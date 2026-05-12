@@ -130,6 +130,8 @@ services:
     build:
       context: ./dashboard
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://api:8080/api
     container_name: vw-e2e-dashboard
     ports:
       - "5173:80"

@@ -1,6 +1,8 @@
 # Build stage
 FROM oven/bun:1 AS builder
 
+ARG VITE_API_URL
+
 WORKDIR /app
 
 # Copy package files
@@ -13,7 +15,7 @@ RUN bun install --frozen-lockfile
 COPY . .
 
 # Build the application
-RUN bun run build
+RUN VITE_API_URL=${VITE_API_URL:-http://localhost:8080/api} bun run build
 
 # Production stage
 FROM nginx:alpine
