@@ -9,7 +9,7 @@ export const DASHBOARD_URL = process.env.DASHBOARD_URL || 'http://localhost:3000
  * Polls the API until the sync has completed at least once.
  * Returns true if sync completed, false if timeout.
  */
-export async function waitForSyncComplete(request: any, maxRetries = 30, retryDelay = 2000): Promise<boolean> {
+export async function waitForSyncComplete(request: any, maxRetries = 30, retryDelay = 1000): Promise<boolean> {
   for (let i = 0; i < maxRetries; i++) {
     try {
       const response = await request.get(`${API_URL}/dashboard/overview`)
