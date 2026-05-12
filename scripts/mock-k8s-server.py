@@ -12,9 +12,9 @@ from urllib.parse import urlparse
 
 class MockK8sHandler(BaseHTTPRequestHandler):
     # In-memory storage: {namespace: {secret_name: secret_data_dict}}
-    secrets_store: dict[str, dict[str, dict]] = {}
+    secrets_store: dict[str, dict[str, dict]] = {"default": {}}
     # Track created secret names per namespace for SecretExists checks
-    secret_names: dict[str, set[str]] = {}
+    secret_names: dict[str, set[str]] = {"default": set()}
 
     def _get_body(self) -> dict:
         content_length = int(self.headers.get("Content-Length", "0"))
@@ -90,6 +90,12 @@ class MockK8sHandler(BaseHTTPRequestHandler):
                      "verbs": ["get", "list", "create", "update", "delete"]},
                 ]
             })
+            return
+
+        # /api/v1/namespaces - list all namespaces (with optional fieldSelector)
+        if path.rstrip("/") == "/api/v1/namespaces" or path.rstrip("/") == "/api/v1/namespaces/":
+            result_ns = self._get_namespaces_list(parsed.query)
+            self._send_json(result_ns)
             return
 
         # /api/v1/namespaces/{ns} - namespace read
@@ -282,6 +288,38 @@ class MockK8sHandler(BaseHTTPRequestHandler):
             return
 
         self._send_json({"kind": "Status", "status": "Success"})
+
+    def _get_namespaces_list(self, query: str = "") -> dict:
+        """Return a NamespaceList, optionally filtered by fieldSelector=metadata.name=<name>"""
+        from urllib.parse import parse_qs
+        params = parse_qs(query)
+        filter_name = None
+        if "fieldSelector" in params:
+            for fs in params["fieldSelector"]:
+                if fs.startswith("metadata.name="):
+                    filter_name = fs[len("metadata.name="):]
+
+        items = []
+        for ns_name in sorted(self.secrets_store.keys()):
+            if filter_name and ns_name != filter_name:
+                continue
+            items.append({
+                "kind": "Namespace",
+                "apiVersion": "v1",
+                "metadata": {
+                    "name": ns_name,
+                    "uid": str(uuid.uuid4()),
+                },
+                "status": {"phase": "Active"},
+            })
+
+        # If filter_name specified but not found, return empty list
+        return {
+            "kind": "NamespaceList",
+            "apiVersion": "v1",
+            "metadata": {},
+            "items": items,
+        }
 
     def log_message(self, fmt: str, *args):
         pass  # Suppress HTTP log output
