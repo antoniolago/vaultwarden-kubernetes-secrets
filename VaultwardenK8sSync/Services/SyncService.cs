@@ -2760,12 +2760,49 @@ public class SyncService : ISyncService
 
         foreach (var (namespaceName, namespaceItems) in itemsByNamespace)
         {
+            // Skip namespaces that don't exist on this cluster (managed by another instance)
+            var namespaceExists = await _kubernetesService.NamespaceExistsAsync(namespaceName);
+            if (!namespaceExists)
+            {
+                _logger.LogDebug("Skipping drift verification for namespace {Namespace} - does not exist on this cluster",
+                    namespaceName);
+                continue;
+            }
+
             // Group namespace items by secret name
             var itemsBySecretName = GroupItemsBySecretName(namespaceItems);
 
             // Verify each expected secret
             foreach (var (secretName, secretItems) in itemsBySecretName)
             {
+                // Hydrate SSH key payload for SSH items (matching SyncSecretAsync behavior)
+                // so the hash computed here matches what was stored on the K8s annotation
+                foreach (var item in secretItems)
+                {
+                    if (item.Type == 5)
+                    {
+                        var hasMissingSshKeyData = item.SshKey == null ||
+                            string.IsNullOrWhiteSpace(item.SshKey.PrivateKey) ||
+                            string.IsNullOrWhiteSpace(item.SshKey.PublicKey) ||
+                            string.IsNullOrWhiteSpace(item.SshKey.Fingerprint);
+                        if (hasMissingSshKeyData)
+                        {
+                            try
+                            {
+                                var full = await _vaultwardenService.GetItemAsync(item.Id);
+                                if (full?.SshKey != null)
+                                {
+                                    item.SshKey = full.SshKey;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogDebug(ex, "Failed to hydrate SSH key for drift verification of item {ItemId}", item.Id);
+                            }
+                        }
+                    }
+                }
+
                 // Compute expected combined hash (same logic as SyncSecretAsync)
                 var itemHashes = new List<string>();
                 foreach (var item in secretItems)
