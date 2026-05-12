@@ -143,6 +143,22 @@ jobs:
           sleep 2
         done
 
+    - name: Wait for sync to complete
+      run: |
+        echo "Waiting for sync to complete..."
+        for i in $(seq 1 60); do
+          OVERVIEW=$(curl -sf http://localhost:5000/api/dashboard/overview 2>/dev/null)
+          if [ -n "$OVERVIEW" ]; then
+            TOTAL_SYNCS=$(echo "$OVERVIEW" | python3 -c "import sys,json; print(json.load(sys.stdin).get('totalSyncs', 0))" 2>/dev/null)
+            if [ "$TOTAL_SYNCS" -gt 0 ] 2>/dev/null; then
+              echo "Sync completed with $TOTAL_SYNCS sync(s)!"
+              break
+            fi
+          fi
+          echo "Attempt $i/60 (waiting for first sync)..."
+          sleep 2
+        done
+
     - name: Run Playwright tests
       run: |
         cd dashboard
