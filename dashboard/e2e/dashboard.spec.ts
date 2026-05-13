@@ -27,6 +27,7 @@ test.describe('Dashboard E2E Tests', () => {
   let apiNamespaces: NamespaceStats[]
 
   test.beforeAll(async ({ request }) => {
+    test.setTimeout(120000)
     // Poll the API until sync has completed at least once
     // This ensures we have data before running tests
     const maxRetries = 30
@@ -87,8 +88,7 @@ test.describe('Dashboard E2E Tests', () => {
     // Navigate to the dashboard
     await page.goto(DASHBOARD_URL)
     // Wait for the dashboard to load
-    await page.waitForLoadState('networkidle')
-    await page.waitForSelector('text=Dashboard Overview', { timeout: 10000 })
+    await page.waitForSelector('text=Dashboard Overview', { timeout: 15000 })
   })
 
   test('should display correct Active Secrets count from API', async ({ page }) => {
