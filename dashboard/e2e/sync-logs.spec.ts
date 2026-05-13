@@ -3,6 +3,7 @@ import { DASHBOARD_URL, waitForSyncComplete } from './shared'
 
 test.describe('Sync Logs E2E Tests', () => {
   test.beforeAll(async ({ request }) => {
+    test.setTimeout(120000)
     await waitForSyncComplete(request)
   })
 

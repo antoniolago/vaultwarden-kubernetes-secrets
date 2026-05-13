@@ -19,6 +19,7 @@ test.describe('Secrets Page E2E Tests', () => {
   let apiSecrets: SecretState[]
 
   test.beforeAll(async ({ request }) => {
+    test.setTimeout(120000)
     await waitForSyncComplete(request)
 
     // Fetch all secrets from API

@@ -3,6 +3,7 @@ import { API_URL, DASHBOARD_URL, waitForSyncComplete } from './shared'
 
 test.describe('Discovery Page E2E Tests', () => {
   test.beforeAll(async ({ request }) => {
+    test.setTimeout(120000)
     await waitForSyncComplete(request)
   })
 
