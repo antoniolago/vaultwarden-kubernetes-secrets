@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { waitForSyncComplete } from './shared'
+import { DASHBOARD_URL, waitForSyncComplete } from './shared'
 
 test.describe('Dashboard Data Keys E2E Tests', () => {
   test.beforeAll(async ({ request }) => {
@@ -7,7 +7,7 @@ test.describe('Dashboard Data Keys E2E Tests', () => {
   })
 
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:3000')
+    await page.goto(DASHBOARD_URL)
   })
 
   test('should display data keys count in namespace table', async ({ page }) => {

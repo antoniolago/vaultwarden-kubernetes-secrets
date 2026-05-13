@@ -156,7 +156,7 @@ export default function Dashboard() {
 
     setLoadingSecrets(true)
     setModalNamespace(namespace)
-    setModalTitle(`Secrets With Errors in ${namespace}`)
+    setModalTitle(status === 'Active' ? `Active Secrets in ${namespace}` : `Secrets With Errors in ${namespace}`)
     setModalOpen(true)
 
     try {
