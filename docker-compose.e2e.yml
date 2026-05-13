@@ -131,7 +131,8 @@ services:
       context: ./dashboard
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: http://api:8080/api
+        VITE_API_URL: http://localhost:5173/api
+        VITE_LOGINLESS_MODE: "true"
     container_name: vw-e2e-dashboard
     ports:
       - "5173:80"

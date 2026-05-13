@@ -2,6 +2,7 @@
 FROM oven/bun:1 AS builder
 
 ARG VITE_API_URL
+ARG VITE_LOGINLESS_MODE
 
 WORKDIR /app
 
@@ -15,7 +16,7 @@ RUN bun install --frozen-lockfile
 COPY . .
 
 # Build the application
-RUN VITE_API_URL=${VITE_API_URL:-http://localhost:8080/api} bun run build
+RUN VITE_API_URL=${VITE_API_URL:-http://localhost:8080/api} VITE_LOGINLESS_MODE=${VITE_LOGINLESS_MODE:-false} bun run build
 
 # Production stage
 FROM nginx:alpine
