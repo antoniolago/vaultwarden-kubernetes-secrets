@@ -9,6 +9,7 @@ test.describe('Dashboard Data Keys E2E Tests', () => {
 
   test.beforeEach(async ({ page }) => {
     await page.goto(DASHBOARD_URL)
+    await page.waitForSelector('[data-testid="namespaces-table"]', { timeout: 15000 })
   })
 
   test('should display data keys count in namespace table', async ({ page }) => {

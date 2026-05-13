@@ -32,7 +32,7 @@ test.describe('Secrets Page E2E Tests', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to secrets page
     await page.goto(`${DASHBOARD_URL}/secrets`)
-    await page.waitForLoadState('networkidle')
+    await page.waitForSelector('table tbody tr', { timeout: 15000 })
   })
 
   test('should display all secrets from API', async ({ page }) => {
