@@ -183,6 +183,7 @@ jobs:
       env:
         E2E_BW_CLIENTID: ${{ env.E2E_BW_CLIENTID }}
         E2E_BW_CLIENTSECRET: ${{ env.E2E_BW_CLIENTSECRET }}
+        COMPOSE_PROFILES: with-dashboard,with-api
       run: |
         docker compose -f docker-compose.e2e.yml up -d sync api dashboard
 
