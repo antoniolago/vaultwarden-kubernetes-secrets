@@ -210,11 +210,15 @@ try
             var isAuthEndpoint = context.Request.Path.StartsWithSegments("/api") &&
                                 !context.Request.Path.StartsWithSegments("/health");
 
+            // Allow env var override for E2E tests (default 20 req/min)
+            var envLimit = Environment.GetEnvironmentVariable("RATE_LIMIT_PER_MINUTE");
+            var baseLimit = int.TryParse(envLimit, out var parsed) ? parsed : 20;
+
             return RateLimitPartition.GetFixedWindowLimiter(
                 partitionKey: $"{ipAddress}:{isAuthEndpoint}",
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
-                    PermitLimit = isAuthEndpoint ? 20 : 100,  // Stricter for API endpoints
+                    PermitLimit = isAuthEndpoint ? baseLimit : 100,
                     Window = TimeSpan.FromMinutes(1),
                     QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                     QueueLimit = isAuthEndpoint ? 0 : 10  // No queueing for API endpoints
