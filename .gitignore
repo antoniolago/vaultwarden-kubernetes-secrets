@@ -423,3 +423,4 @@ db-analysis-output
 !CLAUDE.md
 !.claude/
 .sisyphus/
+e2e-ssl/

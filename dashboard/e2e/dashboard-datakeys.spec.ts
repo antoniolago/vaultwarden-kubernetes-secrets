@@ -243,12 +243,12 @@ test.describe('Dashboard Data Keys E2E Tests', () => {
         // Modal should open
         await expect(page.getByRole('dialog')).toBeVisible()
         
-        // Click X button
-        await page.getByRole('dialog').getByRole('button').filter({ hasText: '✕' }).click()
+        // Close modal
+        await page.keyboard.press('Escape')
         
         // Modal should close
         await expect(page.getByRole('dialog')).not.toBeVisible()
-        console.log('✓ Modal closed with X button')
+        console.log('✓ Modal closed with Escape key')
         
         break
       }

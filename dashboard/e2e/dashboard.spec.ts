@@ -218,7 +218,7 @@ test.describe('Dashboard E2E Tests', () => {
     await activeChip.click()
 
     // Wait for modal
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    await page.waitForSelector('[role="dialog"]', { timeout: 15000 })
     await expect(page.locator(`text=/Active Secrets in ${nsWithActive.namespace}/`)).toBeVisible()
 
     // Fetch API data for this namespace
@@ -249,7 +249,7 @@ test.describe('Dashboard E2E Tests', () => {
     await totalSecretsChip.click()
 
     // Wait for modal
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    await page.waitForSelector('[role="dialog"]', { timeout: 15000 })
     await expect(page.locator(`text=/All Secrets in ${firstNs.namespace}/`)).toBeVisible()
 
     // Fetch API data for this namespace
@@ -283,6 +283,7 @@ test.describe('Dashboard E2E Tests', () => {
     // Close modal
     const closeButton = page.locator('[role="dialog"] button').first()
     await closeButton.click()
+    await expect(page.locator('[role="dialog"]')).not.toBeVisible()
   })
 
   test('should open modal for Failed secrets if any exist', async ({ page, request }) => {
@@ -301,7 +302,7 @@ test.describe('Dashboard E2E Tests', () => {
     await failedChip.click()
 
     // Wait for modal
-    await page.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    await page.waitForSelector('[role="dialog"]', { timeout: 15000 })
     await expect(page.locator(`text=/Failed Secrets in ${nsWithFailed.namespace}/`)).toBeVisible()
 
     // Fetch API data

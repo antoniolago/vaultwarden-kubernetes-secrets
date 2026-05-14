@@ -36,8 +36,10 @@ test.describe('Secrets Page E2E Tests', () => {
   })
 
   test('should display all secrets from API', async ({ page }) => {
-    // Wait for table to load
+    // Wait for table to load with actual data rows
     await page.waitForSelector('table tbody tr', { timeout: 15000 })
+    // Give React time to populate rows fully (avoid catching loading state)
+    await page.waitForTimeout(2000)
 
     const rows = page.locator('table tbody tr')
     const rowCount = await rows.count()
