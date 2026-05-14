@@ -86,7 +86,7 @@ test.describe('Dashboard E2E Tests', () => {
 
   test.beforeEach(async ({ page }) => {
     // Navigate to the dashboard
-    await page.goto(DASHBOARD_URL)
+    await page.goto(DASHBOARD_URL, { waitUntil: 'domcontentloaded' })
   })
 
   test('should display correct Active Secrets count from API', async ({ page }) => {
