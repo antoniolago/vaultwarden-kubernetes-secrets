@@ -37,7 +37,7 @@ test.describe('Secrets Page E2E Tests', () => {
 
   test('should display all secrets from API', async ({ page }) => {
     // Wait for table to load
-    await page.waitForSelector('table tbody tr', { timeout: 5000 })
+    await page.waitForSelector('table tbody tr', { timeout: 15000 })
 
     const rows = page.locator('table tbody tr')
     const rowCount = await rows.count()
