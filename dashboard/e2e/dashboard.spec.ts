@@ -88,6 +88,7 @@ test.describe('Dashboard E2E Tests', () => {
     // Navigate to the dashboard
     await page.goto(DASHBOARD_URL)
     // Wait for the dashboard to load
+    await page.waitForTimeout(2000)
     await page.waitForSelector('text=Dashboard Overview', { timeout: 15000 })
   })
 
