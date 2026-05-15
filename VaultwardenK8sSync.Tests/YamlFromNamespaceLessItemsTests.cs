@@ -370,4 +370,379 @@ data:
         // Multi-doc YAML is applied as a single call to ApplyYamlAsync
         _kubernetesServiceMock.Verify(x => x.ApplyYamlAsync(It.Is<string>(y => y.Contains("apiVersion"))), Times.Once);
     }
+
+    [Fact]
+    public async Task SyncAsync_WhenYamlCreatesSameSecret_ShouldNotDetectFalseDrift()
+    {
+        // Regression test: YAML-in-notes items are processed BEFORE the namespace sync loop.
+        // Previously they were processed AFTER, which meant ApplyYamlAsync would ReplaceSecret
+        // and overwrite the content-hash annotation that the sync just wrote.
+        // This caused false-positive drift detection on every sync cycle.
+        //
+        // Scenario:
+        // 1. YAML-only item: creates Secret "api-token" in "test-ns" (no namespaces field)
+        // 2. Namespaced item: targets "test-ns", secret-name="api-token", password="my-token"
+        //
+        // After SyncAsync, the secret should have the correct hash annotation.
+        // A second SyncAsync should NOT detect drift (HasChanges = false).
+
+        var secretExistsTracker = new Dictionary<string, bool>();
+        var secretAnnotationsTracker = new Dictionary<string, Dictionary<string, string>>();
+
+        var apiSecretYaml = @"apiVersion: v1
+kind: Secret
+metadata:
+  name: api-token
+  namespace: test-ns
+type: Opaque
+data:
+  api-key: bXktdG9rZW4=";
+
+        var yamlOnlyItem = new VaultwardenItem
+        {
+            Id = "item-1",
+            Name = "api-token-yaml",
+            Type = 2,
+            SecureNote = new SecureNoteInfo { Type = 0 },
+            Notes = apiSecretYaml
+        };
+
+        var namespacedItem = new VaultwardenItem
+        {
+            Id = "item-2",
+            Name = "api-token-managed",
+            Type = 1,
+            Password = "my-token",
+            Fields = new List<FieldInfo>
+            {
+                new() { Name = "namespaces", Value = "test-ns", Type = 0 },
+                new() { Name = "secret-name", Value = "api-token", Type = 0 },
+                new() { Name = "secret-key-password", Value = "api-key", Type = 0 }
+            }
+        };
+
+        _vaultwardenServiceMock.Setup(x => x.GetItemsAsync())
+            .ReturnsAsync(new List<VaultwardenItem> { yamlOnlyItem, namespacedItem });
+
+        // ApplyYamlAsync simulates replacing the secret WITHOUT hash annotation
+        _kubernetesServiceMock.Setup(x => x.ApplyYamlAsync(It.IsAny<string>()))
+            .Callback<string>(yaml =>
+            {
+                secretExistsTracker["test-ns/api-token"] = true;
+                // Intentionally NOT setting hash annotation — this is what caused the bug
+                // The YAML manifest overwrites the entire Secret, annotations included
+            })
+            .ReturnsAsync(OperationResult.Successful());
+
+        // Namespace sync path setup
+        _kubernetesServiceMock.Setup(x => x.NamespaceExistsAsync("test-ns"))
+            .ReturnsAsync(true);
+
+        _kubernetesServiceMock.Setup(x => x.SecretExistsAsync("test-ns", "api-token"))
+            .ReturnsAsync(() => secretExistsTracker.GetValueOrDefault("test-ns/api-token"));
+
+        _kubernetesServiceMock.Setup(x => x.GetSecretAnnotationsAsync("test-ns", "api-token"))
+            .ReturnsAsync(() => secretAnnotationsTracker.GetValueOrDefault("test-ns/api-token"));
+
+        _kubernetesServiceMock.Setup(x => x.GetSecretDataAsync("test-ns", "api-token"))
+            .ReturnsAsync(() =>
+            {
+                if (secretExistsTracker.GetValueOrDefault("test-ns/api-token"))
+                    return new Dictionary<string, string> { { "api-key", "my-token" } };
+                return null;
+            });
+
+        _kubernetesServiceMock.Setup(x => x.GetSecretTypeAsync("test-ns", "api-token"))
+            .ReturnsAsync(() =>
+            {
+                if (secretExistsTracker.GetValueOrDefault("test-ns/api-token"))
+                    return "Opaque";
+                return null;
+            });
+
+        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync(
+                "test-ns", "api-token",
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<string?>()))
+            .ReturnsAsync((string ns, string name, Dictionary<string, string> data,
+                Dictionary<string, string> annotations, Dictionary<string, string> labels, string? type) =>
+            {
+                secretExistsTracker[$"{ns}/{name}"] = true;
+                if (annotations != null)
+                    secretAnnotationsTracker[$"{ns}/{name}"] = new Dictionary<string, string>(annotations);
+                return OperationResult.Successful();
+            });
+
+        _kubernetesServiceMock.Setup(x => x.UpdateSecretAsync(
+                "test-ns", "api-token",
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<Dictionary<string, string>>()))
+            .ReturnsAsync((string ns, string name, Dictionary<string, string> data,
+                Dictionary<string, string> annotations, Dictionary<string, string> labels) =>
+            {
+                if (annotations != null)
+                    secretAnnotationsTracker[$"{ns}/{name}"] = new Dictionary<string, string>(annotations);
+                return OperationResult.Successful();
+            });
+
+        _kubernetesServiceMock.Setup(x => x.GetSecretsWithManagedKeysAsync("test-ns"))
+            .ReturnsAsync(() =>
+                secretExistsTracker
+                    .Where(kv => kv.Key.StartsWith("test-ns/"))
+                    .Select(kv => kv.Key.Split('/')[1])
+                    .ToList());
+
+        _kubernetesServiceMock.Setup(x => x.GetAllNamespacesAsync())
+            .ReturnsAsync(new List<string> { "test-ns" });
+
+        // DB hash persistence
+        var dbHash = "";
+        _dbLoggerMock.Setup(x => x.UpdateSecretHashAsync("test-ns", "api-token", It.IsAny<string>()))
+            .Callback((string ns, string name, string hash) => { dbHash = hash; })
+            .Returns(Task.CompletedTask);
+        _dbLoggerMock.Setup(x => x.GetSecretHashAsync("test-ns", "api-token"))
+            .ReturnsAsync(() => dbHash);
+
+        // Act - First sync
+        var firstSync = await _syncService.SyncAsync();
+
+        // Assert - First sync succeeded and created the secret with hash annotation
+        firstSync.OverallSuccess.Should().BeTrue();
+        secretExistsTracker.GetValueOrDefault("test-ns/api-token").Should().BeTrue();
+        secretAnnotationsTracker["test-ns/api-token"]
+            .Should().ContainKey(Constants.Kubernetes.HashAnnotationKey,
+                "the namespace sync should have written the hash annotation after YAML was applied");
+
+        // Act - Second sync (same items, nothing changed)
+        var secondSync = await _syncService.SyncAsync();
+
+        // Assert - Second sync should NOT detect drift (annotation is correct)
+        secondSync.OverallSuccess.Should().BeTrue();
+        secondSync.HasChanges.Should().BeFalse(
+            "second sync should detect no drift because the hash annotation is still correct");
+    }
+
+    [Fact]
+    public async Task SyncAsync_WhenYamlCreatesSecretInDifferentNamespace_ShouldProcessBothIndependently()
+    {
+        // YAML creates a Secret in namespace "infra" that the sync does NOT manage,
+        // and a namespaced item targets "default".
+        // Both should work independently without interference.
+
+        var secretExistsTracker = new Dictionary<string, bool>();
+        var secretAnnotationsTracker = new Dictionary<string, Dictionary<string, string>>();
+
+        var infraSecretYaml = @"apiVersion: v1
+kind: Secret
+metadata:
+  name: infra-token
+  namespace: infra
+type: Opaque
+data:
+  token: c29tZXRva2Vu";
+
+        var yamlItem = new VaultwardenItem
+        {
+            Id = "item-1",
+            Name = "infra-token-yaml",
+            Type = 2,
+            SecureNote = new SecureNoteInfo { Type = 0 },
+            Notes = infraSecretYaml
+        };
+
+        var namespacedItem = new VaultwardenItem
+        {
+            Id = "item-2",
+            Name = "app-secret",
+            Type = 1,
+            Password = "app-password",
+            Fields = new List<FieldInfo>
+            {
+                new() { Name = "namespaces", Value = "default", Type = 0 }
+            }
+        };
+
+        _vaultwardenServiceMock.Setup(x => x.GetItemsAsync())
+            .ReturnsAsync(new List<VaultwardenItem> { yamlItem, namespacedItem });
+
+        // ApplyYamlAsync creates secret without annotation
+        _kubernetesServiceMock.Setup(x => x.ApplyYamlAsync(It.IsAny<string>()))
+            .Callback<string>(yaml => { secretExistsTracker["infra/infra-token"] = true; })
+            .ReturnsAsync(OperationResult.Successful());
+
+        // Namespace sync for "default"
+        _kubernetesServiceMock.Setup(x => x.NamespaceExistsAsync("default"))
+            .ReturnsAsync(true);
+
+        _kubernetesServiceMock.Setup(x => x.SecretExistsAsync("default", "app-secret"))
+            .ReturnsAsync(() => secretExistsTracker.GetValueOrDefault("default/app-secret"));
+
+        _kubernetesServiceMock.Setup(x => x.GetSecretAnnotationsAsync("default", "app-secret"))
+            .ReturnsAsync(() => secretAnnotationsTracker.GetValueOrDefault("default/app-secret"));
+
+        _kubernetesServiceMock.Setup(x => x.GetSecretDataAsync("default", "app-secret"))
+            .ReturnsAsync(() =>
+            {
+                if (secretExistsTracker.GetValueOrDefault("default/app-secret"))
+                    return new Dictionary<string, string> { { "password", "app-password" } };
+                return null;
+            });
+
+        _kubernetesServiceMock.Setup(x => x.GetSecretTypeAsync("default", "app-secret"))
+            .ReturnsAsync(() =>
+            {
+                if (secretExistsTracker.GetValueOrDefault("default/app-secret"))
+                    return "Opaque";
+                return null;
+            });
+
+        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync(
+                "default", "app-secret",
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<string?>()))
+            .ReturnsAsync((string ns, string name, Dictionary<string, string> data,
+                Dictionary<string, string> annotations, Dictionary<string, string> labels, string? type) =>
+            {
+                secretExistsTracker[$"{ns}/{name}"] = true;
+                if (annotations != null)
+                    secretAnnotationsTracker[$"{ns}/{name}"] = new Dictionary<string, string>(annotations);
+                return OperationResult.Successful();
+            });
+
+        _kubernetesServiceMock.Setup(x => x.UpdateSecretAsync(
+                "default", "app-secret",
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<Dictionary<string, string>>()))
+            .ReturnsAsync((string ns, string name, Dictionary<string, string> data,
+                Dictionary<string, string> annotations, Dictionary<string, string> labels) =>
+            {
+                if (annotations != null)
+                    secretAnnotationsTracker[$"{ns}/{name}"] = new Dictionary<string, string>(annotations);
+                return OperationResult.Successful();
+            });
+
+        _kubernetesServiceMock.Setup(x => x.GetSecretsWithManagedKeysAsync(It.IsAny<string>()))
+            .ReturnsAsync((string ns) =>
+                secretExistsTracker
+                    .Where(kv => kv.Key.StartsWith($"{ns}/"))
+                    .Select(kv => kv.Key.Split('/')[1])
+                    .ToList());
+
+        _kubernetesServiceMock.Setup(x => x.GetAllNamespacesAsync())
+            .ReturnsAsync(new List<string> { "default", "infra" });
+
+        // DB hash tracking
+        var dbHash = "";
+        _dbLoggerMock.Setup(x => x.UpdateSecretHashAsync("default", "app-secret", It.IsAny<string>()))
+            .Callback((string ns, string name, string hash) => { dbHash = hash; })
+            .Returns(Task.CompletedTask);
+        _dbLoggerMock.Setup(x => x.GetSecretHashAsync("default", "app-secret"))
+            .ReturnsAsync(() => dbHash);
+
+        var syncService = _syncService;
+
+        // Act - First sync
+        var firstSync = await syncService.SyncAsync();
+
+        // Assert
+        firstSync.OverallSuccess.Should().BeTrue();
+        secretExistsTracker.GetValueOrDefault("infra/infra-token").Should().BeTrue();
+        secretExistsTracker.GetValueOrDefault("default/app-secret").Should().BeTrue();
+        secretAnnotationsTracker["default/app-secret"]
+            .Should().ContainKey(Constants.Kubernetes.HashAnnotationKey);
+
+        // Act - Second sync: nothing changed
+        var secondSync = await syncService.SyncAsync();
+
+        // Assert - No false drift
+        secondSync.OverallSuccess.Should().BeTrue();
+        secondSync.HasChanges.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SyncAsync_YamlIsAppliedBeforeNamespaceSync_TestOrdering()
+    {
+        // Verify that ApplyYamlAsync is called BEFORE CreateSecretAsync/UpdateSecretAsync.
+        // This is the key behavioral change that fixes the false-drift bug.
+
+        var callOrder = new List<string>();
+
+        _kubernetesServiceMock.Setup(x => x.ApplyYamlAsync(It.IsAny<string>()))
+            .Callback(() => callOrder.Add("ApplyYaml"))
+            .ReturnsAsync(OperationResult.Successful());
+
+        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync(
+                "test-ns", "ordering-secret",
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<string?>()))
+            .Callback(() => callOrder.Add("CreateSecret"))
+            .ReturnsAsync(OperationResult.Successful());
+
+        var yamlItem = new VaultwardenItem
+        {
+            Id = "item-1",
+            Name = "ordering-yaml",
+            Type = 2,
+            SecureNote = new SecureNoteInfo { Type = 0 },
+            Notes = @"apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ordering-cm
+  namespace: test-ns
+data:
+  key: val"
+        };
+
+        var namespacedItem = new VaultwardenItem
+        {
+            Id = "item-2",
+            Name = "ordering-secret",
+            Type = 1,
+            Password = "test-pass",
+            Fields = new List<FieldInfo>
+            {
+                new() { Name = "namespaces", Value = "test-ns", Type = 0 }
+            }
+        };
+
+        _vaultwardenServiceMock.Setup(x => x.GetItemsAsync())
+            .ReturnsAsync(new List<VaultwardenItem> { yamlItem, namespacedItem });
+
+        _kubernetesServiceMock.Setup(x => x.NamespaceExistsAsync("test-ns"))
+            .ReturnsAsync(true);
+        _kubernetesServiceMock.Setup(x => x.SecretExistsAsync("test-ns", "ordering-secret"))
+            .ReturnsAsync(false);
+        _kubernetesServiceMock.Setup(x => x.GetSecretAnnotationsAsync("test-ns", "ordering-secret"))
+            .ReturnsAsync((Dictionary<string, string>?)null);
+        _kubernetesServiceMock.Setup(x => x.GetSecretDataAsync("test-ns", "ordering-secret"))
+            .ReturnsAsync((Dictionary<string, string>?)null);
+        _kubernetesServiceMock.Setup(x => x.GetSecretTypeAsync("test-ns", "ordering-secret"))
+            .ReturnsAsync((string?)null);
+        _kubernetesServiceMock.Setup(x => x.GetExistingSecretNamesAsync("test-ns"))
+            .ReturnsAsync(new List<string>());
+        _kubernetesServiceMock.Setup(x => x.GetManagedSecretNamesAsync("test-ns"))
+            .ReturnsAsync(new List<string>());
+        _kubernetesServiceMock.Setup(x => x.GetAllNamespacesAsync())
+            .ReturnsAsync(new List<string> { "test-ns" });
+
+        var syncService = _syncService;
+
+        await syncService.SyncAsync();
+
+        // ApplyYaml should come before CreateSecret
+        var applyYamlIndex = callOrder.IndexOf("ApplyYaml");
+        var createSecretIndex = callOrder.IndexOf("CreateSecret");
+        Assert.True(applyYamlIndex >= 0, "ApplyYaml should have been called");
+        Assert.True(createSecretIndex >= 0, "CreateSecret should have been called");
+        Assert.True(applyYamlIndex < createSecretIndex,
+            $"ApplyYamlAsync should be called BEFORE CreateSecretAsync. Order was: {string.Join(" -> ", callOrder)}");
+    }
 }

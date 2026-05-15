@@ -237,6 +237,57 @@ public class SyncService : ISyncService
             }
 
             LogMemoryUsage("before namespace sync loop");
+            // Process items without namespaces that contain Kubernetes YAML in notes
+            // FIRST so the namespace sync loop below has the final word on any Secrets it manages.
+            // This prevents YAML manifests from overwriting the content-hash annotations that the
+            // sync service writes, which would cause false-positive drift detection every cycle.
+            var nonNamespaceItems = items.Where(i => !i.ExtractNamespaces().Any()).ToList();
+            var yamlOnlyItems = new List<Models.VaultwardenItem>();
+            foreach (var item in nonNamespaceItems)
+            {
+                var notesContent = ExtractPureNoteBody(item.Notes ?? string.Empty);
+                if (!string.IsNullOrWhiteSpace(notesContent) && IsKubernetesYaml(notesContent))
+                {
+                    yamlOnlyItems.Add(item);
+                }
+            }
+
+            if (yamlOnlyItems.Any())
+            {
+                _logger.LogInformation("Found {Count} item(s) with Kubernetes YAML in notes but no 'namespaces' custom field - applying manifests directly", yamlOnlyItems.Count);
+
+                foreach (var yamlItem in yamlOnlyItems)
+                {
+                    var notesContent = ExtractPureNoteBody(yamlItem.Notes ?? string.Empty);
+
+                    if (_syncConfig.DryRun)
+                    {
+                        _logger.LogInformation("[DRY RUN] Would apply YAML manifest from item '{ItemName}' (ID: {ItemId})", yamlItem.Name, yamlItem.Id);
+                        continue;
+                    }
+
+                    _logger.LogDebug("Applying YAML manifest from item '{ItemName}' (ID: {ItemId})", yamlItem.Name, yamlItem.Id);
+                    try
+                    {
+                        var result = await _kubernetesService.ApplyYamlAsync(notesContent);
+                        if (result.Success)
+                        {
+                            _logger.LogDebug("Successfully applied YAML manifest from item '{ItemName}'", yamlItem.Name);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Failed to apply YAML manifest from item '{ItemName}': {Error}", yamlItem.Name, result.ErrorMessage);
+                            summary.AddError($"YAML from item '{yamlItem.Name}': {result.ErrorMessage}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Exception applying YAML manifest from item '{ItemName}' (ID: {ItemId})", yamlItem.Name, yamlItem.Id);
+                        summary.AddError($"YAML from item '{yamlItem.Name}': {ex.Message}");
+                    }
+                }
+            }
+
             // Sync each namespace (skip known-missing namespaces, with periodic re-check)
             foreach (var (namespaceName, namespaceItems) in itemsByNamespace)
             {
@@ -288,54 +339,6 @@ public class SyncService : ISyncService
             }
 
             LogMemoryUsage("after namespace sync loop");
-            // Process items without namespaces that contain Kubernetes YAML in notes
-            // These are raw K8s manifests that declare their own namespace in metadata.namespace
-            var nonNamespaceItems = items.Where(i => !i.ExtractNamespaces().Any()).ToList();
-            var yamlOnlyItems = new List<Models.VaultwardenItem>();
-            foreach (var item in nonNamespaceItems)
-            {
-                var notesContent = ExtractPureNoteBody(item.Notes ?? string.Empty);
-                if (!string.IsNullOrWhiteSpace(notesContent) && IsKubernetesYaml(notesContent))
-                {
-                    yamlOnlyItems.Add(item);
-                }
-            }
-
-            if (yamlOnlyItems.Any())
-            {
-                _logger.LogInformation("Found {Count} item(s) with Kubernetes YAML in notes but no 'namespaces' custom field - applying manifests directly", yamlOnlyItems.Count);
-
-                foreach (var yamlItem in yamlOnlyItems)
-                {
-                    var notesContent = ExtractPureNoteBody(yamlItem.Notes ?? string.Empty);
-
-                    if (_syncConfig.DryRun)
-                    {
-                        _logger.LogInformation("[DRY RUN] Would apply YAML manifest from item '{ItemName}' (ID: {ItemId})", yamlItem.Name, yamlItem.Id);
-                        continue;
-                    }
-
-                    _logger.LogDebug("Applying YAML manifest from item '{ItemName}' (ID: {ItemId})", yamlItem.Name, yamlItem.Id);
-                    try
-                    {
-                        var result = await _kubernetesService.ApplyYamlAsync(notesContent);
-                        if (result.Success)
-                        {
-                            _logger.LogDebug("Successfully applied YAML manifest from item '{ItemName}'", yamlItem.Name);
-                        }
-                        else
-                        {
-                            _logger.LogWarning("Failed to apply YAML manifest from item '{ItemName}': {Error}", yamlItem.Name, result.ErrorMessage);
-                            summary.AddError($"YAML from item '{yamlItem.Name}': {result.ErrorMessage}");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Exception applying YAML manifest from item '{ItemName}' (ID: {ItemId})", yamlItem.Name, yamlItem.Id);
-                        summary.AddError($"YAML from item '{yamlItem.Name}': {ex.Message}");
-                    }
-                }
-            }
 
             var filteredItems = itemsByNamespace.Values.SelectMany(x => x).DistinctBy(i => i.Id).ToList();
             // Cleanup orphaned secrets if enabled (reuse cached items)
