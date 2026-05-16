@@ -582,7 +582,40 @@ public class SyncService : ISyncService
                 
                 return namespaceSummary;
             }
-            
+
+            // Apply collected YAML manifests from namespace items BEFORE the sync loop,
+            // so the sync loop below has the final word on any Secrets it manages.
+            // This prevents ApplyYamlAsync from overwriting the content-hash annotations
+            // that the sync service writes, which would cause false-positive drift.
+            var preSyncYamlManifests = new List<string>();
+            foreach (var item in items)
+            {
+                var notesContent = ExtractPureNoteBody(item.Notes ?? string.Empty);
+                if (!string.IsNullOrWhiteSpace(notesContent) && IsKubernetesYaml(notesContent))
+                {
+                    preSyncYamlManifests.Add(notesContent);
+                }
+            }
+            if (preSyncYamlManifests.Count > 0)
+            {
+                _logger.LogDebug("Applying {Count} pre-sync YAML manifest(s) from items with namespace assignment", preSyncYamlManifests.Count);
+                foreach (var yamlContent in preSyncYamlManifests)
+                {
+                    try
+                    {
+                        var result = await _kubernetesService.ApplyYamlAsync(yamlContent);
+                        if (!result.Success)
+                        {
+                            _logger.LogWarning("Pre-sync YAML apply failed: {Error}", result.ErrorMessage);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Exception applying pre-sync YAML manifest");
+                    }
+                }
+            }
+
             foreach (var (secretName, secretItems) in itemsBySecretName)
             {
                 var key = $"{namespaceName}/{secretName}";
@@ -701,11 +734,6 @@ public class SyncService : ISyncService
                     namespaceSummary.Failed,
                     0 // deleted is handled by orphan cleanup
                 );
-            }
-
-            if (yamlManifests.Count > 0)
-            {
-                await ApplyCollectedYamlManifestsAsync(namespaceName, namespaceSummary, yamlManifests);
             }
 
             return namespaceSummary;
