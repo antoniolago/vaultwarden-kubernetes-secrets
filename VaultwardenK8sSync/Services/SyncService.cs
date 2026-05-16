@@ -2348,7 +2348,7 @@ public class SyncService : ISyncService
         // Notes - this includes secure note content AND any embedded kv pairs
         if (!string.IsNullOrEmpty(item.Notes))
         {
-            contentParts.Add($"notes:{item.Notes}");
+            contentParts.Add($"notes:{ExtractPureNoteBody(item.Notes)}");
         }
         
         // SSH keys (all parts)
