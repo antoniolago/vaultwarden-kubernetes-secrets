@@ -115,6 +115,12 @@ public static class SyncSummaryFormatter
             {
                 var stats = GetNamespaceStatsText(ns);
                 sb.AppendLine($"   • {ns.Name}{stats}");
+                // List individual created secret names
+                foreach (var secret in ns.Secrets.Where(s => s.Outcome == ReconcileOutcome.Created).OrderBy(s => s.Name))
+                {
+                    var reason = !string.IsNullOrEmpty(secret.ChangeReason) ? $" ({secret.ChangeReason})" : "";
+                    sb.AppendLine($"       ↳ {secret.Name}{reason}");
+                }
                 foreach (var error in ns.Errors)
                 {
                     sb.AppendLine($"     ↳ {error}");
@@ -130,6 +136,12 @@ public static class SyncSummaryFormatter
             {
                 var stats = GetNamespaceStatsText(ns);
                 sb.AppendLine($"   • {ns.Name}{stats}");
+                // List individual updated secret names
+                foreach (var secret in ns.Secrets.Where(s => s.Outcome == ReconcileOutcome.Updated).OrderBy(s => s.Name))
+                {
+                    var reason = !string.IsNullOrEmpty(secret.ChangeReason) ? $" ({secret.ChangeReason})" : "";
+                    sb.AppendLine($"       ↳ {secret.Name}{reason}");
+                }
                 foreach (var error in ns.Errors)
                 {
                     sb.AppendLine($"     ↳ {error}");
