@@ -31,7 +31,7 @@ public class SyncService : ISyncService
     {
         var currentMemory = GC.GetTotalMemory(false);
         var delta = previousMemory.HasValue ? currentMemory - previousMemory.Value : 0;
-        _logger.LogInformation(
+        _logger.LogDebug(
             "[MEMORY] {Phase}: GC heap={CurrentMB:F1} MB{Delta}",
             phase,
             currentMemory / 1024.0 / 1024.0,
@@ -254,7 +254,7 @@ public class SyncService : ISyncService
 
             if (yamlOnlyItems.Any())
             {
-                _logger.LogInformation("Found {Count} item(s) with Kubernetes YAML in notes but no 'namespaces' custom field - applying manifests directly", yamlOnlyItems.Count);
+                _logger.LogDebug("Found {Count} item(s) with Kubernetes YAML in notes but no 'namespaces' custom field - applying manifests directly", yamlOnlyItems.Count);
 
                 foreach (var yamlItem in yamlOnlyItems)
                 {
