@@ -2,9 +2,12 @@ name: Build and Push Image
 
 on:
   push:
+    branches:
+      - main
+      - develop
     tags:
       - 'v*'
-  pull_request_target:
+  pull_request:
     branches:
       - main
       - develop
@@ -17,10 +20,10 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Setup .NET 10.0.x
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v5
       with:
         dotnet-version: '10.0.x'
 
@@ -34,17 +37,21 @@ jobs:
       run: dotnet test VaultwardenK8sSync.Tests/VaultwardenK8sSync.Tests.csproj --no-build --verbosity normal --configuration Release
 
   e2e-test:
-    name: Run E2E Tests
+    name: Run E2E Tests (Vaultwarden ${{ matrix.vaultwarden-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [build-and-test]
+    strategy:
+      fail-fast: false
+      matrix:
+        vaultwarden-version: [1.30.1, 1.33.2, 1.35.4, 1.35.8, 1.36.0]
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
 
     - name: Build E2E test image
       run: |
@@ -55,14 +62,17 @@ jobs:
       run: |
         echo "🔨 Building operator image for E2E tests..."
         docker build -t vaultwarden-kubernetes-secrets:e2e-test -f VaultwardenK8sSync/Dockerfile .
+        echo "🔨 Building API image for E2E tests..."
+        docker build -t vaultwarden-kubernetes-secrets-api:e2e-test -f VaultwardenK8sSync.Api/Dockerfile .
 
     - name: Run E2E Tests
       env:
         E2E_CLUSTER_NAME: vks-e2e-ci
         E2E_KEEP_CLUSTER: false
         E2E_VERBOSE: false
+        VAULTWARDEN_VERSION: ${{ matrix.vaultwarden-version }}
       run: |
-        echo "🧪 Running E2E tests in Docker..."
+        echo "🧪 Running E2E tests with Vaultwarden $VAULTWARDEN_VERSION..."
         docker run --rm \
           --privileged \
           --network host \
@@ -70,6 +80,7 @@ jobs:
           -e E2E_CLUSTER_NAME=$E2E_CLUSTER_NAME \
           -e E2E_KEEP_CLUSTER=$E2E_KEEP_CLUSTER \
           -e E2E_VERBOSE=$E2E_VERBOSE \
+          -e VAULTWARDEN_VERSION=$VAULTWARDEN_VERSION \
           vaultwarden-kubernetes-secrets-e2e:local
 
     - name: Cleanup E2E cluster
@@ -79,13 +90,184 @@ jobs:
         docker ps -a --filter "name=vks-e2e" -q | xargs -r docker rm -f || true
         docker network ls --filter "name=kind" -q | xargs -r docker network rm || true
 
+  dashboard-e2e-test:
+    name: Dashboard E2E Tests (Vaultwarden ${{ matrix.vaultwarden-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [build-and-test]
+    strategy:
+      fail-fast: false
+      matrix:
+        vaultwarden-version: [1.33.2, 1.35.4, 1.35.8, 1.36.0]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Generate self-signed SSL certs for TLS proxy
+      run: |
+        echo "Generating self-signed SSL certificates for E2E tests..."
+        mkdir -p e2e-ssl
+        openssl req -x509 -nodes -days 30 -newkey rsa:2048 \
+          -keyout e2e-ssl/key.pem \
+          -out e2e-ssl/cert.pem \
+          -subj "/CN=vaultwarden-e2e"
+
+    - name: Start e2e stack (vaultwarden + sync + api + dashboard)
+      env:
+        VAULTWARDEN_VERSION: ${{ matrix.vaultwarden-version }}
+        COMPOSE_PROFILES: with-dashboard,with-api
+      run: |
+        echo "Starting e2e stack with Vaultwarden $VAULTWARDEN_VERSION..."
+        # Pre-build images
+        docker compose -f docker-compose.e2e.yml build sync api dashboard
+        # Start vaultwarden + proxy + mock-k8s first (sync depends on vaultwarden being healthy)
+        docker compose -f docker-compose.e2e.yml up -d vaultwarden tls-proxy mock-k8s
+
+    - name: Wait for vaultwarden to be healthy
+      run: |
+        echo "Waiting for Vaultwarden to be healthy..."
+        for i in $(seq 1 30); do
+          if curl -sf http://localhost:8080/ > /dev/null 2>&1; then
+            echo "Vaultwarden is ready!"
+            break
+          fi
+          echo "Attempt $i/30..."
+          sleep 5
+        done
+
+    - name: Seed Vaultwarden with test user and items
+      env:
+        VW_SERVER: http://localhost:8080
+        VW_EMAIL: e2e-test@example.com
+        VW_PASSWORD: test-e2e-password
+      run: |
+        echo "Registering E2E test user..."
+        pip3 install -q cryptography 2>/dev/null || true
+        
+        export HELPER="python3 scripts/e2e-helper.py"
+        
+        # Register user via helper (matches login hash)
+        $HELPER register 2>&1 || echo "User may already exist"
+        sleep 2
+        
+        # Generate API key (retry up to 3 times if empty/invalid)
+        echo "Generating API key..."
+        for attempt in 1 2 3; do
+          $HELPER api-key 2>&1 > /tmp/e2e-data.json
+          E2E_BW_CLIENTID_TMP=$(python3 -c "import json; d=json.load(open('/tmp/e2e-data.json')); print(d.get('clientId',''))" 2>/dev/null || echo "")
+          if [ -n "$E2E_BW_CLIENTID_TMP" ] && [ "$E2E_BW_CLIENTID_TMP" != "user." ]; then
+            echo "API key generated successfully (attempt $attempt)"
+            break
+          fi
+          echo "API key empty on attempt $attempt, retrying..."
+          cat /tmp/e2e-data.json 2>/dev/null || echo "(no file)"
+          sleep 3
+        done
+        
+        # Create test items (optional, for richer test data)
+        echo "Creating E2E test items..."
+        $HELPER create-items 3 2>&1 || true
+        
+        # Export credentials for subsequent steps
+        E2E_BW_CLIENTID=$(python3 -c "import json; print(json.load(open('/tmp/e2e-data.json'))['clientId'])" 2>/dev/null || echo "user.e2e-test")
+        E2E_BW_CLIENTSECRET=$(python3 -c "import json; print(json.load(open('/tmp/e2e-data.json'))['clientSecret'])" 2>/dev/null || echo "e2e-secret")
+        echo "E2E_BW_CLIENTID=$E2E_BW_CLIENTID" >> $GITHUB_ENV
+        echo "E2E_BW_CLIENTSECRET=$E2E_BW_CLIENTSECRET" >> $GITHUB_ENV
+
+    - name: Start sync, API and dashboard
+      env:
+        E2E_BW_CLIENTID: ${{ env.E2E_BW_CLIENTID }}
+        E2E_BW_CLIENTSECRET: ${{ env.E2E_BW_CLIENTSECRET }}
+        COMPOSE_PROFILES: with-dashboard,with-api
+      run: |
+        docker compose -f docker-compose.e2e.yml up -d sync api dashboard
+
+    - name: Wait for API to be healthy
+      run: |
+        echo "Waiting for API to be ready..."
+        for i in $(seq 1 30); do
+          if curl -sf http://localhost:5000/health > /dev/null 2>&1; then
+            echo "API is ready!"
+            break
+          fi
+          echo "Attempt $i/30..."
+          sleep 5
+        done
+
+    - name: Wait for dashboard to be ready
+      run: |
+        echo "Waiting for dashboard to be ready..."
+        for i in $(seq 1 30); do
+          if curl -sf http://localhost:5173 > /dev/null 2>&1; then
+            echo "Dashboard is ready!"
+            break
+          fi
+          echo "Attempt $i/30..."
+          sleep 2
+        done
+
+    - name: Wait for sync to complete
+      run: |
+        echo "Waiting for sync to complete..."
+        for i in $(seq 1 60); do
+          OVERVIEW=$(curl -s http://localhost:5000/api/dashboard/overview 2>/dev/null) || OVERVIEW=""
+          if [ -n "$OVERVIEW" ]; then
+            TOTAL_SYNCS=$(echo "$OVERVIEW" | python3 -c "import sys,json; print(json.load(sys.stdin).get('totalSyncs', 0))" 2>/dev/null) || TOTAL_SYNCS="0"
+            if [ "$TOTAL_SYNCS" -gt 0 ] 2>/dev/null; then
+              echo "Sync completed with $TOTAL_SYNCS sync(s)!"
+              break
+            fi
+          fi
+          echo "Attempt $i/60 (waiting for first sync)..."
+          sleep 2
+        done
+
+    - name: Dump sync container logs
+      if: always()
+      run: |
+        echo "=== SYNC CONTAINER LOGS ==="
+        docker logs vw-e2e-sync 2>&1 || echo "(no sync container logs)"
+
+    - name: Run Playwright tests
+      run: |
+        cd dashboard
+        npm install -g bun
+        bun install --frozen-lockfile
+        bunx playwright install chromium
+        API_URL=http://localhost:5000/api DASHBOARD_URL=http://localhost:5173 bun run test:e2e
+
+    - name: Upload Playwright report
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: playwright-report
+        path: dashboard/playwright-report/
+        retention-days: 7
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: playwright-test-results
+        path: dashboard/test-results/
+        retention-days: 7
+
+    - name: Cleanup
+      if: always()
+      run: |
+        docker compose -f docker-compose.e2e.yml down -v
+
   code-quality:
     name: Code Quality Checks
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Check for TODO comments
       run: |
@@ -109,10 +291,10 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Set up Helm
-      uses: azure/setup-helm@v4
+      uses: azure/setup-helm@v5
       with:
         version: v3.14.4
 
@@ -123,7 +305,7 @@ jobs:
         echo "✅ Helm chart validation passed"
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
 
     - name: Validate Dockerfile syntax
       run: |
@@ -137,10 +319,10 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Setup .NET 10.0.x
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v5
       with:
         dotnet-version: '10.0.x'
 
@@ -163,7 +345,7 @@ jobs:
     name: Calculate Version Tags
     runs-on: ubuntu-latest
     needs: [build-and-test, e2e-test, code-quality, infrastructure-validation, security]
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     outputs:
       raw_tag: ${{ steps.vars.outputs.raw_tag }}
       version: ${{ steps.vars.outputs.version }}
@@ -181,7 +363,7 @@ jobs:
              echo "version=${VERSION}" >> $GITHUB_OUTPUT
              echo "pr_tag=" >> $GITHUB_OUTPUT
              echo "is_release=true" >> $GITHUB_OUTPUT
-           elif [[ "${{ github.event_name }}" == "pull_request" || "${{ github.event_name }}" == "pull_request_target" ]]; then
+           elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
              PR_NUMBER="${{ github.event.number }}"
              COMMIT_SHA="${GITHUB_SHA::8}"
              PR_TAG="pr-${PR_NUMBER}-${COMMIT_SHA}"
@@ -224,24 +406,24 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to Harbor
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: harbor.lag0.com.br
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_PASSWORD }}
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push sync worker
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./VaultwardenK8sSync/Dockerfile
@@ -250,10 +432,10 @@ jobs:
           tags: |
             ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets:latest', github.repository_owner) || '' }}
             ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets:${{ needs.prepare-versions.outputs.raw_tag }}
-            ${{ github.event_name != 'pull_request' && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets:{1}', github.repository_owner, needs.prepare-versions.outputs.version) || '' }}
-            ${{ github.event_name != 'pull_request' && 'harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:latest' || '' }}
-            ${{ github.event_name != 'pull_request' && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:{0}', needs.prepare-versions.outputs.raw_tag) || '' }}
-            ${{ github.event_name != 'pull_request' && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:{0}', needs.prepare-versions.outputs.version) || '' }}
+            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets:{1}', github.repository_owner, needs.prepare-versions.outputs.version) || '' }}
+            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && 'harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:latest' || '' }}
+            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:{0}', needs.prepare-versions.outputs.raw_tag) || '' }}
+            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets:{0}', needs.prepare-versions.outputs.version) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -282,24 +464,24 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to Harbor
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: harbor.lag0.com.br
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_PASSWORD }}
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push API
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: VaultwardenK8sSync.Api/Dockerfile
@@ -308,10 +490,10 @@ jobs:
           tags: |
             ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets-api:latest', github.repository_owner) || '' }}
             ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets-api:${{ needs.prepare-versions.outputs.raw_tag }}
-            ${{ github.event_name != 'pull_request' && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets-api:{1}', github.repository_owner, needs.prepare-versions.outputs.version) || '' }}
-            ${{ github.event_name != 'pull_request' && 'harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:latest' || '' }}
-            ${{ github.event_name != 'pull_request' && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:{0}', needs.prepare-versions.outputs.raw_tag) || '' }}
-            ${{ github.event_name != 'pull_request' && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:{0}', needs.prepare-versions.outputs.version) || '' }}
+            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets-api:{1}', github.repository_owner, needs.prepare-versions.outputs.version) || '' }}
+            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && 'harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:latest' || '' }}
+            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:{0}', needs.prepare-versions.outputs.raw_tag) || '' }}
+            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-api:{0}', needs.prepare-versions.outputs.version) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -326,7 +508,7 @@ jobs:
     
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -340,24 +522,24 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to Harbor
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: harbor.lag0.com.br
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_PASSWORD }}
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push dashboard
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: dashboard
           file: dashboard/Dockerfile
@@ -366,10 +548,10 @@ jobs:
           tags: |
             ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets-dashboard:latest', github.repository_owner) || '' }}
             ghcr.io/${{ github.repository_owner }}/vaultwarden-kubernetes-secrets-dashboard:${{ needs.prepare-versions.outputs.raw_tag }}
-            ${{ github.event_name != 'pull_request' && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets-dashboard:{1}', github.repository_owner, needs.prepare-versions.outputs.version) || '' }}
-            ${{ github.event_name != 'pull_request' && 'harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:latest' || '' }}
-            ${{ github.event_name != 'pull_request' && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:{0}', needs.prepare-versions.outputs.raw_tag) || '' }}
-            ${{ github.event_name != 'pull_request' && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:{0}', needs.prepare-versions.outputs.version) || '' }}
+            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/vaultwarden-kubernetes-secrets-dashboard:{1}', github.repository_owner, needs.prepare-versions.outputs.version) || '' }}
+            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && 'harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:latest' || '' }}
+            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:{0}', needs.prepare-versions.outputs.raw_tag) || '' }}
+            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('harbor.lag0.com.br/library/vaultwarden-kubernetes-secrets-dashboard:{0}', needs.prepare-versions.outputs.version) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -384,22 +566,22 @@ jobs:
     
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
         with:
           version: v3.14.4
 
       - name: Log in to Harbor
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: harbor.lag0.com.br
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_PASSWORD }}
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -440,10 +622,10 @@ jobs:
     
   #   steps:
   #     - name: Checkout code
-  #       uses: actions/checkout@v4
+  #       uses: actions/checkout@v6
       
   #     - name: Set up Helm
-  #       uses: azure/setup-helm@v4
+  #       uses: azure/setup-helm@v5
   #       with:
   #         version: v3.14.4
       
@@ -629,8 +811,8 @@ jobs:
 
   comment-pr:
     runs-on: ubuntu-latest
-    needs: [package-helm]
-    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'pull_request_target')
+    needs: [prepare-versions, package-helm]
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
       pull-requests: write
@@ -638,7 +820,7 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Generate PR tag
         id: vars
@@ -649,7 +831,7 @@ jobs:
           echo "pr_tag=${PR_TAG}" >> $GITHUB_OUTPUT
 
       - name: Comment on PR with Docker image info
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const prNumber = context.payload.pull_request.number;
