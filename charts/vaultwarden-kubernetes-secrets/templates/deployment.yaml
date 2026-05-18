@@ -79,7 +79,7 @@ spec:
             - name: XDG_CONFIG_HOME
               value: "/data/home/.config"
             - name: DATABASE_PATH
-              value: "/data/sync.db"
+              value: "{{ .Values.databasePath | default "/data/sync.db" }}"
             # Propagate SYNC__FIELD_* env overrides from values.env.fields
             {{- with .Values.env.fields }}
             - name: SYNC__FIELD__NAMESPACES

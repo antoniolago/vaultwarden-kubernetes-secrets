@@ -31,6 +31,8 @@ namespace:
 
 debug: false
 
+databasePath: /data/sync.db
+
 replicaCount: 1
 
 # API Configuration
