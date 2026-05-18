@@ -139,6 +139,9 @@ services:
       - "5173:80"
     depends_on:
       - api
+    environment:
+      API_HOST: api
+      API_PORT: "8080"
     networks:
       - e2e-net
     restart: "no"
