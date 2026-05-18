@@ -49,6 +49,10 @@ spec:
           value: {{ .Values.dashboard.apiUrl | default (printf "http://%s-api:%d/api" (include "vaultwarden-kubernetes-secrets.fullname" .) (int .Values.api.service.port)) | quote }}
         - name: VITE_LOGINLESS_MODE
           value: {{ .Values.dashboard.loginlessMode | quote }}
+        - name: API_HOST
+          value: {{ printf "%s-api" (include "vaultwarden-kubernetes-secrets.fullname" .) | quote }}
+        - name: API_PORT
+          value: {{ .Values.api.service.port | default "8080" | quote }}
         livenessProbe:
           httpGet:
             path: /
