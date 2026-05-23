@@ -9,6 +9,8 @@
 
 Automatically sync secrets from [Vaultwarden](https://github.com/dani-garcia/vaultwarden) to Kubernetes. Store your secrets in Vaultwarden, tag them with target namespaces, and they'll be created as Kubernetes Secrets.
 
+> **⚠️ v2.0 Breaking Changes**: If upgrading from v1.x, see the [CHANGELOG](CHANGELOG.md). Secret key names have changed from item-derived names to fixed defaults (`password`, `username`).
+
 **Navigation**
 - [Quick Start](#quick-start): Install + create your first secret
 - [How It Works](#how-it-works): High-level flow
