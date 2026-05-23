@@ -12,7 +12,10 @@ public class ApiAuthenticationIntegrationTests : IClassFixture<WebApplicationFac
 
     public ApiAuthenticationIntegrationTests(WebApplicationFactory<global::Program> factory)
     {
-        _factory = factory;
+        _factory = factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("DatabasePath", Path.GetTempFileName());
+        });
     }
 
     [Fact]

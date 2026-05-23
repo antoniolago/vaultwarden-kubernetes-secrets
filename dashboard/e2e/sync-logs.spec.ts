@@ -1,8 +1,14 @@
 import { test, expect } from '@playwright/test'
+import { DASHBOARD_URL, waitForSyncComplete } from './shared'
 
 test.describe('Sync Logs E2E Tests', () => {
+  test.beforeAll(async ({ request }) => {
+    test.setTimeout(120000)
+    await waitForSyncComplete(request)
+  })
+
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:3000/logs')
+    await page.goto(`${DASHBOARD_URL}/logs`)
   })
 
   test('should display sync logs table', async ({ page }) => {
@@ -15,7 +21,7 @@ test.describe('Sync Logs E2E Tests', () => {
     
     // Check for table headers
     await expect(page.locator('th:has-text("ID")')).toBeVisible()
-    await expect(page.locator('th:has-text("Status")')).toBeVisible()
+    await expect(page.locator('th:has-text("Result")')).toBeVisible()
     await expect(page.locator('th:has-text("Deleted")')).toBeVisible()
     console.log('✓ Table headers displayed correctly')
   })
@@ -40,10 +46,10 @@ test.describe('Sync Logs E2E Tests', () => {
     const cells = firstRow.locator('td')
     const cellCount = await cells.count()
     
-    // Should have: ID, Start Time, Status, Duration, Total, Created, Updated, Skipped, Failed, Deleted = 10 columns
+    // Should have: ID, Start Time, Result, Duration, Total, Created, Updated, Skipped, Failed, Deleted, Message = 11 columns
     console.log(`  Columns in row: ${cellCount}`)
-    expect(cellCount).toBe(10)
-    console.log('✓ Table has correct number of columns (10)')
+    expect(cellCount).toBe(11)
+    console.log('✓ Table has correct number of columns (11)')
   })
 
 

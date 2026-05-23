@@ -422,3 +422,5 @@ db-analysis-output
 # Claude Code configuration (should be tracked)
 !CLAUDE.md
 !.claude/
+.sisyphus/
+e2e-ssl/

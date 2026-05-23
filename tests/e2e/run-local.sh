@@ -10,7 +10,6 @@ set -e
 # - kubectl installed
 # - helm installed
 # - Python 3.9+ with pip
-# - Bitwarden CLI (bw) installed
 # ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -50,7 +49,6 @@ check_command kind
 check_command kubectl
 check_command helm
 check_command python3
-check_command bw
 
 # Check Python dependencies
 log_info "Checking Python dependencies..."

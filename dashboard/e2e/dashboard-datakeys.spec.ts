@@ -1,8 +1,15 @@
 import { test, expect } from '@playwright/test'
+import { DASHBOARD_URL, waitForSyncComplete } from './shared'
 
 test.describe('Dashboard Data Keys E2E Tests', () => {
+  test.beforeAll(async ({ request }) => {
+    test.setTimeout(120000)
+    await waitForSyncComplete(request)
+  })
+
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:3000')
+    await page.goto(DASHBOARD_URL)
+    await page.waitForSelector('[data-testid="namespaces-table"]', { timeout: 15000 })
   })
 
   test('should display data keys count in namespace table', async ({ page }) => {
@@ -236,12 +243,12 @@ test.describe('Dashboard Data Keys E2E Tests', () => {
         // Modal should open
         await expect(page.getByRole('dialog')).toBeVisible()
         
-        // Click X button
-        await page.getByRole('dialog').getByRole('button').filter({ hasText: '✕' }).click()
+        // Close modal
+        await page.keyboard.press('Escape')
         
         // Modal should close
         await expect(page.getByRole('dialog')).not.toBeVisible()
-        console.log('✓ Modal closed with X button')
+        console.log('✓ Modal closed with Escape key')
         
         break
       }

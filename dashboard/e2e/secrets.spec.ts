@@ -1,7 +1,5 @@
 import { test, expect } from '@playwright/test'
-
-const API_URL = 'http://localhost:8080/api'
-const DASHBOARD_URL = 'http://localhost:3000'
+import { API_URL, DASHBOARD_URL, waitForSyncComplete } from './shared'
 
 interface SecretState {
   id: number
@@ -21,6 +19,9 @@ test.describe('Secrets Page E2E Tests', () => {
   let apiSecrets: SecretState[]
 
   test.beforeAll(async ({ request }) => {
+    test.setTimeout(120000)
+    await waitForSyncComplete(request)
+
     // Fetch all secrets from API
     const secretsResponse = await request.get(`${API_URL}/secrets`)
     expect(secretsResponse.ok()).toBeTruthy()
@@ -31,12 +32,14 @@ test.describe('Secrets Page E2E Tests', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to secrets page
     await page.goto(`${DASHBOARD_URL}/secrets`)
-    await page.waitForLoadState('networkidle')
+    await page.waitForSelector('table tbody tr', { timeout: 15000 })
   })
 
   test('should display all secrets from API', async ({ page }) => {
-    // Wait for table to load
-    await page.waitForSelector('table tbody tr', { timeout: 5000 })
+    // Wait for table to load with actual data rows
+    await page.waitForSelector('table tbody tr', { timeout: 15000 })
+    // Give React time to populate rows fully (avoid catching loading state)
+    await page.waitForTimeout(2000)
 
     const rows = page.locator('table tbody tr')
     const rowCount = await rows.count()

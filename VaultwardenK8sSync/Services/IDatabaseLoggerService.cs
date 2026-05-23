@@ -8,7 +8,10 @@ public interface IDatabaseLoggerService
     Task UpdateSyncProgressAsync(long syncLogId, int processedItems, int created, int updated, int skipped, int failed, int deleted = 0);
     Task CompleteSyncLogAsync(long syncLogId, string status, string? errorMessage = null);
     Task LogSyncItemAsync(long syncLogId, string itemKey, string itemName, string namespaceName, string secretName, string status, string outcome, string? details = null);
-    Task UpsertSecretStateAsync(string namespaceName, string secretName, string vaultwardenItemId, string vaultwardenItemName, string status, int dataKeysCount, string? lastError = null);
+    Task UpsertSecretStateAsync(string namespaceName, string secretName, string vaultwardenItemId, string vaultwardenItemName, string status, int dataKeysCount, string? lastError = null, string? contentHash = null);
     Task CacheVaultwardenItemsAsync(List<Models.VaultwardenItem> items);
     Task<int> CleanupStaleSecretStatesAsync(List<Models.VaultwardenItem> currentItems);
+    Task<string?> GetSecretHashAsync(string namespaceName, string secretName);
+    Task UpdateSecretHashAsync(string namespaceName, string secretName, string contentHash);
+    Task<List<Database.Models.VaultwardenItem>> GetCachedVaultwardenItemsAsync();
 }

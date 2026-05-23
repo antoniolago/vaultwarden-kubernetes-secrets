@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Polly;
 using Polly.Extensions.Http;
 
@@ -5,23 +6,26 @@ namespace VaultwardenK8sSync.Policies;
 
 public static class ResiliencePolicies
 {
-    public static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
+    public static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy(ILogger? logger = null)
     {
         return HttpPolicyExtensions
-            .HandleTransientHttpError() // 408, 5xx
+            .HandleTransientHttpError()
             .Or<TaskCanceledException>()
             .WaitAndRetryAsync(
                 retryCount: 3,
-                sleepDurationProvider: retryAttempt => 
-                    TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)), // Exponential backoff: 2s, 4s, 8s
+                sleepDurationProvider: retryAttempt =>
+                    TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
                 onRetry: (outcome, timespan, retryCount, context) =>
                 {
                     var message = outcome.Exception?.Message ?? outcome.Result.StatusCode.ToString();
-                    Console.WriteLine($"🔄 Retry {retryCount} after {timespan.TotalSeconds}s due to: {message}");
+                    if (logger is not null)
+                        logger.LogWarning("Retry {RetryCount} after {Delay}s due to: {Reason}", retryCount, timespan.TotalSeconds, message);
+                    else
+                        Console.WriteLine("Retry {0} after {1}s due to: {2}", retryCount, timespan.TotalSeconds, message);
                 });
     }
 
-    public static IAsyncPolicy<HttpResponseMessage> GetCircuitBreakerPolicy()
+    public static IAsyncPolicy<HttpResponseMessage> GetCircuitBreakerPolicy(ILogger? logger = null)
     {
         return HttpPolicyExtensions
             .HandleTransientHttpError()
@@ -30,15 +34,25 @@ public static class ResiliencePolicies
                 durationOfBreak: TimeSpan.FromSeconds(30),
                 onBreak: (outcome, duration) =>
                 {
-                    Console.WriteLine($"⚠️ Circuit breaker opened for {duration.TotalSeconds}s");
+                    var message = outcome.Exception?.Message ?? outcome.Result.StatusCode.ToString();
+                    if (logger is not null)
+                        logger.LogWarning("Circuit breaker opened for {Duration}s due to: {Reason}", duration.TotalSeconds, message);
+                    else
+                        Console.WriteLine("Circuit breaker opened for {0}s due to: {1}", duration.TotalSeconds, message);
                 },
                 onReset: () =>
                 {
-                    Console.WriteLine("✅ Circuit breaker reset");
+                    if (logger is not null)
+                        logger.LogInformation("Circuit breaker reset");
+                    else
+                        Console.WriteLine("Circuit breaker reset");
                 },
                 onHalfOpen: () =>
                 {
-                    Console.WriteLine("🔄 Circuit breaker half-open, testing connection...");
+                    if (logger is not null)
+                        logger.LogInformation("Circuit breaker half-open, testing connection...");
+                    else
+                        Console.WriteLine("Circuit breaker half-open, testing connection...");
                 });
     }
 

@@ -175,7 +175,7 @@ else
     echo "  1. Check API logs: tail -50 /tmp/api-test.log"
     echo "  2. Verify environment variables are set"
     echo "  3. Check Kubernetes connection: kubectl get nodes"
-    echo "  4. Check Vaultwarden auth: bw status"
+    echo "  4. Check pod logs for Vaultwarden auth errors: kubectl logs -l app.kubernetes.io/name=vaultwarden-kubernetes-secrets"
 fi
 
 echo

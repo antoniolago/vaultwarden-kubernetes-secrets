@@ -95,6 +95,7 @@ public class CommandInjectionTests
         var mockLogger = new Mock<ILogger<SyncService>>();
         var mockVaultwardenService = new Mock<IVaultwardenService>();
         var mockKubernetesService = new Mock<IKubernetesService>();
+            mockKubernetesService.Setup(x => x.IsInitialized).Returns(true);
         var mockMetrics = new Mock<IMetricsService>();
         var mockDbLogger = new Mock<IDatabaseLoggerService>();
         var syncConfig = new SyncSettings();

@@ -5,7 +5,6 @@ using VaultwardenK8sSync.Database;
 using VaultwardenK8sSync.Database.Repositories;
 using VaultwardenK8sSync.Configuration;
 using VaultwardenK8sSync.Services;
-using VaultwardenK8sSync.Infrastructure;
 using VaultwardenK8sSync.Policies;
 using VaultwardenK8sSync.Api.Converters;
 using System.Diagnostics;
@@ -88,9 +87,6 @@ try
     builder.Services.AddSingleton(appSettings.Kubernetes);
     // Make VaultwardenService singleton to preserve authentication state across requests
     builder.Services.AddSingleton<IVaultwardenService, VaultwardenService>();
-    // Make these singleton to work with VaultwardenService singleton
-    builder.Services.AddSingleton<IProcessFactory, ProcessFactory>();
-    builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
     // Make VaultwardenService singleton to preserve authentication state across requests
     builder.Services.AddSingleton<IVaultwardenService, VaultwardenService>();
     // Make KubernetesService singleton to preserve client connection across requests
@@ -214,11 +210,15 @@ try
             var isAuthEndpoint = context.Request.Path.StartsWithSegments("/api") &&
                                 !context.Request.Path.StartsWithSegments("/health");
 
+            // Allow env var override for E2E tests (default 20 req/min)
+            var envLimit = Environment.GetEnvironmentVariable("RATE_LIMIT_PER_MINUTE");
+            var baseLimit = int.TryParse(envLimit, out var parsed) ? parsed : 20;
+
             return RateLimitPartition.GetFixedWindowLimiter(
                 partitionKey: $"{ipAddress}:{isAuthEndpoint}",
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
-                    PermitLimit = isAuthEndpoint ? 20 : 100,  // Stricter for API endpoints
+                    PermitLimit = isAuthEndpoint ? baseLimit : 100,
                     Window = TimeSpan.FromMinutes(1),
                     QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                     QueueLimit = isAuthEndpoint ? 0 : 10  // No queueing for API endpoints

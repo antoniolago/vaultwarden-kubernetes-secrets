@@ -217,6 +217,44 @@ public class DatabaseIntegrationTests : IDisposable
         Assert.Equal(1, (int)stats["failedSyncs"]);
     }
 
+    [Fact]
+    public async Task HashFromDb_PersistsAcrossRestarts()
+    {
+        // Arrange - write a secret state with a content hash
+        const string ns = "hash-test-ns";
+        const string secret = "hash-test-secret";
+        const string expectedHash = "base64hashvalueforpersistencetest";
+
+        await _dbLogger.UpsertSecretStateAsync(ns, secret, "item-1", "Item1", "Active", 1, null, contentHash: expectedHash);
+
+        // Act & Assert - read back via logger
+        var hashFromLogger = await _dbLogger.GetSecretHashAsync(ns, secret);
+        Assert.Equal(expectedHash, hashFromLogger);
+
+        // Act & Assert - read back via repository directly
+        var hashFromRepo = await _secretStateRepository.GetSecretHashAsync(ns, secret);
+        Assert.Equal(expectedHash, hashFromRepo);
+
+        // Simulate restart by creating a new scope with fresh repository
+        using var restartScope = _serviceProvider.CreateScope();
+        var restartRepo = restartScope.ServiceProvider.GetRequiredService<ISecretStateRepository>();
+        var hashAfterRestart = await restartRepo.GetSecretHashAsync(ns, secret);
+        Assert.Equal(expectedHash, hashAfterRestart);
+
+        // Arrange - update the hash to simulate a secret change
+        const string updatedHash = "newhashvalueafterupdate";
+        await _dbLogger.UpdateSecretHashAsync(ns, secret, updatedHash);
+
+        // Act & Assert - verify update persisted
+        var hashAfterUpdate = await _secretStateRepository.GetSecretHashAsync(ns, secret);
+        Assert.Equal(updatedHash, hashAfterUpdate);
+
+        // Clean up - remove test data
+        var state = await _secretStateRepository.GetByNamespaceAndNameAsync(ns, secret);
+        if (state != null)
+            await _secretStateRepository.DeleteAsync(state.Id);
+    }
+
     public void Dispose()
     {
         if (!_disposed)

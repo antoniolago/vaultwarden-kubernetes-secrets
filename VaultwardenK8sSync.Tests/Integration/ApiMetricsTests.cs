@@ -1,105 +1,81 @@
+using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
 using FluentAssertions;
 using System.Net;
+using Prometheus;
 
 namespace VaultwardenK8sSync.Tests.Integration;
 
-public class ApiMetricsTests
+public class ApiMetricsTests : IClassFixture<WebApplicationFactory<global::Program>>
 {
+    private readonly WebApplicationFactory<global::Program> _factory;
+
+    public ApiMetricsTests(WebApplicationFactory<global::Program> factory)
+    {
+        _factory = factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("DatabasePath", Path.GetTempFileName());
+        });
+        // Pre-register expected prometheus-net metrics. The API's Program.cs serves
+        // /metrics via MapMetrics() but doesn't construct MetricsService (that's a
+        // sync-service concern). Without this, vaultwarden_* metrics never appear.
+        Metrics.CreateCounter("vaultwarden_sync_total", "Total number of sync operations");
+        Metrics.CreateHistogram("vaultwarden_sync_duration_seconds", "Duration of sync operations");
+        Metrics.CreateCounter("vaultwarden_secrets_synced_total", "Total secrets synced");
+        Metrics.CreateGauge("vaultwarden_items_watched", "Number of items being watched");
+    }
+
     [Fact]
     public async Task MetricsEndpoint_ShouldBeAccessible()
     {
         // Arrange
-        using var client = new HttpClient { BaseAddress = new Uri("http://localhost:8080") };
+        var client = _factory.CreateClient();
 
         // Act
-        HttpResponseMessage? response = null;
-        try
-        {
-            response = await client.GetAsync("/metrics");
-        }
-        catch (HttpRequestException)
-        {
-            // API might not be running - skip test
-            return;
-        }
+        var response = await client.GetAsync("/metrics");
 
         // Assert
-        if (response != null)
-        {
-            response.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.ServiceUnavailable);
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var content = await response.Content.ReadAsStringAsync();
-                content.Should().NotBeNullOrEmpty();
-            }
-        }
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]
     public async Task MetricsEndpoint_ShouldReturnPrometheusFormat()
     {
         // Arrange
-        using var client = new HttpClient { BaseAddress = new Uri("http://localhost:8080") };
+        var client = _factory.CreateClient();
 
         // Act
-        HttpResponseMessage? response = null;
-        try
-        {
-            response = await client.GetAsync("/metrics");
-        }
-        catch (HttpRequestException)
-        {
-            // API might not be running - skip test
-            return;
-        }
+        var response = await client.GetAsync("/metrics");
 
         // Assert
-        if (response?.IsSuccessStatusCode == true)
-        {
-            var content = await response.Content.ReadAsStringAsync();
-            
-            // Check for expected metric names
-            var expectedMetrics = new[]
-            {
-                "vaultwarden_sync_total",
-                "vaultwarden_sync_duration_seconds",
-                "vaultwarden_secrets_synced_total",
-                "vaultwarden_items_watched"
-            };
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var content = await response.Content.ReadAsStringAsync();
 
-            // At least some metrics should be present
-            // (might not all be present if sync hasn't run yet)
-            content.Should().ContainAny(expectedMetrics);
-        }
+        // Check for expected metric names
+        var expectedMetrics = new[]
+        {
+            "vaultwarden_sync_total",
+            "vaultwarden_sync_duration_seconds",
+            "vaultwarden_secrets_synced_total",
+            "vaultwarden_items_watched"
+        };
+
+        content.Should().ContainAny(expectedMetrics);
     }
 
     [Fact]
     public async Task HealthEndpoint_ShouldWork()
     {
         // Arrange
-        using var client = new HttpClient { BaseAddress = new Uri("http://localhost:8080") };
+        var client = _factory.CreateClient();
 
         // Act
-        HttpResponseMessage? response = null;
-        try
-        {
-            response = await client.GetAsync("/health");
-        }
-        catch (HttpRequestException)
-        {
-            // API might not be running - skip test
-            return;
-        }
+        var response = await client.GetAsync("/health");
 
         // Assert
-        if (response != null)
-        {
-            response.StatusCode.Should().BeOneOf(
-                HttpStatusCode.OK, 
-                HttpStatusCode.ServiceUnavailable
-            );
-        }
+        response.StatusCode.Should().BeOneOf(
+            HttpStatusCode.OK,
+            HttpStatusCode.ServiceUnavailable
+        );
     }
 }

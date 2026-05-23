@@ -107,8 +107,6 @@ public static class SyncSummaryFormatter
         var updated = namespaces.Where(n => n.Updated > 0 && n.Created == 0 && n.Failed == 0).ToList();
         var upToDate = namespaces.Where(n => n.Skipped > 0 && n.Created == 0 && n.Updated == 0 && n.Failed == 0).ToList();
         var failed = namespaces.Where(n => n.Failed > 0 || !n.Success).ToList();
-        var notFound = namespaces.Where(n => n.Errors.Any(e => e.Contains("not found") || e.Contains("does not exist"))).ToList();
-        
         // Render each group
         if (created.Any())
         {
@@ -117,6 +115,12 @@ public static class SyncSummaryFormatter
             {
                 var stats = GetNamespaceStatsText(ns);
                 sb.AppendLine($"   • {ns.Name}{stats}");
+                // List individual created secret names
+                foreach (var secret in ns.Secrets.Where(s => s.Outcome == ReconcileOutcome.Created).OrderBy(s => s.Name))
+                {
+                    var reason = !string.IsNullOrEmpty(secret.ChangeReason) ? $" ({secret.ChangeReason})" : "";
+                    sb.AppendLine($"       ↳ {secret.Name}{reason}");
+                }
                 foreach (var error in ns.Errors)
                 {
                     sb.AppendLine($"     ↳ {error}");
@@ -132,6 +136,12 @@ public static class SyncSummaryFormatter
             {
                 var stats = GetNamespaceStatsText(ns);
                 sb.AppendLine($"   • {ns.Name}{stats}");
+                // List individual updated secret names
+                foreach (var secret in ns.Secrets.Where(s => s.Outcome == ReconcileOutcome.Updated).OrderBy(s => s.Name))
+                {
+                    var reason = !string.IsNullOrEmpty(secret.ChangeReason) ? $" ({secret.ChangeReason})" : "";
+                    sb.AppendLine($"       ↳ {secret.Name}{reason}");
+                }
                 foreach (var error in ns.Errors)
                 {
                     sb.AppendLine($"     ↳ {error}");
@@ -174,20 +184,6 @@ public static class SyncSummaryFormatter
             sb.AppendLine();
         }
         
-        if (notFound.Any())
-        {
-            sb.AppendLine("⚠️  NOT FOUND:");
-            foreach (var ns in notFound.OrderBy(n => n.Name))
-            {
-                var stats = GetNamespaceStatsText(ns);
-                sb.AppendLine($"   • {ns.Name}{stats}");
-                foreach (var error in ns.Errors)
-                {
-                    sb.AppendLine($"     ↳ {error}");
-                }
-            }
-            sb.AppendLine();
-        }
     }
     
     private static string GetNamespaceStatsText(NamespaceSummary ns)
@@ -210,6 +206,7 @@ public static class SyncSummaryFormatter
         
         sb.AppendLine("=============================================================");
         sb.AppendLine($"{statusIcon} Sync completed at {endTime} - Next sync in configured interval");
+        sb.AppendLine($"Summary will reload on changes");
         sb.AppendLine("=============================================================");
     }
 }

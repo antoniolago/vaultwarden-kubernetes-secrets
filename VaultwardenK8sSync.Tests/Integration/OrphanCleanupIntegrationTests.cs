@@ -25,16 +25,10 @@ public class OrphanCleanupIntegrationTests : IDisposable
 
     public OrphanCleanupIntegrationTests()
     {
-        // Clean up any leftover sync lock file from previous tests
-        var lockFilePath = Path.Combine(Path.GetTempPath(), "vaultwarden-sync-operation.lock");
-        if (File.Exists(lockFilePath))
-        {
-            try { File.Delete(lockFilePath); } catch { }
-        }
-
         _loggerMock = new Mock<ILogger<SyncService>>();
         _vaultwardenServiceMock = new Mock<IVaultwardenService>();
         _kubernetesServiceMock = new Mock<IKubernetesService>();
+            _kubernetesServiceMock.Setup(x => x.IsInitialized).Returns(true);
         _metricsServiceMock = new Mock<IMetricsService>();
         _dbLoggerMock = new Mock<IDatabaseLoggerService>();
         _syncConfig = new SyncSettings { DeleteOrphans = true };
@@ -326,15 +320,5 @@ public class OrphanCleanupIntegrationTests : IDisposable
 
     public void Dispose()
     {
-        var lockFilePath = Path.Combine(Path.GetTempPath(), "vaultwarden-sync-operation.lock");
-        Thread.Sleep(100);
-        try
-        {
-            if (File.Exists(lockFilePath))
-            {
-                File.Delete(lockFilePath);
-            }
-        }
-        catch { }
     }
 }

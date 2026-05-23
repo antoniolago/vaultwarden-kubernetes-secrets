@@ -19,6 +19,10 @@ spec:
         app.kubernetes.io/name: {{ include "vaultwarden-kubernetes-secrets.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       serviceAccountName: {{ include "vaultwarden-kubernetes-secrets.serviceAccountName" . }}
       {{- with .Values.podSecurityContext }}
       securityContext:
@@ -75,7 +79,7 @@ spec:
             - name: XDG_CONFIG_HOME
               value: "/data/home/.config"
             - name: DATABASE_PATH
-              value: "/data/sync.db"
+              value: "{{ .Values.databasePath | default "/data/sync.db" }}"
             # Propagate SYNC__FIELD_* env overrides from values.env.fields
             {{- with .Values.env.fields }}
             - name: SYNC__FIELD__NAMESPACES
@@ -92,6 +96,10 @@ spec:
               value: {{ .inlineKvPrefix | quote }}
             - name: SYNC__FIELD__SECRETBLOCKPREFIX
               value: {{ .secretBlockPrefix | quote }}
+            {{- end }}
+            {{- if .Values.env.contextName }}
+            - name: SYNC__CONTEXTNAME
+              value: {{ .Values.env.contextName | quote }}
             {{- end }}
             # Mount secrets as environment variables
             {{- range $name, $ref := .Values.env.secrets }}

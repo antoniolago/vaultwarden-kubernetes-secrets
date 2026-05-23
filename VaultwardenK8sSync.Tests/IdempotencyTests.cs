@@ -16,32 +16,10 @@ namespace VaultwardenK8sSync.Tests;
 /// This verifies the fix for concurrent sync issues.
 /// </summary>
 [Collection("SyncService Sequential")]
-public class IdempotencyTests : IDisposable
+public class IdempotencyTests
 {
     public IdempotencyTests()
     {
-        // Clean up any leftover sync lock file from previous tests
-        CleanupLockFile();
-    }
-
-    public void Dispose()
-    {
-        // Clean up lock file after each test
-        System.Threading.Thread.Sleep(100); // Give lock time to release
-        CleanupLockFile();
-    }
-
-    private static void CleanupLockFile()
-    {
-        var lockFilePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "vaultwarden-sync-operation.lock");
-        try
-        {
-            if (System.IO.File.Exists(lockFilePath))
-            {
-                System.IO.File.Delete(lockFilePath);
-            }
-        }
-        catch { }
     }
 
     [Fact]
@@ -51,6 +29,7 @@ public class IdempotencyTests : IDisposable
         var mockLogger = new Mock<ILogger<SyncService>>();
         var mockVaultwardenService = new Mock<IVaultwardenService>();
         var mockKubernetesService = new Mock<IKubernetesService>();
+            mockKubernetesService.Setup(x => x.IsInitialized).Returns(true);
         var mockMetrics = new Mock<IMetricsService>();
         var mockDbLogger = new Mock<IDatabaseLoggerService>();
         
@@ -114,6 +93,7 @@ public class IdempotencyTests : IDisposable
         var mockLogger = new Mock<ILogger<SyncService>>();
         var mockVaultwardenService = new Mock<IVaultwardenService>();
         var mockKubernetesService = new Mock<IKubernetesService>();
+            mockKubernetesService.Setup(x => x.IsInitialized).Returns(true);
         var mockMetrics = new Mock<IMetricsService>();
         var mockDbLogger = new Mock<IDatabaseLoggerService>();
         
@@ -167,6 +147,7 @@ public class IdempotencyTests : IDisposable
         var mockLogger = new Mock<ILogger<SyncService>>();
         var mockVaultwardenService = new Mock<IVaultwardenService>();
         var mockKubernetesService = new Mock<IKubernetesService>();
+            mockKubernetesService.Setup(x => x.IsInitialized).Returns(true);
         var mockMetrics = new Mock<IMetricsService>();
         var mockDbLogger = new Mock<IDatabaseLoggerService>();
         
@@ -225,6 +206,7 @@ public class IdempotencyTests : IDisposable
         var mockLogger = new Mock<ILogger<SyncService>>();
         var mockVaultwardenService = new Mock<IVaultwardenService>();
         var mockKubernetesService = new Mock<IKubernetesService>();
+            mockKubernetesService.Setup(x => x.IsInitialized).Returns(true);
         var mockMetrics = new Mock<IMetricsService>();
         var mockDbLogger = new Mock<IDatabaseLoggerService>();
         
@@ -276,6 +258,7 @@ public class IdempotencyTests : IDisposable
         var mockLogger = new Mock<ILogger<SyncService>>();
         var mockVaultwardenService = new Mock<IVaultwardenService>();
         var mockKubernetesService = new Mock<IKubernetesService>();
+            mockKubernetesService.Setup(x => x.IsInitialized).Returns(true);
         var mockMetrics = new Mock<IMetricsService>();
         var mockDbLogger = new Mock<IDatabaseLoggerService>();
         

@@ -20,23 +20,10 @@ public class SecretCacheTests : IDisposable
 
     public SecretCacheTests()
     {
-        // Clean up any leftover sync lock file from previous tests
-        var lockFilePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "vaultwarden-sync-operation.lock");
-        if (System.IO.File.Exists(lockFilePath))
-        {
-            try
-            {
-                System.IO.File.Delete(lockFilePath);
-            }
-            catch
-            {
-                // Ignore if file is locked by another process
-            }
-        }
-        
         _loggerMock = new Mock<ILogger<SyncService>>();
         _vaultwardenServiceMock = new Mock<IVaultwardenService>();
         _kubernetesServiceMock = new Mock<IKubernetesService>();
+            _kubernetesServiceMock.Setup(x => x.IsInitialized).Returns(true);
         _metricsServiceMock = new Mock<IMetricsService>();
         _dbLoggerMock = new Mock<IDatabaseLoggerService>();
         _syncConfig = new SyncSettings();
@@ -261,25 +248,12 @@ public class SecretCacheTests : IDisposable
             "failing-secret",
             "Failed",
             It.IsAny<int>(),
-            It.Is<string>(err => err.Contains("does not exist"))
+            It.Is<string>(err => err.Contains("does not exist")),
+            It.IsAny<string?>()
         ), Times.AtLeastOnce);
     }
 
     public void Dispose()
     {
-        // Clean up lock file after each test
-        var lockFilePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "vaultwarden-sync-operation.lock");
-        System.Threading.Thread.Sleep(100); // Give lock time to release
-        try
-        {
-            if (System.IO.File.Exists(lockFilePath))
-            {
-                System.IO.File.Delete(lockFilePath);
-            }
-        }
-        catch
-        {
-            // Ignore errors during cleanup
-        }
     }
 }

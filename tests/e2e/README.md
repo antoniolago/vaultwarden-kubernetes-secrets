@@ -4,7 +4,7 @@ This directory contains a comprehensive end-to-end test suite written in **C#** 
 
 1. **Creates a Kubernetes cluster** (kind) inside Docker
 2. **Deploys Vaultwarden** as the password manager
-3. **Creates a test user** with API credentials using Bitwarden CLI
+3. **Creates a test user** with API credentials via direct Vaultwarden HTTP API calls
 4. **Deploys the vaultwarden-kubernetes-secrets operator**
 5. **Creates test vault items** with various configurations
 6. **Verifies secrets are correctly synced** to Kubernetes
@@ -80,7 +80,7 @@ All tests are in `VaultwardenK8sSync.E2ETests/Tests/SecretSyncTests.cs`:
 - **kind** (Kubernetes in Docker)
 - **kubectl**
 - **helm**
-- **bw** (Bitwarden CLI)
+
 - ~4GB RAM available
 - ~10GB disk space
 
@@ -89,7 +89,7 @@ All tests are in `VaultwardenK8sSync.E2ETests/Tests/SecretSyncTests.cs`:
 1. **E2ETestFixture** (xUnit IAsyncLifetime) sets up the environment:
    - Creates kind cluster with port mappings
    - Deploys Vaultwarden from `manifests/vaultwarden.yaml`
-   - Uses `bw` CLI to create test user and vault items
+   - Uses Vaultwarden HTTP API directly to create test user and vault items
    - Builds and loads operator Docker image
    - Deploys operator via Helm chart
 

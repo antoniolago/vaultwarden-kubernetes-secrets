@@ -29,17 +29,17 @@ public class ValkeySyncOutputPublisher : IValkeySyncOutputPublisher, IDisposable
             {
                 _valkey = ConnectionMultiplexer.Connect(connectionString);
                 _enabled = true;
-                _logger.LogInformation("Valkey connection established for sync output publishing");
+                _logger.LogDebug("Valkey connection established for sync output publishing");
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to connect to Valkey. Sync output publishing disabled.");
+                _logger.LogDebug(ex, "Failed to connect to Valkey. Sync output publishing disabled.");
                 _enabled = false;
-            }
+            }   
         }
         else
         {
-            _logger.LogInformation("Valkey not configured. Sync output publishing disabled.");
+            _logger.LogDebug("Valkey not configured. Sync output publishing disabled.");
             _enabled = false;
         }
     }

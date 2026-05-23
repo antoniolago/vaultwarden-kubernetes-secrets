@@ -1,4 +1,6 @@
+using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -41,48 +43,102 @@ public class VaultwardenService : IVaultwardenService
         };
         _httpClient = httpClientFactory?.CreateClient("Vaultwarden") ?? new HttpClient(handler);
         _httpClient.Timeout = TimeSpan.FromSeconds(60);
+
+        // Bitwarden/Vaultwarden requires a valid semver in the Bitwarden-Client-Version header
+        // on API requests. Without this, Bitwarden-compatible servers may reject requests.
+        _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Bitwarden-Client-Version", "2024.12.0");
     }
 
     public async Task<bool> AuthenticateAsync()
     {
-        try
+        // Validate configuration first (non-transient, no retry needed)
+        if (string.IsNullOrEmpty(_config.ServerUrl))
         {
-            if (string.IsNullOrEmpty(_config.ServerUrl))
-            {
-                _logger.LogError("ServerUrl is not configured");
-                return false;
-            }
-
-            if (!IsValidServerUrl(_config.ServerUrl))
-            {
-                _logger.LogError("Invalid ServerUrl format: {ServerUrl}", _config.ServerUrl);
-                return false;
-            }
-
-            // Step 1: Login with API key to get access token
-            var loginSuccess = await LoginWithApiKeyAsync();
-            if (!loginSuccess)
-            {
-                _logger.LogError("API key login failed");
-                return false;
-            }
-
-            // Step 2: Get encryption keys by "unlocking" with master password
-            var unlockSuccess = await UnlockVaultAsync();
-            if (!unlockSuccess)
-            {
-                _logger.LogError("Vault unlock (key derivation) failed");
-                return false;
-            }
-
-            _isAuthenticated = true;
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Authentication failed: {Message}", ex.Message);
+            _logger.LogError("ServerUrl is not configured");
             return false;
         }
+
+        if (!IsValidServerUrl(_config.ServerUrl))
+        {
+            _logger.LogError("Invalid ServerUrl format: {ServerUrl}", _config.ServerUrl);
+            return false;
+        }
+
+        // Retry with exponential backoff for transient network failures
+        // e.g., TLS proxy not ready yet, DNS resolution race, socket exhaustion
+        int maxRetries = 5;
+        int delayMs = 1000;
+        int maxDelayMs = 8000;
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                // Step 1: Login with API key to get access token
+                var loginSuccess = await LoginWithApiKeyAsync();
+                if (!loginSuccess)
+                {
+                    // LoginWithApiKeyAsync already logged details; non-transient failures
+                    // (bad credentials, invalid config) return false without throwing
+                    _logger.LogError("API key login failed");
+                    return false;
+                }
+
+                // Step 2: Get encryption keys by "unlocking" with master password
+                var unlockSuccess = await UnlockVaultAsync();
+                if (!unlockSuccess)
+                {
+                    _logger.LogError("Vault unlock (key derivation) failed");
+                    return false;
+                }
+
+                _isAuthenticated = true;
+                return true;
+            }
+            catch (HttpRequestException ex) when (IsTransientHttpException(ex))
+            {
+                if (attempt < maxRetries)
+                {
+                    _logger.LogWarning(ex,
+                        "Transient connection failure during authentication (attempt {Attempt}/{MaxRetries}), retrying in {Delay}ms...",
+                        attempt, maxRetries, delayMs);
+                    await Task.Delay(delayMs);
+                    delayMs = Math.Min(delayMs * 2, maxDelayMs);
+                }
+                else
+                {
+                    _logger.LogError(ex,
+                        "Authentication failed after {MaxRetries} attempts due to persistent connection issues: {Message}",
+                        maxRetries, ex.Message);
+                    return false;
+                }
+            }
+            catch (SocketException ex)
+            {
+                if (attempt < maxRetries)
+                {
+                    _logger.LogWarning(ex,
+                        "Transient socket failure during authentication (attempt {Attempt}/{MaxRetries}), retrying in {Delay}ms...",
+                        attempt, maxRetries, delayMs);
+                    await Task.Delay(delayMs);
+                    delayMs = Math.Min(delayMs * 2, maxDelayMs);
+                }
+                else
+                {
+                    _logger.LogError(ex,
+                        "Authentication failed after {MaxRetries} attempts due to persistent socket issues: {Message}",
+                        maxRetries, ex.Message);
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Authentication failed: {Message}", ex.Message);
+                return false;
+            }
+        }
+
+        return false;
     }
 
     private async Task<bool> LoginWithApiKeyAsync()
@@ -143,6 +199,11 @@ public class VaultwardenService : IVaultwardenService
 
             _logger.LogInformation("API key login successful");
             return true;
+        }
+        catch (HttpRequestException ex) when (IsTransientHttpException(ex))
+        {
+            _logger.LogWarning(ex, "API key login transient failure: {Message}", ex.Message);
+            throw; // propagate to AuthenticateAsync retry loop
         }
         catch (Exception ex)
         {
@@ -217,7 +278,7 @@ public class VaultwardenService : IVaultwardenService
             if (profile.TryGetProperty("privateKey", out var privKeyProp) || profile.TryGetProperty("PrivateKey", out privKeyProp))
                 encryptedPrivateKey = privKeyProp.ValueKind != JsonValueKind.Null ? privKeyProp.GetString() : null;
 
-            _logger.LogInformation("Profile KDF settings: type={KdfType}, iterations={Iterations}, hasPrivateKey={HasPrivKey}",
+            _logger.LogDebug("Profile KDF settings: type={KdfType}, iterations={Iterations}, hasPrivateKey={HasPrivKey}",
                 kdfType, kdfIterations, !string.IsNullOrEmpty(encryptedPrivateKey));
 
             if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(encryptedKey))
@@ -292,7 +353,7 @@ public class VaultwardenService : IVaultwardenService
                 }
             }
             
-            _logger.LogInformation("Key derivation: KDF={KdfType}, iterations={Iterations}, method={Method}", 
+            _logger.LogDebug("Key derivation: KDF={KdfType}, iterations={Iterations}, method={Method}", 
                 kdfType, kdfIterations, keyMethod);
             
             if (symKey == null || symKey.Length < 64)
@@ -309,9 +370,13 @@ public class VaultwardenService : IVaultwardenService
             // Decrypt user's private key and organization keys from profile
             await DecryptOrgKeysFromProfile(profile, encryptedPrivateKey);
 
-            _logger.LogInformation("Vault unlocked successfully (enc key first 4 hex: {EncHex}, org keys: {OrgCount})", 
-                Convert.ToHexString(_encryptionKey[..4]), _orgKeys.Count);
+            _logger.LogInformation("Vault unlocked successfully");
             return true;
+        }
+        catch (HttpRequestException ex) when (IsTransientHttpException(ex))
+        {
+            _logger.LogWarning(ex, "Vault unlock transient failure: {Message}", ex.Message);
+            throw; // propagate to AuthenticateAsync retry loop
         }
         catch (Exception ex)
         {
@@ -586,6 +651,48 @@ public class VaultwardenService : IVaultwardenService
             }
         }
 
+        // Parse attachments
+        if (cipher.TryGetProperty("attachments", out var attachmentsProp) || cipher.TryGetProperty("Attachments", out attachmentsProp))
+        {
+            if (attachmentsProp.ValueKind == JsonValueKind.Array)
+            {
+                item.Attachments = new List<AttachmentInfo>();
+                foreach (var att in attachmentsProp.EnumerateArray())
+                {
+                    var attInfo = new AttachmentInfo();
+
+                    if (att.TryGetProperty("id", out var attIdProp) || att.TryGetProperty("Id", out attIdProp))
+                        attInfo.Id = attIdProp.GetString() ?? string.Empty;
+
+                    if (att.TryGetProperty("fileName", out var attNameProp) || att.TryGetProperty("FileName", out attNameProp))
+                    {
+                        var encryptedFileName = attNameProp.ValueKind != JsonValueKind.Null ? (attNameProp.GetString() ?? string.Empty) : string.Empty;
+                        attInfo.FileName = DecryptString(encryptedFileName, orgId) ?? encryptedFileName;
+                    }
+
+                    if (att.TryGetProperty("size", out var attSizeProp) || att.TryGetProperty("Size", out attSizeProp))
+                    {
+                        if (attSizeProp.ValueKind == JsonValueKind.Number)
+                            attInfo.Size = attSizeProp.GetInt64();
+                        else if (attSizeProp.ValueKind == JsonValueKind.String && long.TryParse(attSizeProp.GetString(), out var sizeVal))
+                            attInfo.Size = sizeVal;
+                    }
+
+                    if (att.TryGetProperty("sizeName", out var attSizeNameProp) || att.TryGetProperty("SizeName", out attSizeNameProp))
+                        attInfo.SizeName = attSizeNameProp.ValueKind != JsonValueKind.Null ? (attSizeNameProp.GetString() ?? string.Empty) : string.Empty;
+
+                    if (att.TryGetProperty("url", out var attUrlProp) || att.TryGetProperty("Url", out attUrlProp))
+                        attInfo.Url = attUrlProp.ValueKind != JsonValueKind.Null ? (attUrlProp.GetString() ?? string.Empty) : string.Empty;
+
+                    if (att.TryGetProperty("key", out var attKeyProp) || att.TryGetProperty("Key", out attKeyProp))
+                        attInfo.Key = attKeyProp.ValueKind != JsonValueKind.Null ? attKeyProp.GetString() : null;
+
+                    _logger.LogDebug("Parsed attachment: id='{Id}', fileName='{FileName}'", attInfo.Id, attInfo.FileName);
+                    item.Attachments.Add(attInfo);
+                }
+            }
+        }
+
         return item;
     }
 
@@ -851,8 +958,8 @@ public class VaultwardenService : IVaultwardenService
             if (decryptedOrgKey != null && decryptedOrgKey.Length >= 64)
             {
                 _orgKeys[orgId] = (decryptedOrgKey[..32], decryptedOrgKey[32..64]);
-                _logger.LogInformation("Decrypted org key for {OrgId}: {Len} bytes, first4hex={First4}", 
-                    orgId, decryptedOrgKey.Length, Convert.ToHexString(decryptedOrgKey[..4]));
+                _logger.LogDebug("Decrypted org key for {OrgId}: {Len} bytes", 
+                    orgId, decryptedOrgKey.Length);
             }
             else
             {
@@ -1022,6 +1129,200 @@ public class VaultwardenService : IVaultwardenService
 
     #endregion
 
+    /// <summary>
+    /// Downloads the content of an attachment from Vaultwarden
+    /// </summary>
+    public async Task<byte[]?> DownloadAttachmentAsync(string attachmentUrl)
+    {
+        try
+        {
+            if (!_isAuthenticated || string.IsNullOrEmpty(_accessToken))
+            {
+                _logger.LogWarning("Cannot download attachment - not authenticated");
+                return null;
+            }
+
+            string requestUrl;
+            if (Uri.TryCreate(attachmentUrl, UriKind.Absolute, out var uriResult) 
+                && (uriResult.Scheme == Uri.UriSchemeHttp || uriResult.Scheme == Uri.UriSchemeHttps))
+            {
+                if (!IsSafeUrl(uriResult))
+                {
+                    _logger.LogWarning("Blocked attachment download from unsafe URL (SSRF prevention): {Url}", attachmentUrl);
+                    return null;
+                }
+                requestUrl = attachmentUrl;
+            }
+            else
+            {
+                requestUrl = $"{_config.ServerUrl}{attachmentUrl}";
+            }
+
+            using var response = await _httpClient.GetAsync(requestUrl);
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Failed to download attachment: {StatusCode}", response.StatusCode);
+                return null;
+            }
+
+            return await response.Content.ReadAsByteArrayAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception downloading attachment: {Url}", attachmentUrl);
+            return null;
+        }
+    }
+
+    public byte[]? DecryptAttachmentContent(byte[] encryptedContent, string encryptedKey, string? orgId = null)
+    {
+        try
+        {
+            var decryptedKey = DecryptToBytesWithOrgKey(encryptedKey, orgId);
+            if (decryptedKey == null || decryptedKey.Length < 32)
+            {
+                _logger.LogWarning("Failed to decrypt attachment key");
+                return null;
+            }
+
+            byte[] encKey;
+            byte[]? macKey = null;
+            if (decryptedKey.Length >= 64)
+            {
+                encKey = decryptedKey[..32];
+                macKey = decryptedKey[32..64];
+            }
+            else
+            {
+                encKey = decryptedKey;
+            }
+
+            var contentStr = Encoding.UTF8.GetString(encryptedContent);
+            if (!contentStr.StartsWith("2."))
+            {
+                _logger.LogDebug("Attachment content does not appear to be encrypted, returning as-is");
+                return encryptedContent;
+            }
+
+            var parts = contentStr[2..].Split('|');
+            if (parts.Length < 2)
+            {
+                _logger.LogWarning("Invalid encrypted content format for attachment");
+                return null;
+            }
+
+            var iv = Convert.FromBase64String(parts[0]);
+            var data = Convert.FromBase64String(parts[1]);
+
+            if (parts.Length > 2 && !string.IsNullOrEmpty(parts[2]) && macKey != null)
+            {
+                var mac = Convert.FromBase64String(parts[2]);
+                using var hmac = new HMACSHA256(macKey);
+                var macData = new byte[iv.Length + data.Length];
+                iv.CopyTo(macData, 0);
+                data.CopyTo(macData, iv.Length);
+                var computedMac = hmac.ComputeHash(macData);
+                if (!computedMac.SequenceEqual(mac))
+                {
+                    _logger.LogWarning("Attachment content MAC verification failed");
+                    return null;
+                }
+            }
+
+            using var aes = Aes.Create();
+            aes.Key = encKey;
+            aes.IV = iv;
+            aes.Mode = CipherMode.CBC;
+            aes.Padding = PaddingMode.PKCS7;
+
+            using var decryptor = aes.CreateDecryptor();
+            return decryptor.TransformFinalBlock(data, 0, data.Length);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to decrypt attachment content");
+            return null;
+        }
+    }
+
+    private byte[]? DecryptToBytesWithOrgKey(string? encrypted, string? orgId = null)
+    {
+        byte[]? encKey = _encryptionKey;
+        byte[]? macKey = _macKey;
+        if (!string.IsNullOrEmpty(orgId) && _orgKeys.TryGetValue(orgId, out var orgKeyPair))
+        {
+            encKey = orgKeyPair.encKey;
+            macKey = orgKeyPair.macKey;
+        }
+
+        if (string.IsNullOrEmpty(encrypted) || encKey == null)
+            return null;
+
+        try
+        {
+            if (!encrypted.StartsWith("2."))
+                return null;
+
+            var parts = encrypted[2..].Split('|');
+            if (parts.Length < 2)
+                return null;
+
+            var iv = Convert.FromBase64String(parts[0]);
+            var data = Convert.FromBase64String(parts[1]);
+
+            // Verify MAC if present and macKey available
+            if (parts.Length > 2 && !string.IsNullOrEmpty(parts[2]) && macKey != null)
+            {
+                var mac = Convert.FromBase64String(parts[2]);
+                using var hmac = new HMACSHA256(macKey);
+                var macData = new byte[iv.Length + data.Length];
+                iv.CopyTo(macData, 0);
+                data.CopyTo(macData, iv.Length);
+                var computedMac = hmac.ComputeHash(macData);
+                if (!computedMac.SequenceEqual(mac))
+                {
+                    _logger.LogWarning("MAC verification failed for encrypted data (org: {OrgId})", orgId ?? "personal");
+                    return null;
+                }
+            }
+            else if (parts.Length > 2 && string.IsNullOrEmpty(parts[2]) && macKey != null)
+            {
+                _logger.LogWarning("Empty MAC in encrypted data (org: {OrgId})", orgId ?? "personal");
+            }
+
+            using var aes = Aes.Create();
+            aes.Key = encKey;
+            aes.IV = iv;
+            aes.Mode = CipherMode.CBC;
+            aes.Padding = PaddingMode.PKCS7;
+
+            using var decryptor = aes.CreateDecryptor();
+            return decryptor.TransformFinalBlock(data, 0, data.Length);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool IsTransientHttpException(HttpRequestException ex)
+    {
+        // SocketException (e.g., "Resource temporarily unavailable") indicates
+        // transient network/DNS issues that should be retried
+        if (ex.InnerException is SocketException)
+            return true;
+
+        // Certain HTTP status codes are safe to retry
+        if (ex.StatusCode.HasValue)
+        {
+            var code = (int)ex.StatusCode.Value;
+            return code == 503 || code == 502 || code == 504 || code == 429;
+        }
+
+        return false;
+    }
+
     private static bool IsValidServerUrl(string url)
     {
         if (string.IsNullOrWhiteSpace(url))
@@ -1036,6 +1337,31 @@ public class VaultwardenService : IVaultwardenService
         var dangerousChars = new[] { ";", "`", "$", "&", "|", "\n", "\r", "'", "\"", "<", ">", "(", ")" };
         if (dangerousChars.Any(url.Contains))
             return false;
+
+        return true;
+    }
+
+    private static bool IsSafeUrl(Uri uri)
+    {
+        if (uri.Scheme != Uri.UriSchemeHttps)
+            return false;
+
+        if (IPAddress.TryParse(uri.DnsSafeHost, out var ip))
+        {
+            if (IPAddress.IsLoopback(ip))
+                return false;
+
+            if (ip.AddressFamily == AddressFamily.InterNetwork)
+            {
+                var bytes = ip.GetAddressBytes();
+                // RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+                if (bytes[0] == 10) return false;
+                if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return false;
+                if (bytes[0] == 192 && bytes[1] == 168) return false;
+                // Link-local: 169.254.0.0/16
+                if (bytes[0] == 169 && bytes[1] == 254) return false;
+            }
+        }
 
         return true;
     }

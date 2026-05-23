@@ -28,8 +28,7 @@ public class AppSettings
                 FolderName = Environment.GetEnvironmentVariable("VAULTWARDEN__FOLDERNAME"),
                 CollectionId = Environment.GetEnvironmentVariable("VAULTWARDEN__COLLECTIONID"),
                 CollectionName = Environment.GetEnvironmentVariable("VAULTWARDEN__COLLECTIONNAME"),
-                DeviceId = Environment.GetEnvironmentVariable("VAULTWARDEN__DEVICEID"),
-                DataDirectory = Environment.GetEnvironmentVariable("VAULTWARDEN__DATADIRECTORY") ?? Path.Combine(Path.GetTempPath(), "bw-data")
+                DeviceId = Environment.GetEnvironmentVariable("VAULTWARDEN__DEVICEID")
             },
             Kubernetes = new KubernetesSettings
             {
@@ -43,7 +42,8 @@ public class AppSettings
                 DryRun = bool.TryParse(Environment.GetEnvironmentVariable("SYNC__DRYRUN"), out var dryRun) && dryRun,
                 DeleteOrphans = bool.TryParse(Environment.GetEnvironmentVariable("SYNC__DELETEORPHANS"), out var deleteOrphans) ? deleteOrphans : true,
                 SyncIntervalSeconds = int.TryParse(Environment.GetEnvironmentVariable("SYNC__SYNCINTERVALSECONDS"), out var syncInterval) ? syncInterval : 3600,
-                ContinuousSync = bool.TryParse(Environment.GetEnvironmentVariable("SYNC__CONTINUOUSSYNC"), out var continuousSync) && continuousSync
+                ContinuousSync = bool.TryParse(Environment.GetEnvironmentVariable("SYNC__CONTINUOUSSYNC"), out var continuousSync) && continuousSync,
+                ContextName = Environment.GetEnvironmentVariable("SYNC__CONTEXTNAME")
             },
             Logging = new LoggingSettings
             {
@@ -112,9 +112,6 @@ public class VaultwardenSettings
     // Optional: persistent device identifier to prevent "New device logged in" notifications
     public string? DeviceId { get; set; }
 
-    // Data directory for bw CLI state (ensures consistent session across commands)
-    public string DataDirectory { get; set; } = Path.Combine(Path.GetTempPath(), "bw-data");
-
     // Password login removed; API key is the only supported mode
 }
 
@@ -132,6 +129,15 @@ public class SyncSettings
     public bool DeleteOrphans { get; set; } = true;
     public int SyncIntervalSeconds { get; set; } = 3600; // 60 minutes in seconds
     public bool ContinuousSync { get; set; } = false;
+    public string? ContextName { get; set; }
+    
+    /// <summary>
+    /// Optional unique name for the global sync lock file.
+    /// When set, overrides the default "vaultwarden-sync-operation.lock".
+    /// Each SyncService instance should have a unique lock name in tests
+    /// to avoid contention when tests run in parallel.
+    /// </summary>
+    public string? LockFileName { get; set; }
 }
 
 public class LoggingSettings

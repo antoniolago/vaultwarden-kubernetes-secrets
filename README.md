@@ -9,6 +9,15 @@
 
 Automatically sync secrets from [Vaultwarden](https://github.com/dani-garcia/vaultwarden) to Kubernetes. Store your secrets in Vaultwarden, tag them with target namespaces, and they'll be created as Kubernetes Secrets.
 
+> **⚠️ v2.0 Breaking Changes**: If upgrading from v1.x, see the [CHANGELOG](CHANGELOG.md). Secret key names have changed from item-derived names to fixed defaults (`password`, `username`).
+
+**Navigation**
+- [Quick Start](#quick-start): Install + create your first secret
+- [How It Works](#how-it-works): High-level flow
+- [Custom Fields Reference](#available-custom-fields): Table of all fields
+- [Configuration](#configuration): Helm values + env vars
+- [Troubleshooting](#troubleshooting): Common issues
+- [Examples](EXAMPLES.md): Full example catalog
 
 ---
 
@@ -40,43 +49,20 @@ helm upgrade -i vaultwarden-kubernetes-secrets oci://ghcr.io/antoniolago/charts/
   --set image.tag="$CHART_VERSION"
 ```
 
-**Security tip**: Create a dedicated Vaultwarden user for this service and scope it to a specific Organization/Collection.
+**Security tip:** Create a dedicated Vaultwarden user for this service and scope it to a specific Organization or Collection.
 
-### 2. Create a Secret in Vaultwarden
+### 2. Create your first secret
 
-In Vaultwarden, create a **Login**, **SSH Key** or **Secure Note** item with:
+Two ways to get started:
 
-**Required custom field:**
-- Name: `namespaces`
-- Value: `your-namespace` (e.g. `staging,production` for multiple)
+**Standard:** Create a Login item with a `namespaces` custom field.
 
-**That's it!** The sync service will create the Secret in your specified namespace(s) within the sync interval.
-
-### Available Custom Fields Reference
-
-| Field Name | Description | Default |
-|------------|-------------|---------|
-| `namespaces` | **Required.** Comma-separated list of target Kubernetes namespaces | - |
-| `secret-name` | Custom name for the Kubernetes Secret | Sanitized item name |
-| `secret-key-password` | Key name for the password/credential value | Sanitized item name |
-| `secret-key-username` | Key name for the username value | `<name>-username` |
-| `secret-type` | Kubernetes Secret type: `Opaque`, `kubernetes.io/basic-auth`, `kubernetes.io/tls`, `kubernetes.io/dockerconfigjson`  | `Opaque` |
-| `secret-annotation` | Custom annotations (format: `key=value` or `key: value`) | - |
-| `secret-label` | Custom labels (format: `key=value` or `key: value`) | - |
-| `ignore-field` | Comma-separated list of field names to exclude from sync | - |
-| `docker-config-json-server` | URL of the docker registry server when using secret-type `kubernetes.io/dockerconfigjson` | `https://index.docker.io/v1/` |
-| `docker-config-json-email` | User email address when using secret-type `kubernetes.io/dockerconfigjson` (optional) | - |
-
----
-
-## Examples
-
-### Basic Example
-**Vaultwarden Item:**
-- Name: `postgres-credentials`
-- Username: `admin`
-- Password: `secret123`
-- Custom field: `namespaces` = `production`
+| Vaultwarden Field | Value |
+|------------------|-------|
+| Name | `postgres-credentials` |
+| Username | `admin` |
+| Password | `secret123` |
+| Custom field: `namespaces` | `production` |
 
 **Result in Kubernetes:**
 ```yaml
@@ -86,186 +72,101 @@ metadata:
   name: postgres-credentials
   namespace: production
 data:
-  postgres-credentials: c2VjcmV0MTIz  # password
-  postgres-credentials-username: YWRtaW4=  # username
+  password: c2VjcmV0MTIz  # secret123
+  username: YWRtaW4=  # admin
 ```
 
-### Custom Key Names
-**Vaultwarden Item:**
-- Name: `Database Config`
-- Username: `dbuser`
-- Password: `dbpass`
-- Custom fields:
-  - `namespaces` = `staging,production`
-  - `secret-name` = `db-config`
-  - `secret-key-username` = `DB_USER`
-  - `secret-key-password` = `DB_PASSWORD`
+**YAML from notes:** Create a Secure Note with raw K8s YAML in the notes field. No custom fields needed.
 
-**Result in Kubernetes:**
-```yaml
+| Vaultwarden Field | Value |
+|------------------|-------|
+| Name | `my-config` |
+| Type | Secure Note |
+| Notes | *(see below)* |
+
+```
 apiVersion: v1
 kind: Secret
 metadata:
-  name: db-config
-  namespace: staging  # Also created in production
+  name: my-secret
+  namespace: default
+type: Opaque
 data:
-  DB_USER: ZGJ1c2Vy
-  DB_PASSWORD: ZGJwYXNz
+  key: dmFsdWU=  # value
 ```
 
-### With Additional Custom Fields
-**Vaultwarden Item:**
-- Name: `app-config`
-- Custom fields:
-  - `namespaces` = `production`
-  - `API_KEY` = `xyz123`
-  - `DATABASE_URL` = `postgres://...`
+This creates a Secret named `my-secret` in the `default` namespace — no `namespaces` field required.
 
-**Result:** All custom fields (except reserved ones) are synced to the Secret.
+### Available Custom Fields
 
-### With Custom Secret Type
-
-You can specify the Kubernetes Secret type using the `secret-type` custom field:
-
-**Vaultwarden Item (TLS Certificate):**
-- Name: `my-tls-cert`
-- Custom fields:
-  - `namespaces` = `production`
-  - `secret-type` = `kubernetes.io/tls`
-  - `tls.crt` = `-----BEGIN CERTIFICATE-----...`
-  - `tls.key` = `-----BEGIN PRIVATE KEY-----...`
-
-**Result in Kubernetes:**
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: my-tls-cert
-  namespace: production
-type: kubernetes.io/tls
-data:
-  tls.crt: LS0tLS1CRUdJTi...  # base64 encoded
-  tls.key: LS0tLS1CRUdJTi...  # base64 encoded
-```
-
-**Vaultwarden Item (Docker registry credentials):**
-You can store the raw Docker config JSON in the password field:
-- Name: `my-ghcr-token`
-- Username: ``
-- Password: The complete Docker config JSON structure (e.g. `{"auths":{"ghcr.io":{"username":"...","password":"...","auth":"..."}}}`)
-- Custom fields:
-  - `namespaces` = `production`
-  - `secret-type` = `kubernetes.io/dockerconfigjson`
-
-or use custom fields:
-- Name: `my-ghcr-token`
-- Username: `user`
-- Password: `example-token`
-- Custom fields:
-  - `namespaces` = `production`
-  - `secret-type` = `kubernetes.io/dockerconfigjson`
-  - `docker-config-json-server` = `ghcr.io`
-  - `docker-config-json-email` = `me@example.com`
-
-**Result in Kubernetes:**
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: my-ghcr-token
-  namespace: production
-type: kubernetes.io/dockerconfigjson
-data:
-  .dockerconfigjson: eyJhdXRocyI6eyJnaGNyLmlvIjp7InVzZXJuYW1lIjoidXNlciIsInBhc3N3b3JkIjoiZXhhbXBsZS10b2tlbiIsImVtYWlsIjoibWVAZXhhbXBsZS5jb20iLCJhdXRoIjoiZFhObGNqcGxlYlhBbWNtRmpiMlJsYzJVdCJ9fX0=
-```
-
-Decoded contents of `.dockerconfigjson`:
-```json
-{"auths":{"ghcr.io":{"username":"user","password":"example-token","email":"me@example.com","auth":"dXNlcjpleGFtcGxlLXRva2Vu"}}}
-```
-
-**Supported Secret Types:**
-- `Opaque` (default) - arbitrary user-defined data
-- `kubernetes.io/basic-auth` - credentials for basic authentication
-- `kubernetes.io/tls` - TLS certificate and key
-- `kubernetes.io/dockerconfigjson` - Docker registry credentials
-
-### With Custom Annotations and Labels
-
-You can add Kubernetes metadata:
-
-**Vaultwarden Item Example:**
-- Name: `monitoring-config`
-- Custom fields:
-  - `namespaces` = `production`
-  - `secret-annotation` = `app.kubernetes.io/version=1.2.3`
-  - `secret-annotation` = `example.com/owner: platform-team`
-  - `secret-annotation` = `monitoring.enabled=true`
-  - `secret-label` = `environment=production`
-  - `secret-label` = `argocd.argoproj.io/secret-type=repository`
-  - `secret-label` = `app=myapp`
-
-**Result in Kubernetes:**
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: monitoring-config
-  namespace: production
-  annotations:
-    app.kubernetes.io/version: "1.2.3"
-    example.com/owner: "platform-team"
-    monitoring.enabled: "true"
-  labels:
-    environment=production
-    argocd.argoproj.io/secret-type=repository
-    app=myapp
-data:
-  # ... secret data ...
-```
+| Field Name | Description | Default |
+|------------|-------------|---------|
+| `namespaces` | **Required** for standard items. Comma-separated list of target namespaces | - |
+| `secret-name` | Custom name for the Kubernetes Secret | Sanitized item name |
+| `secret-key-password` | Key name for the password/credential value | `password` |
+| `secret-key-username` | Key name for the username value | `username` |
+| `secret-type` | Secret type: `Opaque`, `kubernetes.io/basic-auth`, `kubernetes.io/tls`, `kubernetes.io/dockerconfigjson` | `Opaque` |
+| `secret-annotation` | Custom annotations (format: `key=value` or `key: value`) | - |
+| `secret-label` | Custom labels (format: `key=value` or `key: value`) | - |
+| `context-name` | Filter by cluster context for multi-cluster deployments | Auto-detected from kubeconfig |
+| `ignore-field` | Comma-separated list of field names to exclude from sync | - |
+| `docker-config-json-server` | Docker registry server URL (for `kubernetes.io/dockerconfigjson`) | `https://index.docker.io/v1/` |
+| `docker-config-json-email` | User email (for `kubernetes.io/dockerconfigjson`, optional) | - |
 
 ---
 
-## Configuration Options
+## How It Works
+
+1. The service authenticates to Vaultwarden and fetches items (optionally filtered by Organization, Collection, or Folder).
+2. For each item with a `namespaces` custom field, it creates or updates a Kubernetes Secret in each target namespace. The item's username, password, notes, and custom fields become Secret data.
+3. Orphaned Secrets (previously created but no longer in Vaultwarden) are removed automatically.
+4. The cycle repeats on the configured interval (default: 300 seconds).
+
+Items without a `namespaces` field but containing valid Kubernetes YAML in their notes are applied directly using the manifest's `metadata.namespace`. See [EXAMPLES.md](EXAMPLES.md#kubernetes-yaml-from-notes) for details.
+
+---
+
+## Configuration
 
 ### Helm Values
-Common settings you can override with `--set`:
 
 ```bash
-# Scope to specific organization/collection (recommended)
+# Scope to a specific organization or collection (recommended)
 --set env.config.VAULTWARDEN__ORGANIZATIONID="org-id"
 --set env.config.VAULTWARDEN__COLLECTIONID="collection-id"
 
 # Adjust sync frequency (seconds)
 --set env.config.SYNC__SYNCINTERVALSECONDS="3600"
 
-# Enable continuous sync (default: true)
+# Continuous sync (default: true)
 --set env.config.SYNC__CONTINUOUSSYNC="true"
 
 # Dry run mode (test without creating secrets)
 --set env.config.SYNC__DRYRUN="true"
 ```
 
-
 See [`values.yaml`](charts/vaultwarden-kubernetes-secrets/values.yaml) for all options.
 
 ### Preventing "New Device Logged In" Notifications
 
-By default, the sync service generates a deterministic device identifier from your server URL and client ID. This prevents Vaultwarden from sending "New device logged in" notifications on every sync.
-
-If you need to set an explicit device ID (e.g., for migration or specific requirements):
+The sync service generates a deterministic device ID from your server URL and client ID. This prevents Vaultwarden from sending "New device logged in" emails on every sync cycle. To set an explicit device ID:
 
 ```bash
 VAULTWARDEN__DEVICEID="your-fixed-device-id"
 ```
 
-### Logging Configuration
+### Private Registry Support
 
-The service uses Serilog for structured logging with environment-aware output:
-- **Production (Kubernetes)**: Compact JSON format for log aggregators (Loki, ELK, Datadog)
-- **Development**: Human-readable colored output with timestamps
+If pulling images from a private registry:
 
-**Environment Variables:**
+```yaml
+imagePullSecrets:
+  - name: my-registry-secret
+```
+
+### Logging
+
+The service uses structured logging with environment-aware output. Production (Kubernetes) uses compact JSON format for log aggregators. Development uses colored human-readable output with timestamps.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -278,9 +179,8 @@ The service uses Serilog for structured logging with environment-aware output:
 | `LOG_LEVEL_METRICS` | (inherit) | MetricsServer log level |
 | `LOG_LEVEL_MICROSOFT` | `Warning` | Microsoft namespace log level |
 
-**Valid log levels:** `Verbose`, `Debug`, `Information`, `Warning`, `Error`, `Fatal`
+Valid levels: `Verbose`, `Debug`, `Information`, `Warning`, `Error`, `Fatal`
 
-**Example:** To enable debug logging only for the sync service:
 ```bash
 --set env.config.LOG_LEVEL="Information"
 --set env.config.LOG_LEVEL_SYNC="Debug"
@@ -288,57 +188,22 @@ The service uses Serilog for structured logging with environment-aware output:
 
 ---
 
-## How It Works
-
-1. The service authenticates to the VW API using your credentials
-2. Fetches items (optionally filtered by Organization/Collection/Folder)
-3. For each item with a `namespaces` custom field:
-   - Creates/updates a Kubernetes Secret in each specified namespace
-   - Uses the item's username, password, notes, and custom fields as Secret data
-   - Sanitizes names to comply with Kubernetes requirements
-4. Removes orphaned Secrets (ones previously created but no longer in Vaultwarden)
-5. Repeats on the configured interval
-
----
-
-## Advanced Features
-
-- **Multi-namespace**: One Vaultwarden item → Secrets in multiple namespaces
-- **Secret merging**: Multiple items with the same `secret-name` merge into one Secret
-- **SSH Keys**: Private key stored as password; public key and fingerprint added automatically
-- **Multiline values**: Use **Secure Note** items for multiline content (e.g., certificates)
-- **Field filtering**: Use `ignore-field` custom field to exclude specific fields from sync
-- **Custom annotations/labels**: Add Kubernetes metadata (annotations and labels) via custom fields
-  - Multiple text fields with the same name (one `key=value` per field)
-  - Automatically excluded from secret data
-- **Structured logging**: JSON logs in production for aggregators; colored output in development
-- **Component log levels**: Fine-grained control over logging verbosity per service
-
----
-
-## Important Notes
-
-- **Namespace requirement**: Items must have a `namespaces` custom field to be synced
-- **Supported item types**: Login, Secure Note, SSH Key (Card/Identity not recommended)
-- **User API keys only**: Organization API keys are not supported by Bitwarden CLI
-- **Secret types**: Supports `Opaque` (default), `kubernetes.io/basic-auth`, `kubernetes.io/tls` and `kubernetes.io/dockerconfigjson` via the `secret-type` custom field
-- **Size limit**: Secrets must stay under ~1 MiB (Kubernetes limit)
-
----
-
 ## Troubleshooting
 
 **Secrets not appearing?**
 - Check the sync service logs: `kubectl logs -n vaultwarden-kubernetes-secrets deployment/vaultwarden-kubernetes-secrets`
-- Verify the item has a `namespaces` custom field
-- Ensure target namespaces exist in Kubernetes
-- Confirm the Vaultwarden user has access to the item (check Organization/Collection permissions)
-- Enable api and dashboard to visualize the sync status
+- Verify the item has a `namespaces` custom field, or that it contains valid Kubernetes YAML with `metadata.namespace` set
+- Make sure target namespaces exist in Kubernetes
+- Confirm the Vaultwarden user has access to the item (check Organization and Collection permissions)
+- Enable the API and dashboard to visualize sync status
+- Secrets must stay under the Kubernetes size limit (~1 MiB)
 
-**Need more detailed logs?**
-- Enable debug logging for specific components:
-  ```bash
-  --set env.config.LOG_LEVEL_SYNC="Debug"
-  --set env.config.LOG_LEVEL_KUBERNETES="Debug"
-  ```
+**Need more detail?**
+- Set component-specific log levels (see [Logging](#logging) above)
 - Logs include correlation IDs (`SyncId`, `Namespace`, `SecretName`) for tracing operations
+
+---
+
+## Examples
+
+For detailed examples including custom field variations, secret types, annotations, labels, multi-namespace setups, secret merging, multi-cluster filtering, and migration from v1.x, see [EXAMPLES.md](EXAMPLES.md).
