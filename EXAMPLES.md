@@ -156,11 +156,7 @@ The default key names are `private-key`, `public-key`, and `fingerprint`. Use `s
 
 ## Kubernetes YAML from Notes
 
-Secure Note items containing valid Kubernetes YAML are applied via the Kubernetes API. Two modes:
-
-**Mode 1, with `namespaces`:** The YAML manifest is applied in each namespace after the secret sync.
-
-**Mode 2, without `namespaces`:** The manifest is applied using its own `metadata.namespace`. No custom fields needed.
+Secure Note items containing valid Kubernetes YAML are applied via the Kubernetes API.
 
 **Vaultwarden Secure Note (YAML in notes, no custom fields):**
 ```yaml
@@ -173,9 +169,9 @@ data:
   key: value
 ```
 
-**Result:** ConfigMap is created or updated in the `default` namespace using `metadata.namespace` from the YAML.
+*You can still use "namespaces" custom field to sync to multiple namespaces.
 
-> The YAML manifest must include `metadata.namespace` when the item has no `namespaces` custom field. The service does not infer a default namespace.
+**Result:** ConfigMap is created or updated in the `default` namespace using `metadata.namespace` from the YAML.
 
 ## stringData: Mode
 
