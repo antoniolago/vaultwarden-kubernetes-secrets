@@ -108,7 +108,7 @@ This creates a Secret named `my-secret` in the `default` namespace — no `names
 | `secret-type` | Secret type: `Opaque`, `kubernetes.io/basic-auth`, `kubernetes.io/tls`, `kubernetes.io/dockerconfigjson` | `Opaque` |
 | `secret-annotation` | Custom annotations (format: `key=value` or `key: value`) | - |
 | `secret-label` | Custom labels (format: `key=value` or `key: value`) | - |
-| `context-name` | Filter by cluster context for multi-cluster deployments | Auto-detected from kubeconfig |
+| `context-name` | Filter by cluster context for multi-cluster deployments | - |
 | `ignore-field` | Comma-separated list of field names to exclude from sync | - |
 | `docker-config-json-server` | Docker registry server URL (for `kubernetes.io/dockerconfigjson`) | `https://index.docker.io/v1/` |
 | `docker-config-json-email` | User email (for `kubernetes.io/dockerconfigjson`, optional) | - |
