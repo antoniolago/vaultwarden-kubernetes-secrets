@@ -876,6 +876,47 @@ data:
         result.TotalSecretsSkipped.Should().Be(0);
     }
 
+    [Fact]
+    public async Task ContextFiltering_NoConfiguredContext_UsesDefaultAndSkipsClusterSpecificItem()
+    {
+        // Regression: with no SYNC__CONTEXTNAME set, the operator falls back to the
+        // predictable "default" context (not "in-cluster"). An item tagged
+        // context-name=production must NOT silently sync into an unconfigured/default
+        // cluster — it is only meant for the cluster that declares SYNC__CONTEXTNAME=production.
+        var syncConfig = new SyncSettings(); // ContextName not set -> defaults to "default"
+        var syncService = CreateSyncServiceWithConfig(syncConfig);
+
+        var namespaceName = "default";
+        var item = new VaultwardenItem
+        {
+            Id = "item-1",
+            Name = "test-secret",
+            Type = 1,
+            Login = new LoginInfo { Username = "user", Password = "pass" },
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "namespaces", Value = namespaceName, Type = 0 },
+                new FieldInfo { Name = "context-name", Value = "production", Type = 0 }
+            }
+        };
+
+        _vaultwardenServiceMock.Setup(x => x.GetItemsAsync())
+            .ReturnsAsync(new List<VaultwardenItem> { item });
+        _kubernetesServiceMock.Setup(x => x.GetAllNamespacesAsync())
+            .ReturnsAsync(new List<string> { namespaceName });
+        _kubernetesServiceMock.Setup(x => x.NamespaceExistsAsync(namespaceName))
+            .ReturnsAsync(true);
+        // No SYNC__CONTEXTNAME -> operator auto-detects the default context name
+        _kubernetesServiceMock.Setup(x => x.GetContextName())
+            .Returns(KubernetesService.DefaultContextName);
+
+        var result = await syncService.SyncAsync();
+
+        result.OverallSuccess.Should().BeTrue();
+        // The production-only item must NOT be created in the default cluster
+        result.TotalSecretsCreated.Should().Be(0);
+    }
+
     private SyncService CreateSyncServiceWithConfig(SyncSettings config)
     {
         return new SyncService(

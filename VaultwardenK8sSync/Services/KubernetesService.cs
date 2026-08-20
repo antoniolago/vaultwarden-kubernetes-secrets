@@ -40,7 +40,10 @@ public class KubernetesService : IKubernetesService
             {
                 config = KubernetesClientConfiguration.InClusterConfig();
                 _logger.LogDebug("Using in-cluster configuration");
-                _detectedContextName = "in-cluster";
+                // In-cluster mode has no human-readable context name available. Fall back
+                // to a predictable default ("default" = the unnamed/unconfigured cluster);
+                // set SYNC__CONTEXTNAME to give this cluster a stable, unique name.
+                _detectedContextName = DefaultContextName;
             }
             else
             {
@@ -48,7 +51,11 @@ public class KubernetesService : IKubernetesService
                     ? KubernetesClientConfiguration.BuildConfigFromConfigFile(_config.KubeConfigPath, _config.Context)
                     : KubernetesClientConfiguration.BuildDefaultConfig();
                 
-                _detectedContextName = config.CurrentContext ?? "unknown";
+                // When running outside the cluster, the kubeconfig context name is a valid,
+                // human-readable detection source.
+                _detectedContextName = string.IsNullOrWhiteSpace(config.CurrentContext)
+                    ? DefaultContextName
+                    : config.CurrentContext;
                 
                 _logger.LogDebug("Using kubeconfig configuration: {KubeConfigPath}, Context: {Context}, Host: {Host}", 
                     _config.KubeConfigPath ?? "default", 
@@ -1154,4 +1161,11 @@ catch (k8s.Autorest.HttpOperationException httpEx)
     {
         return _detectedContextName;
     }
+
+    /// <summary>
+    /// The context name reported when no explicit context is configured or detected.
+    /// "default" signals the unnamed/unconfigured cluster. Set SYNC__CONTEXTNAME to
+    /// give a cluster a stable, unique, human-readable context name for filtering.
+    /// </summary>
+    internal const string DefaultContextName = "default";
 } 

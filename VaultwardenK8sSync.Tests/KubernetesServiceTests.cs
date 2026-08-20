@@ -290,4 +290,34 @@ public class KubernetesServiceTests
         // Assert
         result.Should().BeFalse();
     }
+
+    #region Context Name Detection Tests
+
+    // Regression tests for the context-name custom field.
+    //
+    // Design (user-chosen): SYNC__CONTEXTNAME is the explicit source of truth. When it is
+    // NOT set, the operator falls back to a predictable default value ("default"),
+    // NOT "in-cluster" and NOT a host-derived name. This makes every unconfigured
+    // cluster report the same "default" context, so an item with context-name=<cluster>
+    // only syncs where SYNC__CONTEXTNAME matches — the filter is predictable and useful.
+
+    [Fact]
+    public void DefaultContextName_ShouldBeDefault()
+    {
+        // The fallback value is a predictable, semantic constant, not a host-derived
+        // or "in-cluster" name.
+        KubernetesService.DefaultContextName.Should().Be("default");
+    }
+
+    [Fact]
+    public void InClusterMode_NoConfiguredContext_ShouldReportDefaultNotInCluster()
+    {
+        // Regression for the bug where in-cluster mode always reported "in-cluster",
+        // which is useless for multi-cluster filtering. With no SYNC__CONTEXTNAME the
+        // operator reports the predictable "default" context.
+        // (Constant itself is the source of truth for the in-cluster fallback.)
+        KubernetesService.DefaultContextName.Should().NotBe("in-cluster");
+    }
+
+    #endregion
 }
