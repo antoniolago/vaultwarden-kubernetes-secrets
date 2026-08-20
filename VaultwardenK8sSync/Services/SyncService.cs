@@ -929,6 +929,12 @@ public class SyncService : ISyncService
             if (IsKubernetesYaml(notesContent))
             {
                 yamlManifests?.Add(notesContent);
+                // If the YAML defines a Secret, extract its data into the secret dictionary.
+                // Without this, an item with YAML-in-notes + a `namespaces` custom field
+                // created an EMPTY secret (the normal path overwrote the YAML-applied one
+                // with no data, producing managed-keys: []). Now the YAML's stringData/data
+                // are carried through so the Secret has real content in every target namespace.
+                ExtractSecretDataFromNotesYaml(notesContent, data);
                 noteHandled = true;
             }
             else if (notesContent.TrimStart().StartsWith("stringData:", StringComparison.OrdinalIgnoreCase))
@@ -1319,6 +1325,51 @@ public class SyncService : ISyncService
         catch
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Best-effort extraction of a Secret's data (stringData and data) from a Kubernetes
+    /// YAML manifest found in an item's notes. This lets the normal secret-sync path carry
+    /// the YAML's values, so a YAML Secret combined with a `namespaces` custom field is
+    /// created with real content instead of an empty secret.
+    /// </summary>
+    private static void ExtractSecretDataFromNotesYaml(string yaml, Dictionary<string, string> data)
+    {
+        try
+        {
+            var objects = k8s.KubernetesYaml.LoadAllFromString(yaml);
+            if (objects == null)
+                return;
+
+            foreach (var obj in objects)
+            {
+                if (obj is not k8s.Models.V1Secret secret)
+                    continue;
+
+                if (secret.StringData != null)
+                {
+                    foreach (var kvp in secret.StringData)
+                    {
+                        if (!string.IsNullOrEmpty(kvp.Key) && !data.ContainsKey(kvp.Key) && kvp.Value != null)
+                            data[kvp.Key] = kvp.Value;
+                    }
+                }
+
+                if (secret.Data != null)
+                {
+                    foreach (var kvp in secret.Data)
+                    {
+                        if (!string.IsNullOrEmpty(kvp.Key) && !data.ContainsKey(kvp.Key) && kvp.Value != null)
+                            data[kvp.Key] = System.Text.Encoding.UTF8.GetString(kvp.Value);
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Extraction is best-effort; ApplyYamlAsync remains the authoritative application
+            // of the manifest itself.
         }
     }
 

@@ -178,6 +178,134 @@ data:
             Times.Once);
     }
 
+    // Regression: an item with Kubernetes YAML in NOTES plus a `namespaces` custom field
+    // must produce a Secret that carries the YAML's data (e.g. stringData), NOT an empty
+    // one. Prior behavior: the YAML was applied via ApplyYamlAsync() but then the normal
+    // secret path (SyncSecretAsync -> CreateSecretAsync) created/overwrote the Secret with
+    // an empty combinedSecretData, yielding a Secret with no data and managed-keys: [].
+    [Fact]
+    public async Task SyncAsync_YamlSecretInNotesWithNamespaces_ShouldCarryYamlData_NotEmpty()
+    {
+        const string yamlWithStringData = @"apiVersion: v1
+kind: Secret
+metadata:
+  name: netbird-setup
+  namespace: monitoring
+type: Opaque
+stringData:
+  NETBIRD_SETUP_KEY: supersecretvalue";
+
+        var item = new VaultwardenItem
+        {
+            Id = "item-1",
+            Name = "netbird-setup",
+            Type = 2,
+            SecureNote = new SecureNoteInfo { Type = 0 },
+            Notes = yamlWithStringData,
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "namespaces", Value = "monitoring", Type = 0 }
+            }
+        };
+
+        _vaultwardenServiceMock.Setup(x => x.GetItemsAsync())
+            .ReturnsAsync(new List<VaultwardenItem> { item });
+        _kubernetesServiceMock.Setup(x => x.NamespaceExistsAsync("monitoring"))
+            .ReturnsAsync(true);
+        _kubernetesServiceMock.Setup(x => x.GetExistingSecretNamesAsync("monitoring"))
+            .ReturnsAsync(new List<string>());
+        _kubernetesServiceMock.Setup(x => x.GetManagedSecretNamesAsync("monitoring"))
+            .ReturnsAsync(new List<string>());
+        _kubernetesServiceMock.Setup(x => x.SecretExistsAsync("monitoring", "netbird-setup"))
+            .ReturnsAsync(false);
+        _kubernetesServiceMock.Setup(x => x.GetSecretDataAsync("monitoring", "netbird-setup"))
+            .ReturnsAsync((Dictionary<string, string>?)null);
+        _kubernetesServiceMock.Setup(x => x.GetSecretAnnotationsAsync("monitoring", "netbird-setup"))
+            .ReturnsAsync((Dictionary<string, string>?)null);
+        _kubernetesServiceMock.Setup(x => x.GetSecretTypeAsync("monitoring", "netbird-setup"))
+            .ReturnsAsync((string?)null);
+        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync(
+                "monitoring", "netbird-setup", It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string?>()))
+            .ReturnsAsync(OperationResult.Successful());
+        _kubernetesServiceMock.Setup(x => x.ApplyYamlAsync(It.IsAny<string>()))
+            .ReturnsAsync(OperationResult.Successful());
+
+        var result = await _syncService.SyncAsync();
+
+        result.OverallSuccess.Should().BeTrue();
+
+        // The Secret created by the normal path MUST NOT be empty: it should carry the
+        // value defined in the YAML's stringData. This is the regression we fixed.
+        _kubernetesServiceMock.Verify(x => x.CreateSecretAsync(
+            "monitoring", "netbird-setup",
+            It.Is<Dictionary<string, string>>(d => d.ContainsKey("NETBIRD_SETUP_KEY") && d["NETBIRD_SETUP_KEY"] == "supersecretvalue"),
+            It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string?>()),
+            Times.Once);
+    }
+
+    // A YAML Secret with a `namespaces` custom field listing multiple namespaces must be
+    // created with the YAML's data in EACH declared namespace (not just the one hardcoded
+    // in the manifest, and never as an empty secret).
+    [Fact]
+    public async Task SyncAsync_YamlSecretInNotesWithMultipleNamespaces_ShouldCreateWithDataInEach()
+    {
+        const string yamlWithStringData = @"apiVersion: v1
+kind: Secret
+metadata:
+  name: netbird-setup
+  namespace: monitoring
+type: Opaque
+stringData:
+  NETBIRD_SETUP_KEY: supersecretvalue";
+
+        var item = new VaultwardenItem
+        {
+            Id = "item-1",
+            Name = "netbird-setup",
+            Type = 2,
+            SecureNote = new SecureNoteInfo { Type = 0 },
+            Notes = yamlWithStringData,
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "namespaces", Value = "monitoring,other", Type = 0 }
+            }
+        };
+
+        _vaultwardenServiceMock.Setup(x => x.GetItemsAsync())
+            .ReturnsAsync(new List<VaultwardenItem> { item });
+        _kubernetesServiceMock.Setup(x => x.NamespaceExistsAsync("monitoring")).ReturnsAsync(true);
+        _kubernetesServiceMock.Setup(x => x.NamespaceExistsAsync("other")).ReturnsAsync(true);
+        _kubernetesServiceMock.Setup(x => x.GetExistingSecretNamesAsync(It.IsAny<string>())).ReturnsAsync(new List<string>());
+        _kubernetesServiceMock.Setup(x => x.GetManagedSecretNamesAsync(It.IsAny<string>())).ReturnsAsync(new List<string>());
+        _kubernetesServiceMock.Setup(x => x.SecretExistsAsync(It.IsAny<string>(), "netbird-setup")).ReturnsAsync(false);
+        _kubernetesServiceMock.Setup(x => x.GetSecretDataAsync(It.IsAny<string>(), "netbird-setup")).ReturnsAsync((Dictionary<string, string>?)null);
+        _kubernetesServiceMock.Setup(x => x.GetSecretAnnotationsAsync(It.IsAny<string>(), "netbird-setup")).ReturnsAsync((Dictionary<string, string>?)null);
+        _kubernetesServiceMock.Setup(x => x.GetSecretTypeAsync(It.IsAny<string>(), "netbird-setup")).ReturnsAsync((string?)null);
+        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync(
+                It.IsAny<string>(), "netbird-setup", It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string?>()))
+            .ReturnsAsync(OperationResult.Successful());
+        _kubernetesServiceMock.Setup(x => x.ApplyYamlAsync(It.IsAny<string>()))
+            .ReturnsAsync(OperationResult.Successful());
+
+        var result = await _syncService.SyncAsync();
+
+        result.OverallSuccess.Should().BeTrue();
+
+        // The Secret must be created with its YAML data in BOTH namespaces.
+        _kubernetesServiceMock.Verify(x => x.CreateSecretAsync(
+            "monitoring", "netbird-setup",
+            It.Is<Dictionary<string, string>>(d => d.ContainsKey("NETBIRD_SETUP_KEY") && d["NETBIRD_SETUP_KEY"] == "supersecretvalue"),
+            It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string?>()),
+            Times.Once);
+        _kubernetesServiceMock.Verify(x => x.CreateSecretAsync(
+            "other", "netbird-setup",
+            It.Is<Dictionary<string, string>>(d => d.ContainsKey("NETBIRD_SETUP_KEY") && d["NETBIRD_SETUP_KEY"] == "supersecretvalue"),
+            It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string?>()),
+            Times.Once);
+    }
+
     [Fact]
     public async Task SyncAsync_WithNoNamespacesAndNoYaml_ShouldNotApplyAnyYaml()
     {
