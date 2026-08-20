@@ -1224,4 +1224,113 @@ kind: ConfigMap
 
     #endregion
 
+    #region HasSecretDataChanged Tests
+
+    private static bool InvokeHasSecretDataChanged(Dictionary<string, string> existingData, Dictionary<string, string> newData, List<string>? previousManagedKeys = null)
+    {
+        var method = typeof(SyncService).GetMethod("HasSecretDataChanged",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        return (bool)method!.Invoke(null, new object[] { existingData, newData, previousManagedKeys ?? new List<string>() })!;
+    }
+
+    [Fact]
+    public void HasSecretDataChanged_NoChanges_ShouldReturnFalse()
+    {
+        var existing = new Dictionary<string, string> { { "key1", "value1" }, { "key2", "value2" } };
+        var newData = new Dictionary<string, string> { { "key1", "value1" }, { "key2", "value2" } };
+
+        var result = InvokeHasSecretDataChanged(existing, newData);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void HasSecretDataChanged_ValueChanged_ShouldReturnTrue()
+    {
+        var existing = new Dictionary<string, string> { { "key1", "value1" } };
+        var newData = new Dictionary<string, string> { { "key1", "different" } };
+
+        var result = InvokeHasSecretDataChanged(existing, newData);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void HasSecretDataChanged_NewKeyInNewData_ShouldReturnTrue()
+    {
+        var existing = new Dictionary<string, string> { { "key1", "value1" } };
+        var newData = new Dictionary<string, string> { { "key1", "value1" }, { "key2", "value2" } };
+
+        var result = InvokeHasSecretDataChanged(existing, newData);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void HasSecretDataChanged_OrphanedManagedKey_ShouldReturnTrue()
+    {
+        var existing = new Dictionary<string, string>
+        {
+            { "username", "admin" },
+            { "password", "secret123" },
+            { "context-name", "production" }
+        };
+        var newData = new Dictionary<string, string>
+        {
+            { "username", "admin" },
+            { "password", "secret123" }
+        };
+        var previousManagedKeys = new List<string> { "username", "password", "context-name" };
+
+        var result = InvokeHasSecretDataChanged(existing, newData, previousManagedKeys);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void HasSecretDataChanged_ExternalKeyInExisting_WithNullManagedKeys_ShouldReturnFalse()
+    {
+        var existing = new Dictionary<string, string>
+        {
+            { "username", "admin" },
+            { "password", "secret123" },
+            { "external-key", "manual-value" }
+        };
+        var newData = new Dictionary<string, string>
+        {
+            { "username", "admin" },
+            { "password", "secret123" }
+        };
+
+        // When previousManagedKeys is null (backward compat), external keys should NOT trigger a change
+        var method = typeof(SyncService).GetMethod("HasSecretDataChanged",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        var result = (bool)method!.Invoke(null, new object[] { existing, newData, null })!;
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void HasSecretDataChanged_ExternalKeyNotInManagedKeys_ShouldReturnFalse()
+    {
+        var existing = new Dictionary<string, string>
+        {
+            { "username", "admin" },
+            { "password", "secret123" },
+            { "external-key", "manual-value" }
+        };
+        var newData = new Dictionary<string, string>
+        {
+            { "username", "admin" },
+            { "password", "secret123" }
+        };
+        var previousManagedKeys = new List<string> { "username", "password" };
+
+        var result = InvokeHasSecretDataChanged(existing, newData, previousManagedKeys);
+
+        Assert.False(result);
+    }
+
+    #endregion
+
 }

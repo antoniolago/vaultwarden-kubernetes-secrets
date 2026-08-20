@@ -827,10 +827,17 @@ public class SyncService : ISyncService
             {
                 // Check if the secret data has actually changed
                 var existingData = await _kubernetesService.GetSecretDataAsync(namespaceName, secretName);
-                if (existingData != null && !HasSecretDataChanged(existingData, secretData))
+                if (existingData != null)
                 {
-                    _logger.LogDebug("Secret {SecretName} in namespace {Namespace} is up to date, skipping update", secretName, namespaceName);
-                    return true;
+                    // Fetch the managed-keys annotation to detect orphaned keys that need cleanup
+                    var annotations = await _kubernetesService.GetSecretAnnotationsAsync(namespaceName, secretName);
+                    var previousManagedKeys = ParseManagedKeysFromAnnotations(annotations);
+
+                    if (!HasSecretDataChanged(existingData, secretData, previousManagedKeys))
+                    {
+                        _logger.LogDebug("Secret {SecretName} in namespace {Namespace} is up to date, skipping update", secretName, namespaceName);
+                        return true;
+                    }
                 }
 
                 var updateResult = await _kubernetesService.UpdateSecretAsync(namespaceName, secretName, secretData);
@@ -1653,17 +1660,41 @@ public class SyncService : ISyncService
         return sanitized;
     }
 
-    private static bool HasSecretDataChanged(Dictionary<string, string> existingData, Dictionary<string, string> newData)
+    private static bool HasSecretDataChanged(Dictionary<string, string> existingData, Dictionary<string, string> newData, List<string>? previousManagedKeys = null)
     {
-        // Only compare keys that we manage (newData keys).
-        // External keys in existingData are preserved by UpdateSecretAsync and should not trigger changes.
+        // Check keys in newData against existingData (detects value changes and new keys)
         foreach (var kvp in newData)
         {
             if (!existingData.TryGetValue(kvp.Key, out var existingValue) || existingValue != kvp.Value)
                 return true;
         }
 
+        // Check for orphaned managed keys: keys that were previously managed by the sync service
+        // but are no longer in newData (e.g. a previously-synced custom field was removed or
+        // became a reserved/metadata field). These need to be removed from the secret.
+        // External keys (not in previousManagedKeys) are intentionally NOT checked here -
+        // they are preserved by UpdateSecretAsync and should not trigger changes.
+        if (previousManagedKeys != null)
+        {
+            foreach (var key in previousManagedKeys)
+            {
+                if (!newData.ContainsKey(key) && existingData.ContainsKey(key))
+                    return true;
+            }
+        }
+
         return false;
+    }
+
+    private static List<string>? ParseManagedKeysFromAnnotations(Dictionary<string, string>? annotations)
+    {
+        if (annotations == null) return null;
+        if (annotations.TryGetValue(Constants.Kubernetes.ManagedKeysAnnotationKey, out var managedKeysJson)
+            && !string.IsNullOrEmpty(managedKeysJson))
+        {
+            return Services.KubernetesService.ParseManagedKeysAnnotation(managedKeysJson);
+        }
+        return null;
     }
 
     private Dictionary<string, List<Models.VaultwardenItem>> GroupItemsBySecretName(List<Models.VaultwardenItem> items)
@@ -1879,8 +1910,10 @@ public class SyncService : ISyncService
             
             if (actuallyExists)
             {
-                // Check if the secret data has changed
-                var hasDataChanged = HasSecretDataChanged(existingData!, combinedSecretData);
+                // Check if the secret data has changed (including orphaned managed keys)
+                var secretAnnotations = await _kubernetesService.GetSecretAnnotationsAsync(namespaceName, secretName);
+                var previousManagedKeys = ParseManagedKeysFromAnnotations(secretAnnotations);
+                var hasDataChanged = HasSecretDataChanged(existingData!, combinedSecretData, previousManagedKeys);
 
                 // Check if the hash has changed (stored in database for persistence across restarts)
                 string? oldHashValue = await _dbLogger.GetSecretHashAsync(namespaceName, secretName);
