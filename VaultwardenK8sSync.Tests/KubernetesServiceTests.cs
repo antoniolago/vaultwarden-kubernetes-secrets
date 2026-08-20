@@ -290,4 +290,75 @@ public class KubernetesServiceTests
         // Assert
         result.Should().BeFalse();
     }
+
+    #region In-Cluster Context Name Detection Tests
+
+    // E2E regression tests for the context-name custom field.
+    // The context-name field filters items by cluster, so the auto-detected
+    // context name MUST be per-cluster (derived from the API server host),
+    // NOT the constant "in-cluster". Otherwise every in-cluster deployment
+    // reports the same context and the field is useless for multi-cluster.
+
+    [Theory]
+    [InlineData("https://10.96.0.1:443", "10.96.0.1")]
+    [InlineData("https://us-cluster.lag0.lan:6443", "us-cluster.lag0.lan")]
+    [InlineData("http://192.168.1.50:8080", "192.168.1.50")]
+    [InlineData("https://k8s.example.com", "k8s.example.com")]
+    public void DetectInClusterContextName_WithHost_ShouldStripSchemeAndPort(string host, string expected)
+    {
+        // Act
+        var result = KubernetesService.DetectInClusterContextName(host);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void DetectInClusterContextName_WithNullOrEmptyHost_ShouldFallbackToInCluster(string? host)
+    {
+        // Act
+        var result = KubernetesService.DetectInClusterContextName(host);
+
+        // Assert
+        result.Should().Be("in-cluster");
+    }
+
+    [Fact]
+    public void DetectInClusterContextName_DistinctClusters_ShouldProduceDistinctNames()
+    {
+        // Arrange - two different clusters with different API server hosts
+        var clusterA = "https://10.96.0.1:443";
+        var clusterB = "https://10.96.1.1:443";
+
+        // Act
+        var nameA = KubernetesService.DetectInClusterContextName(clusterA);
+        var nameB = KubernetesService.DetectInClusterContextName(clusterB);
+
+        // Assert
+        nameA.Should().NotBe(nameB);
+        nameA.Should().NotBe("in-cluster");
+        nameB.Should().NotBe("in-cluster");
+    }
+
+    [Fact]
+    public void InClusterMode_GetContextName_ShouldNotBeTheConstantInCluster_WhenHostDiffers()
+    {
+        // Arrange - simulate two distinct in-cluster deployments.
+        // Regression for the bug where in-cluster mode hardcoded the detected
+        // context name to "in-cluster", making the context-name filter useless
+        // for distinguishing between clusters.
+        var hostA = KubernetesService.DetectInClusterContextName("https://10.96.0.1:443");
+        var hostB = KubernetesService.DetectInClusterContextName("https://10.96.2.1:443");
+
+        // A cluster's detected context name must be derived from its own host,
+        // distinguishable from another cluster's.
+        hostA.Should().NotBe("in-cluster");
+        hostB.Should().NotBe("in-cluster");
+        hostA.Should().NotBe(hostB);
+    }
+
+    #endregion
 }

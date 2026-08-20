@@ -40,7 +40,7 @@ public class KubernetesService : IKubernetesService
             {
                 config = KubernetesClientConfiguration.InClusterConfig();
                 _logger.LogDebug("Using in-cluster configuration");
-                _detectedContextName = "in-cluster";
+                _detectedContextName = DetectInClusterContextName(config.Host);
             }
             else
             {
@@ -1153,5 +1153,30 @@ catch (k8s.Autorest.HttpOperationException httpEx)
     public string? GetContextName()
     {
         return _detectedContextName;
+    }
+
+    /// <summary>
+    /// Derives a stable, per-cluster context name from the in-cluster API server
+    /// host (e.g. "https://10.96.0.1:443" → "10.96.0.1"). This lets the
+    /// context-name custom field distinguish between different clusters running
+    /// in in-cluster mode. Falls back to "in-cluster" when no host is available.
+    /// </summary>
+    internal static string DetectInClusterContextName(string? host)
+    {
+        if (string.IsNullOrWhiteSpace(host))
+            return "in-cluster";
+
+        var withoutScheme = host;
+        var schemeIdx = host.IndexOf("://", StringComparison.Ordinal);
+        if (schemeIdx >= 0)
+            withoutScheme = host.Substring(schemeIdx + 3);
+
+        // Strip port (host:port)
+        var portIdx = withoutScheme.LastIndexOf(':');
+        var hostPart = portIdx > 0 ? withoutScheme.Substring(0, portIdx) : withoutScheme;
+
+        hostPart = hostPart.TrimEnd('/');
+
+        return string.IsNullOrWhiteSpace(hostPart) ? "in-cluster" : hostPart;
     }
 } 
