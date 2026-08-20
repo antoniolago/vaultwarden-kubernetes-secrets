@@ -934,7 +934,10 @@ public class SyncService : ISyncService
                 // created an EMPTY secret (the normal path overwrote the YAML-applied one
                 // with no data, producing managed-keys: []). Now the YAML's stringData/data
                 // are carried through so the Secret has real content in every target namespace.
-                ExtractSecretDataFromNotesYaml(notesContent, data);
+                var targetSecretName = !string.IsNullOrEmpty(item.ExtractSecretName())
+                    ? SanitizeSecretName(item.ExtractSecretName()!)
+                    : SanitizeSecretName(item.Name ?? string.Empty);
+                ExtractSecretDataFromNotesYaml(notesContent, data, targetSecretName);
                 noteHandled = true;
             }
             else if (notesContent.TrimStart().StartsWith("stringData:", StringComparison.OrdinalIgnoreCase))
@@ -1333,8 +1336,11 @@ public class SyncService : ISyncService
     /// YAML manifest found in an item's notes. This lets the normal secret-sync path carry
     /// the YAML's values, so a YAML Secret combined with a `namespaces` custom field is
     /// created with real content instead of an empty secret.
+    /// To avoid merging unrelated manifests, only the V1Secret whose metadata.name matches
+    /// the target secret is considered. A single Secret in the YAML is always used (matching
+    /// the previous synchronized behavior); multiple definitions must have a unique match.
     /// </summary>
-    private static void ExtractSecretDataFromNotesYaml(string yaml, Dictionary<string, string> data)
+    private static void ExtractSecretDataFromNotesYaml(string yaml, Dictionary<string, string> data, string targetSecretName)
     {
         try
         {
@@ -1342,27 +1348,52 @@ public class SyncService : ISyncService
             if (objects == null)
                 return;
 
-            foreach (var obj in objects)
+            var secretDefs = objects.OfType<k8s.Models.V1Secret>().ToList();
+
+            k8s.Models.V1Secret? selected = null;
+            if (secretDefs.Count == 1)
             {
-                if (obj is not k8s.Models.V1Secret secret)
-                    continue;
-
-                if (secret.StringData != null)
+                // Single Secret definition: use it unconditionally (backwards compatible).
+                selected = secretDefs[0];
+            }
+            else if (secretDefs.Count > 1)
+            {
+                // Multiple Secret definitions: select the one whose name matches the target,
+                // and refuse ambiguous input (multiple matching) instead of merging them.
+                var matches = secretDefs
+                    .Where(s => string.Equals(s.Metadata?.Name, targetSecretName, StringComparison.Ordinal))
+                    .ToList();
+                if (matches.Count == 1)
                 {
-                    foreach (var kvp in secret.StringData)
-                    {
-                        if (!string.IsNullOrEmpty(kvp.Key) && !data.ContainsKey(kvp.Key) && kvp.Value != null)
-                            data[kvp.Key] = kvp.Value;
-                    }
+                    selected = matches[0];
                 }
-
-                if (secret.Data != null)
+                else if (matches.Count > 1)
                 {
-                    foreach (var kvp in secret.Data)
-                    {
-                        if (!string.IsNullOrEmpty(kvp.Key) && !data.ContainsKey(kvp.Key) && kvp.Value != null)
-                            data[kvp.Key] = System.Text.Encoding.UTF8.GetString(kvp.Value);
-                    }
+                    // Ambiguous: more than one definition targets this secret name. Skip
+                    // extraction rather than merging unrelated secrets.
+                    return;
+                }
+                // matches.Count == 0: no definition targets this secret, nothing to extract.
+            }
+
+            if (selected == null)
+                return;
+
+            if (selected.StringData != null)
+            {
+                foreach (var kvp in selected.StringData)
+                {
+                    if (!string.IsNullOrEmpty(kvp.Key) && !data.ContainsKey(kvp.Key) && kvp.Value != null)
+                        data[kvp.Key] = kvp.Value;
+                }
+            }
+
+            if (selected.Data != null)
+            {
+                foreach (var kvp in selected.Data)
+                {
+                    if (!string.IsNullOrEmpty(kvp.Key) && !data.ContainsKey(kvp.Key) && kvp.Value != null)
+                        data[kvp.Key] = System.Text.Encoding.UTF8.GetString(kvp.Value);
                 }
             }
         }

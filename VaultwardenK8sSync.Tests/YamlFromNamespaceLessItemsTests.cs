@@ -306,6 +306,71 @@ stringData:
             Times.Once);
     }
 
+    // A multi-Secret YAML in a note must NOT merge unrelated secrets. Only the Secret whose
+    // metadata.name matches the target is used; the other definitions are ignored.
+    [Fact]
+    public async Task SyncAsync_MultiSecretYamlInNotes_ShouldOnlyExtractMatchingSecret()
+    {
+        const string yamlWithTwoSecrets = @"apiVersion: v1
+kind: Secret
+metadata:
+  name: netbird-setup
+  namespace: monitoring
+type: Opaque
+stringData:
+  TARGET_KEY: target-value
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: other-secret
+  namespace: monitoring
+type: Opaque
+stringData:
+  OTHER_KEY: other-value";
+
+        var item = new VaultwardenItem
+        {
+            Id = "item-1",
+            Name = "netbird-setup",
+            Type = 2,
+            SecureNote = new SecureNoteInfo { Type = 0 },
+            Notes = yamlWithTwoSecrets,
+            Fields = new List<FieldInfo>
+            {
+                new FieldInfo { Name = "namespaces", Value = "monitoring", Type = 0 }
+            }
+        };
+
+        _vaultwardenServiceMock.Setup(x => x.GetItemsAsync())
+            .ReturnsAsync(new List<VaultwardenItem> { item });
+        _kubernetesServiceMock.Setup(x => x.NamespaceExistsAsync("monitoring")).ReturnsAsync(true);
+        _kubernetesServiceMock.Setup(x => x.GetExistingSecretNamesAsync("monitoring")).ReturnsAsync(new List<string>());
+        _kubernetesServiceMock.Setup(x => x.GetManagedSecretNamesAsync("monitoring")).ReturnsAsync(new List<string>());
+        _kubernetesServiceMock.Setup(x => x.SecretExistsAsync("monitoring", "netbird-setup")).ReturnsAsync(false);
+        _kubernetesServiceMock.Setup(x => x.GetSecretDataAsync("monitoring", "netbird-setup")).ReturnsAsync((Dictionary<string, string>?)null);
+        _kubernetesServiceMock.Setup(x => x.GetSecretAnnotationsAsync("monitoring", "netbird-setup")).ReturnsAsync((Dictionary<string, string>?)null);
+        _kubernetesServiceMock.Setup(x => x.GetSecretTypeAsync("monitoring", "netbird-setup")).ReturnsAsync((string?)null);
+        _kubernetesServiceMock.Setup(x => x.CreateSecretAsync(
+                It.IsAny<string>(), "netbird-setup", It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string?>()))
+            .ReturnsAsync(OperationResult.Successful());
+        _kubernetesServiceMock.Setup(x => x.ApplyYamlAsync(It.IsAny<string>()))
+            .ReturnsAsync(OperationResult.Successful());
+
+        var result = await _syncService.SyncAsync();
+
+        result.OverallSuccess.Should().BeTrue();
+
+        // Only the matching secret's data is carried through; the unrelated secret's key
+        // must not bleed into the target secret.
+        _kubernetesServiceMock.Verify(x => x.CreateSecretAsync(
+            "monitoring", "netbird-setup",
+            It.Is<Dictionary<string, string>>(d => d.ContainsKey("TARGET_KEY") && !d.ContainsKey("OTHER_KEY")),
+            It.IsAny<Dictionary<string, string>>(), It.IsAny<Dictionary<string, string>>(), It.IsAny<string?>()),
+            Times.Once);
+    }
+
     [Fact]
     public async Task SyncAsync_WithNoNamespacesAndNoYaml_ShouldNotApplyAnyYaml()
     {
