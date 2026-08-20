@@ -268,7 +268,13 @@ Use `context-name` to sync items only to specific clusters.
   - `namespaces` = `production`
   - `context-name` = `us-cluster`
 
-This secret only syncs to the cluster with a matching context name. Items without `context-name` sync to all clusters. The context name is auto-detected from your kubeconfig (or cluster host for in-cluster mode). Override with `SYNC__CONTEXTNAME` if needed.
+This secret only syncs to the cluster with a matching context name. Items without `context-name` sync to all clusters.
+
+**How the context name is determined:**
+1. `SYNC__CONTEXTNAME` env var (set per deployment) — used when configured.
+2. Otherwise a predictable default (`default`), which represents the unnamed/unconfigured cluster.
+
+Each cluster that should receive cluster-specific items must set `SYNC__CONTEXTNAME` to a unique name (e.g. `production`, `us-cluster`) so filtering matches. When run outside the cluster (kubeconfig), the current kubeconfig context name is used when available.
 
 ## Field Filtering
 

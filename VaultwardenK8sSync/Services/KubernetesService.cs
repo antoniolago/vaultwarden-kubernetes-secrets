@@ -40,7 +40,10 @@ public class KubernetesService : IKubernetesService
             {
                 config = KubernetesClientConfiguration.InClusterConfig();
                 _logger.LogDebug("Using in-cluster configuration");
-                _detectedContextName = DetectInClusterContextName(config.Host);
+                // In-cluster mode has no human-readable context name available. Fall back
+                // to a predictable default ("default" = the unnamed/unconfigured cluster);
+                // set SYNC__CONTEXTNAME to give this cluster a stable, unique name.
+                _detectedContextName = DefaultContextName;
             }
             else
             {
@@ -48,7 +51,11 @@ public class KubernetesService : IKubernetesService
                     ? KubernetesClientConfiguration.BuildConfigFromConfigFile(_config.KubeConfigPath, _config.Context)
                     : KubernetesClientConfiguration.BuildDefaultConfig();
                 
-                _detectedContextName = config.CurrentContext ?? "unknown";
+                // When running outside the cluster, the kubeconfig context name is a valid,
+                // human-readable detection source.
+                _detectedContextName = string.IsNullOrWhiteSpace(config.CurrentContext)
+                    ? DefaultContextName
+                    : config.CurrentContext;
                 
                 _logger.LogDebug("Using kubeconfig configuration: {KubeConfigPath}, Context: {Context}, Host: {Host}", 
                     _config.KubeConfigPath ?? "default", 
@@ -1156,27 +1163,9 @@ catch (k8s.Autorest.HttpOperationException httpEx)
     }
 
     /// <summary>
-    /// Derives a stable, per-cluster context name from the in-cluster API server
-    /// host (e.g. "https://10.96.0.1:443" → "10.96.0.1"). This lets the
-    /// context-name custom field distinguish between different clusters running
-    /// in in-cluster mode. Falls back to "in-cluster" when no host is available.
+    /// The context name reported when no explicit context is configured or detected.
+    /// "default" signals the unnamed/unconfigured cluster. Set SYNC__CONTEXTNAME to
+    /// give a cluster a stable, unique, human-readable context name for filtering.
     /// </summary>
-    internal static string DetectInClusterContextName(string? host)
-    {
-        if (string.IsNullOrWhiteSpace(host))
-            return "in-cluster";
-
-        var withoutScheme = host;
-        var schemeIdx = host.IndexOf("://", StringComparison.Ordinal);
-        if (schemeIdx >= 0)
-            withoutScheme = host.Substring(schemeIdx + 3);
-
-        // Strip port (host:port)
-        var portIdx = withoutScheme.LastIndexOf(':');
-        var hostPart = portIdx > 0 ? withoutScheme.Substring(0, portIdx) : withoutScheme;
-
-        hostPart = hostPart.TrimEnd('/');
-
-        return string.IsNullOrWhiteSpace(hostPart) ? "in-cluster" : hostPart;
-    }
+    internal const string DefaultContextName = "default";
 } 

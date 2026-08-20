@@ -291,73 +291,32 @@ public class KubernetesServiceTests
         result.Should().BeFalse();
     }
 
-    #region In-Cluster Context Name Detection Tests
+    #region Context Name Detection Tests
 
-    // E2E regression tests for the context-name custom field.
-    // The context-name field filters items by cluster, so the auto-detected
-    // context name MUST be per-cluster (derived from the API server host),
-    // NOT the constant "in-cluster". Otherwise every in-cluster deployment
-    // reports the same context and the field is useless for multi-cluster.
+    // Regression tests for the context-name custom field.
+    //
+    // Design (user-chosen): SYNC__CONTEXTNAME is the explicit source of truth. When it is
+    // NOT set, the operator falls back to a predictable default value ("default"),
+    // NOT "in-cluster" and NOT a host-derived name. This makes every unconfigured
+    // cluster report the same "default" context, so an item with context-name=<cluster>
+    // only syncs where SYNC__CONTEXTNAME matches — the filter is predictable and useful.
 
-    [Theory]
-    [InlineData("https://10.96.0.1:443", "10.96.0.1")]
-    [InlineData("https://us-cluster.lag0.lan:6443", "us-cluster.lag0.lan")]
-    [InlineData("http://192.168.1.50:8080", "192.168.1.50")]
-    [InlineData("https://k8s.example.com", "k8s.example.com")]
-    public void DetectInClusterContextName_WithHost_ShouldStripSchemeAndPort(string host, string expected)
+    [Fact]
+    public void DefaultContextName_ShouldBeDefault()
     {
-        // Act
-        var result = KubernetesService.DetectInClusterContextName(host);
-
-        // Assert
-        result.Should().Be(expected);
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
-    public void DetectInClusterContextName_WithNullOrEmptyHost_ShouldFallbackToInCluster(string? host)
-    {
-        // Act
-        var result = KubernetesService.DetectInClusterContextName(host);
-
-        // Assert
-        result.Should().Be("in-cluster");
+        // The fallback value is a predictable, semantic constant, not a host-derived
+        // or "in-cluster" name.
+        KubernetesService.DefaultContextName.Should().Be("default");
     }
 
     [Fact]
-    public void DetectInClusterContextName_DistinctClusters_ShouldProduceDistinctNames()
+    public void InClusterMode_NoConfiguredContext_ShouldReportDefaultNotInCluster()
     {
-        // Arrange - two different clusters with different API server hosts
-        var clusterA = "https://10.96.0.1:443";
-        var clusterB = "https://10.96.1.1:443";
-
-        // Act
-        var nameA = KubernetesService.DetectInClusterContextName(clusterA);
-        var nameB = KubernetesService.DetectInClusterContextName(clusterB);
-
-        // Assert
-        nameA.Should().NotBe(nameB);
-        nameA.Should().NotBe("in-cluster");
-        nameB.Should().NotBe("in-cluster");
-    }
-
-    [Fact]
-    public void InClusterMode_GetContextName_ShouldNotBeTheConstantInCluster_WhenHostDiffers()
-    {
-        // Arrange - simulate two distinct in-cluster deployments.
-        // Regression for the bug where in-cluster mode hardcoded the detected
-        // context name to "in-cluster", making the context-name filter useless
-        // for distinguishing between clusters.
-        var hostA = KubernetesService.DetectInClusterContextName("https://10.96.0.1:443");
-        var hostB = KubernetesService.DetectInClusterContextName("https://10.96.2.1:443");
-
-        // A cluster's detected context name must be derived from its own host,
-        // distinguishable from another cluster's.
-        hostA.Should().NotBe("in-cluster");
-        hostB.Should().NotBe("in-cluster");
-        hostA.Should().NotBe(hostB);
+        // Regression for the bug where in-cluster mode always reported "in-cluster",
+        // which is useless for multi-cluster filtering. With no SYNC__CONTEXTNAME the
+        // operator reports the predictable "default" context.
+        // (Constant itself is the source of truth for the in-cluster fallback.)
+        KubernetesService.DefaultContextName.Should().NotBe("in-cluster");
     }
 
     #endregion
