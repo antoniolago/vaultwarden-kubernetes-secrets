@@ -1323,7 +1323,7 @@ public class VaultwardenService : IVaultwardenService
         return false;
     }
 
-    private static bool IsValidServerUrl(string url)
+    internal static bool IsValidServerUrl(string url)
     {
         if (string.IsNullOrWhiteSpace(url))
             return false;
@@ -1331,7 +1331,7 @@ public class VaultwardenService : IVaultwardenService
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
             return false;
 
-        if (uri.Scheme != "https")
+        if (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp)
             return false;
 
         var dangerousChars = new[] { ";", "`", "$", "&", "|", "\n", "\r", "'", "\"", "<", ">", "(", ")" };
