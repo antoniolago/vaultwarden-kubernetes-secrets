@@ -173,7 +173,7 @@ nodes:
                 ctx.Status("Customizing Vaultwarden image tag...");
                 var manifestPath = Path.Combine(_projectRoot, "tests", "e2e", "manifests", "vaultwarden.yaml");
                 var manifestContent = await File.ReadAllTextAsync(manifestPath);
-                var vaultwardenVersion = Environment.GetEnvironmentVariable("VAULTWARDEN_VERSION") ?? "1.36.0";
+                var vaultwardenVersion = Environment.GetEnvironmentVariable("VAULTWARDEN_VERSION") ?? "1.37.2";
                 manifestContent = Regex.Replace(
                     manifestContent,
                     @"image:\s+vaultwarden/server:\S+",
