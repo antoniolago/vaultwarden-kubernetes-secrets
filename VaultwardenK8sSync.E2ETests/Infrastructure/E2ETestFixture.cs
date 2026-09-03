@@ -24,6 +24,9 @@ public class E2ETestFixture : IAsyncLifetime
     public const string TestNamespace1 = "test-ns-1";
     public const string TestNamespace2 = "test-ns-2";
     public const string TestNamespace3 = "test-ns-3";
+    // Dedicated namespace + operator namespace for the plain-HTTP in-cluster URL test (issue #31)
+    public const string TestNamespaceHttp = "test-http-ns";
+    public const string OperatorHttpNamespace = "vaultwarden-kubernetes-secrets-http";
     
     public const string TestEmail = "e2e-test@vaultwarden.local";
     public const string TestMasterPassword = "MasterPassword123";
@@ -60,6 +63,8 @@ public class E2ETestFixture : IAsyncLifetime
         await SetupTestUser();
         await CreateTestItems();
         await DeployOperator();
+        await DeployVaultwardenHttpProxy();
+        await DeployOperatorHttp();
         await SetupApiPortForward();
         
         AnsiConsole.MarkupLine("[green]✓ E2E environment ready[/]");
@@ -128,7 +133,7 @@ nodes:
                 
                 // Create namespaces
                 ctx.Status("Creating namespaces...");
-                var namespaces = new[] { VaultwardenNamespace, OperatorNamespace, TestNamespace1, TestNamespace2, TestNamespace3 };
+                var namespaces = new[] { VaultwardenNamespace, OperatorNamespace, TestNamespace1, TestNamespace2, TestNamespace3, TestNamespaceHttp, OperatorHttpNamespace };
                 foreach (var ns in namespaces)
                 {
                     await RunCommand("kubectl", $"create namespace {ns} --dry-run=client -o yaml | kubectl apply -f -", useShell: true);
@@ -712,6 +717,69 @@ nodes:
         AnsiConsole.MarkupLine("[green]✓ Operator deployed[/]");
     }
     
+    private async Task DeployVaultwardenHttpProxy()
+    {
+        await AnsiConsole.Status()
+            .StartAsync("Deploying plain-HTTP Vaultwarden proxy...", async ctx =>
+            {
+                ctx.Status("Applying http proxy manifest...");
+                var manifestPath = Path.Combine(_projectRoot, "tests", "e2e", "manifests", "vaultwarden-http-proxy.yaml");
+                await RunCommand("kubectl", $"apply -f {manifestPath}");
+                
+                ctx.Status("Waiting for http proxy pod...");
+                await RunCommand("kubectl", 
+                    $"wait --for=condition=Ready pod -l app=vaultwarden-plain -n {VaultwardenNamespace} --timeout=120s");
+            });
+        
+        AnsiConsole.MarkupLine("[green]✓ Plain-HTTP Vaultwarden proxy ready[/]");
+    }
+    
+    private async Task DeployOperatorHttp()
+    {
+        if (Credentials == null) throw new InvalidOperationException("Credentials not set");
+        
+        await AnsiConsole.Status()
+            .StartAsync("Deploying operator (http in-cluster URL)...", async ctx =>
+            {
+                ctx.Status("Creating operator secret (http)...");
+                await RunCommand("kubectl", 
+                    $"create secret generic vaultwarden-kubernetes-secrets -n {OperatorHttpNamespace} " +
+                    $"--from-literal=BW_CLIENTID={Credentials.ClientId} " +
+                    $"--from-literal=BW_CLIENTSECRET={Credentials.ClientSecret} " +
+                    $"--from-literal=VAULTWARDEN__MASTERPASSWORD={Credentials.MasterPassword} " +
+                    "--dry-run=client -o yaml | kubectl apply -f -", useShell: true);
+                
+                // Deploy a second operator pointing at the plain-HTTP in-cluster Vaultwarden URL
+                // (issue #31). The nginx proxy exposes the seeded TLS Vaultwarden over plain
+                // HTTP, so this operator reaches the SAME data through an http:// URL. It is
+                // scoped to context 'http' so it (and only it) syncs the http-cluster-secret item.
+                ctx.Status("Installing operator (http) via Helm...");
+                await RunCommand("helm", 
+                    $"upgrade --install vks-e2e-http {_projectRoot}/charts/vaultwarden-kubernetes-secrets " +
+                    $"--namespace {OperatorHttpNamespace} " +
+                    "--set image.repository=vaultwarden-kubernetes-secrets " +
+                    "--set image.tag=e2e-test " +
+                    "--set image.pullPolicy=Never " +
+                    $"--set env.config.VAULTWARDEN__SERVERURL=http://vaultwarden-plain.{VaultwardenNamespace}.svc.cluster.local:80 " +
+                    "--set env.config.SYNC__DRYRUN=false " +
+                    "--set env.config.SYNC__SYNCINTERVALSECONDS=10 " +
+                    "--set env.config.SYNC__CONTINUOUSSYNC=true " +
+                    "--set env.config.SYNC__DELETEORPHANS=true " +
+                    "--set env.contextName=http " +
+                    $"--set env.config.KUBERNETES__DEFAULTNAMESPACE={TestNamespaceHttp} " +
+                    "--set env.config.NODE_TLS_REJECT_UNAUTHORIZED=0 " +
+                    "--set api.enabled=false " +
+                    "--set dashboard.enabled=false " +
+                    "--wait --timeout 2m");
+                
+                ctx.Status("Waiting for http operator...");
+                await RunCommand("kubectl", 
+                    $"wait --for=condition=Ready pod -l app.kubernetes.io/name=vaultwarden-kubernetes-secrets -n {OperatorHttpNamespace} --timeout=90s");
+            });
+        
+        AnsiConsole.MarkupLine("[green]✓ Operator (http in-cluster URL) deployed[/]");
+    }
+    
     private async Task SetupApiPortForward()
     {
         await AnsiConsole.Status()
@@ -879,6 +947,22 @@ nodes:
                 Username = "orphanuser",
                 Password = "orphanpass444",
                 CustomFields = new() { ["namespaces"] = TestNamespace1 }
+            },
+            // 11. Plain-HTTP in-cluster URL item (issue #31). Tagged context-name=http so ONLY
+            // the http operator (SYNC__CONTEXTNAME=http) syncs it into TestNamespaceHttp.
+            // The main operator (default context) skips it, isolating this test.
+            new()
+            {
+                Name = "http-cluster-secret",
+                Type = ItemType.Login,
+                Username = "httpuser",
+                Password = "httppass",
+                CustomFields = new()
+                {
+                    ["secret-name"] = "http-cluster-secret",
+                    ["namespaces"] = TestNamespaceHttp,
+                    ["context-name"] = "http"
+                }
             }
         };
     }
