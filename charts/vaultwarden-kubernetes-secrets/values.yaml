@@ -142,7 +142,7 @@ containerSecurityContext:
 
 env:
   config:
-    VAULTWARDEN__SERVERURL: "https://your-vaultwarden-server.com"
+    VAULTWARDEN__SERVERURL: "http://vaultwarden.vaultwarden.svc.cluster.local" # Your vw server url
     VAULTWARDEN__ORGANIZATIONID: "" #RECOMMENDED
     VAULTWARDEN__ORGANIZATIONNAME: ""
     VAULTWARDEN__FOLDERID: ""

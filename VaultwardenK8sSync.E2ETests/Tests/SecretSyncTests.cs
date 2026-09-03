@@ -299,6 +299,32 @@ public class SecretSyncTests : IAsyncLifetime
         AnsiConsole.MarkupLine($"[green]✓[/] Found {testSecrets.Count} test secrets (expected >= 5)");
     }
 
+    [Fact]
+    public async Task SyncOverHttpInClusterUrl_ShouldCreateSecret()
+    {
+        // This item is tagged context-name=http, so only the operator deployed with
+        // SYNC__CONTEXTNAME=http (pointed at http://vaultwarden-plain...svc.cluster.local:80)
+        // syncs it into TestNamespaceHttp. If the http URL were rejected, the operator would
+        // fail to authenticate and this secret would never appear.
+        var secretName = "http-cluster-secret";
+        var ns = E2ETestFixture.TestNamespaceHttp;
+
+        // Act
+        var secret = await WaitForSecret(ns, secretName, TimeSpan.FromSeconds(90));
+
+        // Assert
+        secret.Should().NotBeNull(
+            $"Secret '{secretName}' should be created in '{ns}' by the operator over the plain-HTTP in-cluster Vaultwarden URL");
+
+        var data = DecodeSecretData(secret!);
+        data.Should().ContainKey("username");
+        data.Should().ContainKey("password");
+        data["username"].Should().Be("httpuser");
+        data["password"].Should().Be("httppass");
+
+        AnsiConsole.MarkupLine($"[green]✓[/] Operator synced over http:// in-cluster URL: {secretName}");
+    }
+
     private async Task<V1Secret?> WaitForSecret(string ns, string name, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;

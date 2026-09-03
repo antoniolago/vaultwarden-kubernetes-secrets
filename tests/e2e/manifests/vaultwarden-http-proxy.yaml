@@ -1,0 +1,72 @@
+---
+# Plain-HTTP reverse proxy in front of the TLS Vaultwarden, for the E2E test of
+# issue #31. It exposes the seeded TLS Vaultwarden over plain HTTP on port 80 so
+# the operator can be pointed at an in-cluster http:// URL
+# (http://vaultwarden-plain.vaultwarden.svc.cluster.local:80) and still reach the
+# same Vaultwarden data (user, items) that the main TLS operator uses.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vaultwarden-plain-nginx
+  namespace: vaultwarden
+data:
+  default.conf: |
+    server {
+      listen 80;
+      server_name _;
+      location / {
+        proxy_pass https://vaultwarden.vaultwarden.svc.cluster.local:443;
+        proxy_ssl_verify off;
+        proxy_ssl_server_name on;
+        proxy_set_header Host vaultwarden.vaultwarden.svc.cluster.local;
+        proxy_set_header X-Forwarded-Proto https;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vaultwarden-plain
+  namespace: vaultwarden
+  labels:
+    app: vaultwarden-plain
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vaultwarden-plain
+  template:
+    metadata:
+      labels:
+        app: vaultwarden-plain
+    spec:
+      containers:
+      - name: proxy
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: conf
+          mountPath: /etc/nginx/conf.d
+          readOnly: true
+        resources:
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
+      volumes:
+      - name: conf
+        configMap:
+          name: vaultwarden-plain-nginx
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vaultwarden-plain
+  namespace: vaultwarden
+spec:
+  selector:
+    app: vaultwarden-plain
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
