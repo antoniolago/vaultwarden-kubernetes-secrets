@@ -9,8 +9,6 @@
 
 Automatically sync secrets from [Vaultwarden](https://github.com/dani-garcia/vaultwarden) to Kubernetes. Store your secrets in Vaultwarden, tag them with target namespaces, and they'll be created as Kubernetes Secrets.
 
-> **⚠️ v2.0 Breaking Changes**: If upgrading from v1.x, see the [CHANGELOG](CHANGELOG.md). Secret key names have changed from item-derived names to fixed defaults (`password`, `username`).
-
 **Navigation**
 - [Quick Start](#quick-start): Install + create your first secret
 - [How It Works](#how-it-works): High-level flow
@@ -24,6 +22,8 @@ Automatically sync secrets from [Vaultwarden](https://github.com/dani-garcia/vau
 ## Quick Start
 
 ### 1. Install with Helm
+
+**Security tip:** Create a dedicated Vaultwarden user for this service and scope it to a specific Organization or Collection.
 
 ```bash
 # Set your values
@@ -48,8 +48,6 @@ helm upgrade -i vaultwarden-kubernetes-secrets oci://ghcr.io/antoniolago/charts/
   --set env.config.VAULTWARDEN__SERVERURL="$SERVER_URL" \
   --set image.tag="$CHART_VERSION"
 ```
-
-**Security tip:** Create a dedicated Vaultwarden user for this service and scope it to a specific Organization or Collection.
 
 ### 2. Create your first secret
 
@@ -101,7 +99,7 @@ This creates a Secret named `my-secret` in the `default` namespace — no `names
 
 | Field Name | Description | Default |
 |------------|-------------|---------|
-| `namespaces` | **Required** for standard items. Comma-separated list of target namespaces | - |
+| `namespaces` | **Required** for Login item type, optional for YAML in Note item (it'll replicate across all namespaces). Comma-separated list of target namespaces | - |
 | `secret-name` | Custom name for the Kubernetes Secret | Sanitized item name |
 | `secret-key-password` | Key name for the password/credential value | `password` |
 | `secret-key-username` | Key name for the username value | `username` |
