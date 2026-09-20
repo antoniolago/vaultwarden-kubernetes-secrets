@@ -21,9 +21,12 @@ Automatically sync secrets from [Vaultwarden](https://github.com/dani-garcia/vau
 
 ## Quick Start
 
-### 1. Install with Helm
-
 **Security tip:** Create a dedicated Vaultwarden user for this service and scope it to a specific Organization or Collection.
+
+**Organization API Keys are not supported**: https://github.com/dani-garcia/vaultwarden/wiki#missing-features
+
+
+### 1. Install with Helm
 
 ```bash
 # Set your values
@@ -99,7 +102,7 @@ This creates a Secret named `my-secret` in the `default` namespace — no `names
 
 | Field Name | Description | Default |
 |------------|-------------|---------|
-| `namespaces` | **Required** for Login item type, optional for YAML in Note item (it'll replicate across all namespaces). Comma-separated list of target namespaces | - |
+| `namespaces` | **Required** for Login item type, optional for YAML in Note item (it'll replicate across all provided namespaces). Comma-separated list of target namespaces | - |
 | `secret-name` | Custom name for the Kubernetes Secret | Sanitized item name |
 | `secret-key-password` | Key name for the password/credential value | `password` |
 | `secret-key-username` | Key name for the username value | `username` |
