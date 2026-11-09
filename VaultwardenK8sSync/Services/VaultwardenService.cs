@@ -551,13 +551,34 @@ public class VaultwardenService : IVaultwardenService
         var hasOrgKey = !string.IsNullOrEmpty(orgId) && _orgKeys.ContainsKey(orgId);
         if (!string.IsNullOrEmpty(orgId) && !hasOrgKey)
             _logger.LogWarning("Item {Id}: orgId={OrgId} but NO matching org key!", item.Id, orgId);
+
+        // Newer clients (web vault 2026.10+) store a per-item key in cipher.key, wrapped with the
+        // org (or user) key. Everything else in the item is encrypted with that item key.
+        byte[]? itemEncKey = null;
+        if ((cipher.TryGetProperty("key", out var itemKeyProp) || cipher.TryGetProperty("Key", out itemKeyProp))
+            && itemKeyProp.ValueKind == JsonValueKind.String
+            && !string.IsNullOrEmpty(itemKeyProp.GetString()))
+        {
+            var wrappingEncKey = hasOrgKey ? _orgKeys[orgId!].encKey : _encryptionKey;
+            var wrappingMacKey = hasOrgKey ? _orgKeys[orgId!].macKey : _macKey;
+            var itemKeyBytes = DecryptToBytesWithKey(itemKeyProp.GetString(), wrappingEncKey, wrappingMacKey);
+            if (itemKeyBytes != null && itemKeyBytes.Length >= 64)
+            {
+                itemEncKey = itemKeyBytes[..32];
+                _logger.LogDebug("Item {Id}: per-item key unwrapped ({Len} bytes)", item.Id, itemKeyBytes.Length);
+            }
+            else
+            {
+                _logger.LogWarning("Item {Id}: could not unwrap per-item key, falling back to org/user key", item.Id);
+            }
+        }
         
         if (cipher.TryGetProperty("name", out var nameProp) || cipher.TryGetProperty("Name", out nameProp))
-            item.Name = DecryptString(nameProp.GetString(), orgId) ?? string.Empty;
+            item.Name = DecryptString(nameProp.GetString(), orgId, itemEncKey) ?? string.Empty;
 
         // Decrypt notes
         if (cipher.TryGetProperty("notes", out var notesProp) || cipher.TryGetProperty("Notes", out notesProp))
-            item.Notes = (notesProp.ValueKind != JsonValueKind.Null ? DecryptString(notesProp.GetString(), orgId) : null) ?? string.Empty;
+            item.Notes = (notesProp.ValueKind != JsonValueKind.Null ? DecryptString(notesProp.GetString(), orgId, itemEncKey) : null) ?? string.Empty;
 
         // Get collection IDs
         if (cipher.TryGetProperty("collectionIds", out var collProp) || cipher.TryGetProperty("CollectionIds", out collProp))
@@ -579,13 +600,13 @@ public class VaultwardenService : IVaultwardenService
                 item.Login = new LoginInfo();
 
                 if (loginProp.TryGetProperty("username", out var userProp) || loginProp.TryGetProperty("Username", out userProp))
-                    item.Login.Username = (userProp.ValueKind != JsonValueKind.Null ? DecryptString(userProp.GetString(), orgId) : null) ?? string.Empty;
+                    item.Login.Username = (userProp.ValueKind != JsonValueKind.Null ? DecryptString(userProp.GetString(), orgId, itemEncKey) : null) ?? string.Empty;
 
                 if (loginProp.TryGetProperty("password", out var passProp) || loginProp.TryGetProperty("Password", out passProp))
-                    item.Login.Password = (passProp.ValueKind != JsonValueKind.Null ? DecryptString(passProp.GetString(), orgId) : null) ?? string.Empty;
+                    item.Login.Password = (passProp.ValueKind != JsonValueKind.Null ? DecryptString(passProp.GetString(), orgId, itemEncKey) : null) ?? string.Empty;
 
                 if (loginProp.TryGetProperty("totp", out var totpProp) || loginProp.TryGetProperty("Totp", out totpProp))
-                    item.Login.Totp = totpProp.ValueKind != JsonValueKind.Null ? DecryptString(totpProp.GetString(), orgId) : null;
+                    item.Login.Totp = totpProp.ValueKind != JsonValueKind.Null ? DecryptString(totpProp.GetString(), orgId, itemEncKey) : null;
 
                 // Parse URIs
                 if (loginProp.TryGetProperty("uris", out var urisProp) || loginProp.TryGetProperty("Uris", out urisProp))
@@ -597,7 +618,7 @@ public class VaultwardenService : IVaultwardenService
                         {
                             if (uri.TryGetProperty("uri", out var uriVal) || uri.TryGetProperty("Uri", out uriVal))
                             {
-                                var decryptedUri = DecryptString(uriVal.GetString(), orgId);
+                                var decryptedUri = DecryptString(uriVal.GetString(), orgId, itemEncKey);
                                 if (!string.IsNullOrEmpty(decryptedUri))
                                 {
                                     item.Login.Uris.Add(new UriInfo { Uri = decryptedUri });
@@ -616,11 +637,11 @@ public class VaultwardenService : IVaultwardenService
             {
                 item.SshKey = new SshKeyInfo();
                 if (sshKeyProp.TryGetProperty("privateKey", out var privateKeyProp) || sshKeyProp.TryGetProperty("PrivateKey", out privateKeyProp))
-                    item.SshKey.PrivateKey = (privateKeyProp.ValueKind != JsonValueKind.Null ? DecryptString(privateKeyProp.GetString(), orgId) : null) ?? string.Empty;
+                    item.SshKey.PrivateKey = (privateKeyProp.ValueKind != JsonValueKind.Null ? DecryptString(privateKeyProp.GetString(), orgId, itemEncKey) : null) ?? string.Empty;
                 if (sshKeyProp.TryGetProperty("publicKey", out var publicKeyProp) || sshKeyProp.TryGetProperty("PublicKey", out publicKeyProp))
-                    item.SshKey.PublicKey = (publicKeyProp.ValueKind != JsonValueKind.Null ? DecryptString(publicKeyProp.GetString(), orgId) : null) ?? string.Empty;
+                    item.SshKey.PublicKey = (publicKeyProp.ValueKind != JsonValueKind.Null ? DecryptString(publicKeyProp.GetString(), orgId, itemEncKey) : null) ?? string.Empty;
                 if (sshKeyProp.TryGetProperty("keyFingerprint", out var keyFingerprintProp) || sshKeyProp.TryGetProperty("KeyFingerprint", out keyFingerprintProp))
-                    item.SshKey.Fingerprint = (keyFingerprintProp.ValueKind != JsonValueKind.Null ? DecryptString(keyFingerprintProp.GetString(), orgId) : null) ?? string.Empty;
+                    item.SshKey.Fingerprint = (keyFingerprintProp.ValueKind != JsonValueKind.Null ? DecryptString(keyFingerprintProp.GetString(), orgId, itemEncKey) : null) ?? string.Empty;
             }
         }
 
@@ -637,10 +658,10 @@ public class VaultwardenService : IVaultwardenService
                     var vwField = new FieldInfo();
 
                     if (field.TryGetProperty("name", out var fnProp) || field.TryGetProperty("Name", out fnProp))
-                        vwField.Name = (fnProp.ValueKind != JsonValueKind.Null ? DecryptString(fnProp.GetString(), orgId) : null) ?? string.Empty;
+                        vwField.Name = (fnProp.ValueKind != JsonValueKind.Null ? DecryptString(fnProp.GetString(), orgId, itemEncKey) : null) ?? string.Empty;
 
                     if (field.TryGetProperty("value", out var fvProp) || field.TryGetProperty("Value", out fvProp))
-                        vwField.Value = (fvProp.ValueKind != JsonValueKind.Null ? DecryptString(fvProp.GetString(), orgId) : null) ?? string.Empty;
+                        vwField.Value = (fvProp.ValueKind != JsonValueKind.Null ? DecryptString(fvProp.GetString(), orgId, itemEncKey) : null) ?? string.Empty;
 
                     if (field.TryGetProperty("type", out var ftProp) || field.TryGetProperty("Type", out ftProp))
                         vwField.Type = ftProp.GetInt32();
@@ -667,7 +688,7 @@ public class VaultwardenService : IVaultwardenService
                     if (att.TryGetProperty("fileName", out var attNameProp) || att.TryGetProperty("FileName", out attNameProp))
                     {
                         var encryptedFileName = attNameProp.ValueKind != JsonValueKind.Null ? (attNameProp.GetString() ?? string.Empty) : string.Empty;
-                        attInfo.FileName = DecryptString(encryptedFileName, orgId) ?? encryptedFileName;
+                        attInfo.FileName = DecryptString(encryptedFileName, orgId, itemEncKey) ?? encryptedFileName;
                     }
 
                     if (att.TryGetProperty("size", out var attSizeProp) || att.TryGetProperty("Size", out attSizeProp))
@@ -1022,6 +1043,52 @@ public class VaultwardenService : IVaultwardenService
         }
     }
 
+    private byte[]? DecryptToBytesWithKey(string? encrypted, byte[]? encKey, byte[]? macKey)
+    {
+        if (string.IsNullOrEmpty(encrypted) || encKey == null)
+            return null;
+
+        try
+        {
+            if (!encrypted.StartsWith("2."))
+                return null;
+
+            var parts = encrypted[2..].Split('|');
+            if (parts.Length < 2)
+                return null;
+
+            var iv = Convert.FromBase64String(parts[0]);
+            var data = Convert.FromBase64String(parts[1]);
+
+            if (parts.Length > 2 && macKey != null)
+            {
+                using var hmac = new HMACSHA256(macKey);
+                var macData = new byte[iv.Length + data.Length];
+                iv.CopyTo(macData, 0);
+                data.CopyTo(macData, iv.Length);
+                if (!hmac.ComputeHash(macData).SequenceEqual(Convert.FromBase64String(parts[2])))
+                {
+                    _logger.LogDebug("Per-item key MAC verification failed");
+                    return null;
+                }
+            }
+
+            using var aes = Aes.Create();
+            aes.Key = encKey;
+            aes.IV = iv;
+            aes.Mode = CipherMode.CBC;
+            aes.Padding = PaddingMode.PKCS7;
+
+            using var decryptor = aes.CreateDecryptor();
+            return decryptor.TransformFinalBlock(data, 0, data.Length);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("DecryptToBytesWithKey failed: {Message}", ex.Message);
+            return null;
+        }
+    }
+
     private byte[]? DecryptSymmetricKey(string encryptedKey, byte[] encKey, byte[]? macKey = null)
     {
         try
@@ -1078,12 +1145,12 @@ public class VaultwardenService : IVaultwardenService
         }
     }
 
-    private string? DecryptString(string? encrypted, string? orgId = null)
+    private string? DecryptString(string? encrypted, string? orgId = null, byte[]? itemEncKey = null)
     {
-        // Get appropriate encryption key (org key if item belongs to org, otherwise user key)
-        byte[]? encKey = _encryptionKey;
+        // Per-item key wins; otherwise org key if the item belongs to an org; otherwise user key
+        byte[]? encKey = itemEncKey ?? _encryptionKey;
         bool usingOrgKey = false;
-        if (!string.IsNullOrEmpty(orgId) && _orgKeys.TryGetValue(orgId, out var orgKeyPair))
+        if (itemEncKey == null && !string.IsNullOrEmpty(orgId) && _orgKeys.TryGetValue(orgId, out var orgKeyPair))
         {
             encKey = orgKeyPair.encKey;
             usingOrgKey = true;
