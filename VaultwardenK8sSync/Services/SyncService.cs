@@ -25,6 +25,39 @@ public class SyncService : ISyncService
     private readonly HashSet<string> _knownMissingNamespaces = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _missingNamespaceCheckTimes = new(StringComparer.OrdinalIgnoreCase);
     private static readonly TimeSpan MissingNamespaceRecheckInterval = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// Drops one namespace from the "known missing" cache after it was seen on the cluster.
+    /// </summary>
+    private void ForgetMissingNamespace(string namespaceName)
+    {
+        lock (_missingNamespacesLock)
+        {
+            if (_knownMissingNamespaces.Remove(namespaceName))
+            {
+                _logger.LogDebug("Namespace {Namespace} now exists - dropping known-missing cache entry", namespaceName);
+            }
+            _missingNamespaceCheckTimes.Remove(namespaceName);
+        }
+    }
+
+    /// <summary>
+    /// Drops the whole "known missing" cache. Called when a full reconciliation starts, because
+    /// items may have changed and a namespace that was missing on the last run may exist now.
+    /// </summary>
+    private void ClearMissingNamespaceCache()
+    {
+        lock (_missingNamespacesLock)
+        {
+            if (_knownMissingNamespaces.Count > 0)
+            {
+                _logger.LogDebug("Full reconciliation - clearing {Count} known-missing namespace(s) for re-check",
+                    _knownMissingNamespaces.Count);
+                _knownMissingNamespaces.Clear();
+            }
+            _missingNamespaceCheckTimes.Clear();
+        }
+    }
     private int _syncCount;
 
     private void LogMemoryUsage(string phase, long? previousMemory = null)
@@ -199,6 +232,10 @@ public class SyncService : ISyncService
             {
                 _logger.LogDebug("No context name configured or auto-detected. Items with context-name field will NOT be filtered.");
             }
+
+            // Full reconciliation: items changed (or a previous run failed), so a namespace that was
+            // missing on the last run may exist now. Re-check them instead of trusting the cache.
+            ClearMissingNamespaceCache();
 
             var (itemsByNamespace, itemsWithNamespaces, itemsSkippedByContext) =
                 FilterAndGroupByNamespace(items, effectiveContextName, _logger);
@@ -2914,6 +2951,10 @@ public class SyncService : ISyncService
                     namespaceName);
                 continue;
             }
+
+            // The namespace exists now: any negative cache entry is stale and would make the next
+            // full reconciliation skip it (secret never created until a pod restart).
+            ForgetMissingNamespace(namespaceName);
 
             // Group namespace items by secret name
             var itemsBySecretName = GroupItemsBySecretName(namespaceItems);
