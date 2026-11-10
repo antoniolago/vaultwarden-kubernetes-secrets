@@ -1,0 +1,97 @@
+name: Vaultwarden compatibility
+
+# Matriz Vaultwarden × VKS: cada release nova do Vaultwarden sobe num container descartável,
+# a conta/org/item é criada pela UI do web vault embutido (é o cliente que define o formato da
+# chave) e a imagem do VKS roda em dry-run contra ela.
+#
+# Runner fixo em ubuntu-24.04: em 26.04 as actions de browser ainda não são suportadas
+# ("Playwright does not support chromium on ubuntu26.04-x64"). Este harness não usa Playwright:
+# instala o Chrome e fala CDP direto.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # segunda 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: "Versões específicas (espaço). Vazio = detecta releases novas."
+        required: false
+        default: ""
+      max_new:
+        description: "Máximo de versões novas por execução"
+        required: false
+        default: "3"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vks-vw-compat
+  cancel-in-progress: false
+
+jobs:
+  compat:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: compat
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kubernetes de teste (kind)
+        uses: helm/kind-action@v1.10.0
+        with:
+          cluster_name: vks-compat
+
+      - name: Chrome headless (sem Playwright)
+        working-directory: .
+        run: |
+          sudo apt-get update -qq
+          wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get install -y -qq /tmp/chrome.deb
+          google-chrome --version
+
+      - name: Dependências do harness
+        working-directory: .
+        run: pip install --quiet websocket-client
+
+      - name: Matriz
+        id: matrix
+        continue-on-error: true
+        env:
+          VKS_IMAGE: ${{ vars.VKS_IMAGE || 'ghcr.io/antoniolago/vaultwarden-kubernetes-secrets:pr-28-bd7b7ac6' }}
+          BROWSER_BIN: google-chrome
+          CONTAINER_RUNTIME: docker
+        run: |
+          ARGS="--jobs 3 --max-new ${{ github.event.inputs.max_new || '3' }}"
+          if [ -n "${{ github.event.inputs.versions }}" ]; then
+            ARGS="--versions ${{ github.event.inputs.versions }} --recheck --jobs 3"
+          fi
+          python3 run_matrix.py $ARGS
+
+      - name: Publicar relatório
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vks-vw-compat
+          path: |
+            compat/state.json
+            compat/work/log-*.txt
+          if-no-files-found: ignore
+
+      - name: Persistir estado (só versões novas nos próximos runs)
+        if: always()
+        working-directory: .
+        run: |
+          if ! git diff --quiet -- compat/state.json; then
+            git config user.name "compat-bot"
+            git config user.email "compat-bot@users.noreply.github.com"
+            git add compat/state.json
+            git commit -m "chore(compat): resultados $(date -u +%Y-%m-%d)"
+            git push
+          fi
+
+      - name: Falhar se alguma versão desta execução quebrar o VKS
+        if: steps.matrix.outcome == 'failure'
+        run: exit 1
