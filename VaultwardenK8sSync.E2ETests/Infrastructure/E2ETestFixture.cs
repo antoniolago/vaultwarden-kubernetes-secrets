@@ -424,31 +424,76 @@ nodes:
     private async Task RegisterUserViaApi(string email, string masterPassword, byte[] symKey)
     {
         using var client = CreateHttpClient();
-        
-        var registerUrl = $"{VaultwardenUrl}/api/accounts/register";
-        
+
         // Use default KDF settings (PBKDF2 with 600000 iterations is the Bitwarden default)
         const int kdf = 0; // PBKDF2
         const int kdfIterations = 600000;
-        
+        const string userName = "E2E Test User";
+
         // Derive keys using PBKDF2
         var masterKey = DeriveKey(masterPassword, email.ToLowerInvariant(), kdfIterations);
-        var masterPasswordHash = DeriveKey(masterKey, masterPassword, 1);
+        var masterPasswordHash = Convert.ToBase64String(DeriveKey(masterKey, masterPassword, 1));
         var protectedKey = ProtectSymmetricKey(symKey, masterKey);
-        
-        // Build registration payload
+        var salt = email.ToLowerInvariant();
+
+        // Vaultwarden 1.37.4 removed the legacy registration endpoint. The current flow starts the
+        // registration (which returns the verification token when mail is not configured) and then
+        // finishes it with the masterPasswordAuthentication/masterPasswordUnlock payload.
+        var startResponse = await client.PostAsJsonAsync(
+            $"{VaultwardenUrl}/identity/accounts/register/send-verification-email",
+            new { email, name = userName });
+
+        if (startResponse.IsSuccessStatusCode)
+        {
+            var body = (await startResponse.Content.ReadAsStringAsync()).Trim();
+            string? verificationToken = null;
+            if (body.StartsWith("\""))
+            {
+                verificationToken = JsonSerializer.Deserialize<string>(body);
+            }
+            else if (body.StartsWith("{"))
+            {
+                var tokenDoc = JsonSerializer.Deserialize<JsonElement>(body);
+                if (tokenDoc.TryGetProperty("emailVerificationToken", out var tokenProp))
+                    verificationToken = tokenProp.GetString();
+            }
+
+            if (!string.IsNullOrEmpty(verificationToken))
+            {
+                var kdfData = new { kdf, kdfIterations };
+                var finishPayload = new
+                {
+                    email,
+                    name = userName,
+                    emailVerificationToken = verificationToken,
+                    masterPasswordAuthentication = new { kdf = kdfData, salt, hash = masterPasswordHash },
+                    masterPasswordUnlock = new { kdf = kdfData, salt, key = protectedKey }
+                };
+
+                var finishResponse = await client.PostAsJsonAsync(
+                    $"{VaultwardenUrl}/identity/accounts/register/finish", finishPayload);
+                if (finishResponse.IsSuccessStatusCode)
+                    return;
+
+                var finishError = await finishResponse.Content.ReadAsStringAsync();
+                throw new InvalidOperationException(
+                    $"Failed to register user: {finishResponse.StatusCode} - {finishError}");
+            }
+        }
+
+        // Legacy servers (< 1.37.4) still expose the single-step endpoint.
         var registerPayload = new
         {
             email,
-            masterPasswordHash = Convert.ToBase64String(masterPasswordHash),
+            masterPasswordHash,
             masterPasswordHint = (string?)null,
-            name = "E2E Test User",
+            name = userName,
             key = protectedKey,
             kdf,
             kdfIterations
         };
-        
-        var response = await client.PostAsJsonAsync(registerUrl, registerPayload);
+
+        var response = await client.PostAsJsonAsync($"{VaultwardenUrl}/api/accounts/register", registerPayload);
         if (!response.IsSuccessStatusCode)
         {
             var error = await response.Content.ReadAsStringAsync();

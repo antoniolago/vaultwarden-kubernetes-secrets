@@ -124,8 +124,45 @@ def register_user(server, email, password, iterations=600000):
             "publicKey": pub_b64,
         },
     }
-    url = f"{server.rstrip('/')}/identity/accounts/register"
-    return api_post(url, payload)
+    base = server.rstrip("/")
+    salt = email.lower()
+
+    # Vaultwarden 1.37.4 removed the single-step registration endpoint. The current flow starts
+    # the registration (returning the verification token when mail is not configured) and then
+    # finishes it with the masterPasswordAuthentication/masterPasswordUnlock payload.
+    token = None
+    try:
+        start_req = urllib.request.Request(
+            f"{base}/identity/accounts/register/send-verification-email",
+            data=json.dumps({"email": email, "name": "E2E User"}).encode(),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(start_req) as resp:
+            body = resp.read().decode().strip()
+        if body:
+            try:
+                token = json.loads(body)
+            except json.JSONDecodeError:
+                token = body  # server returned the bare token (no JSON accept)
+        if isinstance(token, dict):
+            token = token.get("emailVerificationToken")
+    except Exception:
+        token = None
+    if isinstance(token, str) and token:
+        kdf = {"kdf": 0, "kdfIterations": iterations}
+        finish_payload = {
+            "email": email,
+            "name": "E2E User",
+            "emailVerificationToken": token,
+            "masterPasswordAuthentication": {"kdf": kdf, "salt": salt, "hash": auth_hash},
+            "masterPasswordUnlock": {"kdf": kdf, "salt": salt, "key": enc_user_key},
+            "keys": {"encryptedPrivateKey": enc_priv, "publicKey": pub_b64},
+        }
+        return api_post(f"{base}/identity/accounts/register/finish", finish_payload)
+
+    # Legacy servers (< 1.37.4)
+    return api_post(f"{base}/identity/accounts/register", payload)
 
 def login_get_session(server, email, password_hash, device_id="e2e-device"):
     url = f"{server.rstrip('/')}/identity/connect/token"

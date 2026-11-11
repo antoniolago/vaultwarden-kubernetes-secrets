@@ -131,8 +131,41 @@ def register(args):
         },
     }
 
-    # Step 9: Send registration request
-    url = f"{server}/identity/accounts/register"
+    # Step 9: Send registration request.
+    # Vaultwarden 1.37.4 removed the single-step endpoint; the current flow starts the
+    # registration (token returned when mail is not configured) and then finishes it.
+    base = server.rstrip("/")
+    salt = email.lower()
+    token = None
+    try:
+        start_req = urllib.request.Request(
+            f"{base}/identity/accounts/register/send-verification-email",
+            data=json.dumps({"email": email, "name": "E2E Test User"}).encode(),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(start_req) as resp:
+            body = resp.read().decode().strip()
+        token = json.loads(body) if body else None
+        if isinstance(token, dict):
+            token = token.get("emailVerificationToken")
+    except Exception:
+        token = None
+
+    if isinstance(token, str) and token:
+        kdf = {"kdf": 0, "kdfIterations": iterations}
+        payload = {
+            "email": email,
+            "name": "E2E Test User",
+            "emailVerificationToken": token,
+            "masterPasswordAuthentication": {"kdf": kdf, "salt": salt, "hash": master_password_hash},
+            "masterPasswordUnlock": {"kdf": kdf, "salt": salt, "key": encrypted_user_key},
+            "keys": {"encryptedPrivateKey": encrypted_private_key, "publicKey": public_key_b64},
+        }
+        url = f"{base}/identity/accounts/register/finish"
+    else:
+        url = f"{base}/identity/accounts/register"
+
     data = json.dumps(payload).encode()
 
     req = urllib.request.Request(
