@@ -764,8 +764,9 @@ def main():
     rows, fails = write_report(state, [v for v in pending[args.max_new:]])
     print(f"\n{len(rows)} versions in history · {len(fails)} failing "
           f"(in this run: {len(batch_fails)}/{len(batch)}) · report: {REPORT}")
-    # exit code reflects this run, not known historical failures
-    sys.exit(1 if batch_fails else 0)
+    # Exit reflects this run: a failure, or a batch where no version got a verdict because the
+    # harness itself broke (kept pending for the next run, but the job must not look green).
+    sys.exit(1 if (batch_fails or batch_errors) else 0)
 
 
 if __name__ == "__main__":
