@@ -475,9 +475,9 @@ nodes:
                 if (finishResponse.IsSuccessStatusCode)
                     return;
 
-                var finishError = await finishResponse.Content.ReadAsStringAsync();
-                throw new InvalidOperationException(
-                    $"Failed to register user: {finishResponse.StatusCode} - {finishError}");
+                // Older servers expose the start endpoint but reject the current payload shape;
+                // fall through to the legacy single-step endpoint instead of failing here.
+                _ = await finishResponse.Content.ReadAsStringAsync();
             }
         }
 

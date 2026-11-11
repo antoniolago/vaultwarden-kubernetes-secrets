@@ -159,7 +159,10 @@ def register_user(server, email, password, iterations=600000):
             "masterPasswordUnlock": {"kdf": kdf, "salt": salt, "key": enc_user_key},
             "keys": {"encryptedPrivateKey": enc_priv, "publicKey": pub_b64},
         }
-        return api_post(f"{base}/identity/accounts/register/finish", finish_payload)
+        try:
+            return api_post(f"{base}/identity/accounts/register/finish", finish_payload)
+        except RuntimeError:
+            pass  # older server rejected the new payload: fall through to the legacy endpoint
 
     # Legacy servers (< 1.37.4)
     return api_post(f"{base}/identity/accounts/register", payload)

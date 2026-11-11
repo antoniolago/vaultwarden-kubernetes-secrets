@@ -152,40 +152,39 @@ def register(args):
     except Exception:
         token = None
 
+    legacy_payload = payload
+    attempts = []
     if isinstance(token, str) and token:
         kdf = {"kdf": 0, "kdfIterations": iterations}
-        payload = {
+        attempts.append((f"{base}/identity/accounts/register/finish", {
             "email": email,
             "name": "E2E Test User",
             "emailVerificationToken": token,
             "masterPasswordAuthentication": {"kdf": kdf, "salt": salt, "hash": master_password_hash},
             "masterPasswordUnlock": {"kdf": kdf, "salt": salt, "key": encrypted_user_key},
             "keys": {"encryptedPrivateKey": encrypted_private_key, "publicKey": public_key_b64},
-        }
-        url = f"{base}/identity/accounts/register/finish"
-    else:
-        url = f"{base}/identity/accounts/register"
+        }))
+    attempts.append((f"{base}/identity/accounts/register", legacy_payload))
 
-    data = json.dumps(payload).encode()
+    last_error = None
+    for url, body in attempts:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                print(f"  ✓ Registration successful: {json.loads(resp.read().decode())}")
+                return 0
+        except urllib.error.HTTPError as e:
+            last_error = f"HTTP {e.code}: {e.read().decode()[:300]}"
+        except Exception as e:  # network/decoding problem
+            last_error = str(e)
 
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST"
-    )
-
-    try:
-        with urllib.request.urlopen(req) as resp:
-            result = json.loads(resp.read().decode())
-            print(f"  ✓ Registration successful: {result}")
-            return 0
-    except urllib.error.HTTPError as e:
-        print(f"  ✗ HTTP {e.code}: {e.read().decode()[:500]}", file=sys.stderr)
-        return 1
-    except Exception as e:
-        print(f"  ✗ Error: {e}", file=sys.stderr)
-        return 1
+    print(f"  ✗ {last_error}", file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":
