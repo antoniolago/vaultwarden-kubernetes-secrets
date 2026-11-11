@@ -47,6 +47,7 @@ REPORT = Path.home() / ".television/artifacts/vks-compat/report.html"
 BROWSER_BIN = os.environ.get("BROWSER_BIN") or shutil.which("helium") or shutil.which("google-chrome") or shutil.which("chromium")
 CONTAINER_RUNTIME = os.environ.get("CONTAINER_RUNTIME") or ("podman" if shutil.which("podman") else "docker")
 KUBE_CONTEXT = os.environ.get("KUBE_CONTEXT", "")
+KUBECTL = shutil.which("kubectl") or "kubectl"
 DEFAULT_VKS_IMAGE = "ghcr.io/antoniolago/vaultwarden-kubernetes-secrets:pr-28-bd7b7ac6"
 MASTER_PW = "CompatLab2026!Key#42"
 LAB_EMAIL_DOMAIN = "lag0.local"
@@ -373,7 +374,11 @@ class Instance:
         self.email = f"compat-{version.replace('.', '-')}@{LAB_EMAIL_DOMAIN}"
         self.org = f"CompatOrg {version}"
         self.item = f"compat-item-{version}"
+        if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+            raise ValueError(f"unexpected version format: {version!r}")
         self.namespace = f"{TARGET_NAMESPACE_PREFIX}-{version.replace('.', '-')}"
+        self.namespace_created = False
+        self.kubeconfig = None
         self.fields = [("namespaces", self.namespace), ("secret-name", self.item), ("token", "abc123")]
 
     def start(self):
@@ -472,11 +477,13 @@ def run_vks(inst, vks_image):
         text = re.sub(r"(?m)^current-context:.*$", f"current-context: {KUBE_CONTEXT}", text, count=1)
     kubeconfig.write_text(text)
 
-    kubectl = ["kubectl", "--kubeconfig", str(kubeconfig)]
+    inst.kubeconfig = kubeconfig
+    kubectl = [KUBECTL, "--kubeconfig", str(kubeconfig)]
     if KUBE_CONTEXT:
         kubectl += ["--context", KUBE_CONTEXT]
     # The item targets inst.namespace; without it the VKS skips the secret (no reconciliation).
-    subprocess.run([*kubectl, "create", "ns", inst.namespace], capture_output=True)
+    create_ns = subprocess.run([*kubectl, "create", "ns", inst.namespace], capture_output=True)
+    inst.namespace_created = create_ns.returncode == 0
     for _ in range(20):
         phase = subprocess.run([*kubectl, "get", "ns", inst.namespace, "-o",
                                 "jsonpath={.status.phase}"], capture_output=True, text=True)
@@ -512,6 +519,12 @@ def run_vks(inst, vks_image):
             returncode = -1
             f.write("\n[TIMEOUT]\n")
 
+    if returncode == 125:
+        # The container runtime refused to start the image: a launch problem, not a VKS verdict.
+        first_error = next((ln for ln in log.read_text(errors="ignore").splitlines()
+                            if "rror" in ln), "")[:200]
+        raise RuntimeError(f"container runtime could not start the VKS image (exit 125): {first_error}")
+
     text = log.read_text(errors="ignore")
     # Item detection alone proves nothing: the secret is only reconciled after the namespace
     # check. Require the dry-run reconciliation line for this item.
@@ -539,6 +552,16 @@ def webvault_version(inst):
         return m[0] if m else None
     except Exception:
         return None
+
+
+def cleanup_namespace(inst):
+    """Delete the lab namespace, but only when this run created it."""
+    if not getattr(inst, "namespace_created", False) or inst.kubeconfig is None:
+        return
+    kubectl = [KUBECTL, "--kubeconfig", str(inst.kubeconfig)]
+    if KUBE_CONTEXT:
+        kubectl += ["--context", KUBE_CONTEXT]
+    subprocess.run([*kubectl, "delete", "ns", inst.namespace, "--wait=false"], capture_output=True)
 
 
 def test_version(version, vks_image):
@@ -581,6 +604,7 @@ def test_version(version, vks_image):
         }
     finally:
         inst.stop()
+        cleanup_namespace(inst)
 
 
 # ----------------------------------------------------------------------------- report
@@ -719,6 +743,7 @@ def main():
             try:
                 res = test_version(v, vks_image)
                 state["tested"][v] = res
+                state["errors"].pop(v, None)
                 save_state(state)
                 print(f"   {'OK' if res['ok'] else 'FALHA'}: webvault={res['webvault']} "
                       f"item_key={res['has_item_key']} pad={res['pad_errors']} "
