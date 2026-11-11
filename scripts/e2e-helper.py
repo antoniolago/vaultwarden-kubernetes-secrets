@@ -200,8 +200,13 @@ def get_api_key(server, session, password_hash):
 def encrypt_cipher_field(value, enc_key, mac_key):
     return encrypt_bitwarden(value.encode(), enc_key, mac_key)
 
+def get_user_id(server, session):
+    profile = api_get(f"{server.rstrip('/')}/api/accounts/profile", token=session)
+    return profile.get("id") or profile.get("Id")
+
+
 def create_cipher(server, session, enc_key, mac_key, name, login_username="",
-                  login_password="", fields=None, notes=""):
+                  login_password="", fields=None, notes="", encrypted_for=None):
     enc_name = encrypt_cipher_field(name, enc_key, mac_key)
     enc_notes = encrypt_cipher_field(notes, enc_key, mac_key) if notes else None
     enc_user = encrypt_cipher_field(login_username, enc_key, mac_key) if login_username else None
@@ -213,6 +218,9 @@ def create_cipher(server, session, enc_key, mac_key, name, login_username="",
         "login": {},
         "fields": [],
     }
+    if encrypted_for:
+        # Required by the cipher API since web vault 2025.6 and mandatory on Vaultwarden 1.37.4+.
+        payload["encryptedFor"] = encrypted_for
     if enc_notes:
         payload["notes"] = enc_notes
     if login_username or login_password:
@@ -299,6 +307,7 @@ def main():
         mac_key = user_key[32:64]
         namespace = os.environ.get("VW_NAMESPACE", "default")
         items_to_create = int(sys.argv[2]) if len(sys.argv) > 2 else 3
+        user_id = get_user_id(server, session)
         results = []
         for i in range(1, items_to_create + 1):
             item_name = f"e2e-item-{chr(96 + i)}"
@@ -312,6 +321,7 @@ def main():
                     {"name": "data-key", "value": f"value-{item_name}"},
                 ],
                 notes=f"E2E test item {i}",
+                encrypted_for=user_id,
             )
             results.append({"name": item_name, "id": cipher.get("id", "")})
         print(json.dumps({"items": results}))
@@ -354,9 +364,17 @@ def main():
                     logging.warning("Failed to decrypt field '%s': %s",
                                     f.get("name", "unknown"), e)
 
-        # Send update
+        # Send update: PUT is the cipher update verb, and the payload needs encryptedFor again
+        # (the GET response does not echo it, and 1.37.4+ rejects the request without it).
+        existing["encryptedFor"] = get_user_id(server, session)
         url = f"{server.rstrip('/')}/api/ciphers/{item_id}"
-        result = api_post(url, existing, token=session)
+        body = json.dumps(existing).encode()
+        req = urllib.request.Request(url, data=body, method="PUT", headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {session}",
+        })
+        with urllib.request.urlopen(req) as resp:
+            result = json.loads(resp.read().decode())
         print(json.dumps({"modified": item_id, "status": "ok", "result": result.get("id", "")}))
 
     else:

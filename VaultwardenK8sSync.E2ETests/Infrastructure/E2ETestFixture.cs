@@ -627,6 +627,25 @@ nodes:
         AnsiConsole.MarkupLine("[green]✓ Test items created[/]");
     }
     
+    private string? _authenticatedUserId;
+
+    /// <summary>User id the cipher API expects in `encryptedFor`.</summary>
+    private async Task<string?> GetAuthenticatedUserId(HttpClient client)
+    {
+        if (_authenticatedUserId != null)
+            return _authenticatedUserId;
+
+        var response = await client.GetAsync($"{VaultwardenUrl}/api/accounts/profile");
+        if (!response.IsSuccessStatusCode)
+            return null;
+
+        var profile = JsonSerializer.Deserialize<JsonElement>(await response.Content.ReadAsStringAsync());
+        _authenticatedUserId = profile.TryGetProperty("id", out var idProp)
+            ? idProp.GetString()
+            : profile.TryGetProperty("Id", out var idUpper) ? idUpper.GetString() : null;
+        return _authenticatedUserId;
+    }
+
     private async Task CreateVaultItemViaApi(HttpClient client, TestItemDefinition item)
     {
         var cipherUrl = $"{VaultwardenUrl}/api/ciphers";
@@ -638,7 +657,9 @@ nodes:
             ["name"] = EncryptString(item.Name),
             ["notes"] = EncryptString(item.Notes),
             ["favorite"] = false,
-            ["reprompt"] = 0
+            ["reprompt"] = 0,
+            // Required by the cipher API since web vault 2025.6, mandatory on Vaultwarden 1.37.4+
+            ["encryptedFor"] = await GetAuthenticatedUserId(client)
         };
         
         if (item.Type == ItemType.Login)
