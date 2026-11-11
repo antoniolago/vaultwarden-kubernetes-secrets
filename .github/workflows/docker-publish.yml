@@ -44,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        vaultwarden-version: [1.30.1, 1.33.2, 1.35.4, 1.35.8, 1.36.0, 1.37.2]
+        vaultwarden-version: [1.30.1, 1.35.8, 1.36.0, 1.37.2, 1.37.4, 1.37.5]
     
     steps:
     - name: Checkout code
@@ -92,13 +92,15 @@ jobs:
 
   dashboard-e2e-test:
     name: Dashboard E2E Tests (Vaultwarden ${{ matrix.vaultwarden-version }})
-    runs-on: ubuntu-latest
+    # Playwright does not support the 26.04 runner image yet ("Playwright does not support
+    # chromium on ubuntu26.04-x64"), so this job stays on 24.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: [build-and-test]
     strategy:
       fail-fast: false
       matrix:
-        vaultwarden-version: [1.33.2, 1.35.4, 1.35.8, 1.36.0, 1.37.2]
+        vaultwarden-version: [1.35.8, 1.36.0, 1.37.2, 1.37.4, 1.37.5]
     
     steps:
     - name: Checkout code
@@ -233,11 +235,15 @@ jobs:
         docker logs vw-e2e-sync 2>&1 || echo "(no sync container logs)"
 
     - name: Run Playwright tests
+      env:
+        # Belt and braces: if the runner image moves ahead of Playwright's support matrix,
+        # skip the host validation instead of failing the whole job at install time.
+        PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS: "1"
       run: |
         cd dashboard
         npm install -g bun
         bun install --frozen-lockfile
-        bunx playwright install chromium
+        bunx playwright install --with-deps chromium
         API_URL=http://localhost:5000/api DASHBOARD_URL=http://localhost:5173 bun run test:e2e
 
     - name: Upload Playwright report

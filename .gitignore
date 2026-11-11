@@ -424,3 +424,5 @@ db-analysis-output
 !.claude/
 .sisyphus/
 e2e-ssl/
+__pycache__/
+compat/work/
