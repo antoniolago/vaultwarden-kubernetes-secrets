@@ -1,12 +1,12 @@
 name: Vaultwarden compatibility
 
-# Matriz Vaultwarden × VKS: cada release nova do Vaultwarden sobe num container descartável,
-# a conta/org/item é criada pela UI do web vault embutido (é o cliente que define o formato da
-# chave) e a imagem do VKS roda em dry-run contra ela.
+# Vaultwarden x VKS matrix: every new Vaultwarden release runs in a throwaway container, the
+# user/org/item is created through the bundled web vault UI (the client defines the key format)
+# and the VKS image runs a dry-run sync against it.
 #
-# Runner fixo em ubuntu-24.04: em 26.04 as actions de browser ainda não são suportadas
-# ("Playwright does not support chromium on ubuntu26.04-x64"). Este harness não usa Playwright:
-# instala o Chrome e fala CDP direto.
+# Pinned to ubuntu-24.04: browser tooling is not supported on the 26.04 image yet
+# ("Playwright does not support chromium on ubuntu26.04-x64"). This harness does not use
+# Playwright: it installs Chrome and speaks CDP directly.
 
 on:
   schedule:
@@ -14,11 +14,11 @@ on:
   workflow_dispatch:
     inputs:
       versions:
-        description: "Versões específicas (espaço). Vazio = detecta releases novas."
+        description: "Specific versions (space separated). Empty = detect new releases."
         required: false
         default: ""
       max_new:
-        description: "Máximo de versões novas por execução"
+        description: "Max new versions per run"
         required: false
         default: "3"
 
@@ -39,12 +39,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Kubernetes de teste (kind)
+      - name: Test Kubernetes (kind)
         uses: helm/kind-action@v1.10.0
         with:
           cluster_name: vks-compat
 
-      - name: Chrome headless (sem Playwright)
+      - name: Headless Chrome (no Playwright)
         working-directory: .
         run: |
           sudo apt-get update -qq
@@ -52,11 +52,11 @@ jobs:
           sudo apt-get install -y -qq /tmp/chrome.deb
           google-chrome --version
 
-      - name: Dependências do harness
+      - name: Harness dependencies
         working-directory: .
         run: pip install --quiet websocket-client
 
-      - name: Matriz
+      - name: Matrix
         id: matrix
         continue-on-error: true
         env:
@@ -70,7 +70,7 @@ jobs:
           fi
           python3 run_matrix.py $ARGS
 
-      - name: Publicar relatório
+      - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -80,7 +80,7 @@ jobs:
             compat/work/log-*.txt
           if-no-files-found: ignore
 
-      - name: Persistir estado (só versões novas nos próximos runs)
+      - name: Persist state (so only new versions are tested next time)
         if: always()
         working-directory: .
         run: |
@@ -92,6 +92,6 @@ jobs:
             git push
           fi
 
-      - name: Falhar se alguma versão desta execução quebrar o VKS
+      - name: Fail when a version tested in this run breaks the VKS
         if: steps.matrix.outcome == 'failure'
         run: exit 1

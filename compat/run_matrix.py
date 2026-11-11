@@ -248,7 +248,7 @@ def seed_via_webvault(base, email, org, item, fields):
                 break
             time.sleep(1)
         if "finish-signup" not in (t.js("location.href") or ""):
-            # fallback: Enter no campo de e-mail costuma submeter o form
+            # fallback: pressing Enter in the e-mail field usually submits the form
             t.js("""(() => {const el=document.querySelector('#register-start_form_input_email');
                 if(!el) return 0;
                 for (const type of ['keydown','keypress','keyup'])
@@ -272,11 +272,11 @@ def seed_via_webvault(base, email, org, item, fields):
         t.goto(f"{base}/#/vault", wait=4)
         dismiss_overlays(t)
         if not click_text(t, "Nova organização", "a,button", timeout=6):
-            # a sidebar pode estar recolhida: vai direto pela rota
+            # sidebar may be collapsed: go straight to the route
             t.goto(f"{base}/#/create-organization", wait=4)
         time.sleep(4)
         if not t.js("!!document.querySelector('#bit-form-field-5')"):
-            raise RuntimeError("form de organização não abriu: " + (t.js("location.href") or ""))
+            raise RuntimeError("organization form did not open: " + (t.js("location.href") or ""))
         print("   org form:", t.js("JSON.stringify([...document.querySelectorAll('input')]"
                                    ".filter(i=>i.offsetWidth).map(i=>({id:i.id,type:i.type,val:i.value})))"), flush=True)
         t.js("""(() => {
@@ -306,7 +306,7 @@ def seed_via_webvault(base, email, org, item, fields):
             raise RuntimeError("organization not created: " + (t.js("location.href") or "")
                                + " | " + (t.js("document.body.innerText") or "")[:300].replace("\n", " "))
 
-        # item: new UI uses "Adicionar", older uses "Criar"
+        # item: new UI uses "Adicionar" (Add), older uses "Criar" (Create)
         if not click_text(t, "Adicionar", "button") and not click_text(t, "Criar", "button,a"):
             raise RuntimeError("add-item button not found")
         time.sleep(2)
@@ -356,7 +356,7 @@ class Instance:
     def start(self):
         cert, key = ensure_cert()
         self.data.mkdir(parents=True, exist_ok=True)
-        sh([CONTAINER_RUNTIME, "rm", "-f", self.name])  # leftover de run interrompido
+        sh([CONTAINER_RUNTIME, "rm", "-f", self.name])  # leftover from an interrupted run
         r = sh([CONTAINER_RUNTIME, "run", "-d", "--name", self.name,
                 "-p", f"{self.port}:443",
                 "-v", f"{self.data}:/data",
@@ -532,7 +532,7 @@ def test_version(version, vks_image):
 def write_report(state, pending):
     rows = sorted(state["tested"].values(), key=lambda r: semver_key(r["version"]))
     fails = [r for r in rows if not r["ok"]]
-    html = ["""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+    html = ["""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>VKS × Vaultwarden — matriz de compatibilidade</title>
 <style>
 :root{color-scheme:light dark}
@@ -547,30 +547,30 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
 .note{border-left:3px solid var(--accent,#4a7dff);background:var(--card,#f7f8fa);padding:8px 12px;margin:12px 0}
 </style></head><body>""",
             "<h1>VKS × Vaultwarden — matriz de compatibilidade</h1>",
-            f'<div class="sub">última execução: {time.strftime("%Y-%m-%d %H:%M")} · '
-            f'<code>{len(rows)}</code> versões testadas · imagem VKS <code>{rows[-1]["vks_image"] if rows else "-"}</code></div>']
+            f'<div class="sub">last run: {time.strftime("%Y-%m-%d %H:%M")} · '
+            f'<code>{len(rows)}</code> versions tested · VKS image <code>{rows[-1]["vks_image"] if rows else "-"}</code></div>']
 
     if fails:
-        html.append(f'<div class="note"><b>{len(fails)} versão(ões) quebram o VKS.</b> '
-                    'Itens criados pelo web vault destas versões usam <code>ciphers.key</code> (chave por item).</div>')
-    html.append("<h2>Resultados</h2><table><thead><tr><th>Vaultwarden</th><th>web vault</th>"
-                "<th>ciphers.key</th><th>VKS</th><th>pad errors</th><th>secrets</th><th>testado em</th></tr></thead><tbody>")
+        html.append(f'<div class="note"><b>{len(fails)} version(s) break the VKS.</b> '
+                    'Items created by the web vault of these versions carry <code>ciphers.key</code> (per-item key).</div>')
+    html.append("<h2>Results</h2><table><thead><tr><th>Vaultwarden</th><th>web vault</th>"
+                "<th>ciphers.key</th><th>VKS</th><th>pad errors</th><th>secrets</th><th>tested at</th></tr></thead><tbody>")
     for r in rows:
         cls = "good" if r["ok"] else "bad"
         html.append(
             f'<tr><td><b>{r["version"]}</b></td><td>{r["webvault"] or "-"}</td>'
-            f'<td>{"sim" if r["has_item_key"] else "não"}</td>'
+            f'<td>{"yes" if r["has_item_key"] else "no"}</td>'
             f'<td class="{cls}">{"OK" if r["ok"] else "FALHA"}</td>'
             f'<td>{r["pad_errors"]}</td><td>{r["secrets_detected"]}</td>'
             f'<td>{r["tested_at"][:16]}</td></tr>')
     html.append("</tbody></table>")
 
     if pending:
-        html.append("<h2>Pendentes</h2><ul>" + "".join(f"<li>{v}</li>" for v in pending) + "</ul>")
-    html.append('<h2>Como funciona</h2><p class="sub">Cada versão sobe num container com TLS self-signed; '
-                'uma conta+org+item é criada <b>pela UI do web vault embutido</b> (é o cliente que define o formato '
-                'da chave); o sqlite é inspecionado (<code>ciphers.key</code>) e a imagem do VKS roda em '
-                '<code>SYNC__DRYRUN</code> contra a instância. Falha = erro de padding ou item sem nome.</p>')
+        html.append("<h2>Pending</h2><ul>" + "".join(f"<li>{v}</li>" for v in pending) + "</ul>")
+    html.append('<h2>How it works</h2><p class="sub">Each version runs in a throwaway container with a self-signed TLS cert; '
+                'a user+org+item is created <b>through the bundled web vault UI</b> (the client defines the key format) '
+                'the sqlite is inspected (<code>ciphers.key</code>) and the VKS image runs in '
+                '<code>SYNC__DRYRUN</code> against it. Failure = padding error or item name could not be decoded.</p>')
     html.append("</body></html>")
 
     REPORT.parent.mkdir(parents=True, exist_ok=True)
@@ -611,7 +611,7 @@ def main():
 
     if not pending:
         rows, fails = write_report(state, [])
-        print(f"nada novo (min {args.min_version}); {len(rows)} versões no histórico; report: {REPORT}")
+        print(f"nothing new (min {args.min_version}); {len(rows)} versions in history; report: {REPORT}")
         return
 
     batch = pending[:args.max_new]
@@ -624,7 +624,7 @@ def main():
             except Exception as e:  # harness failure, not a product verdict
                 return v, None, str(e)[:300]
 
-        print(f"== testando {len(batch)} versões com {min(args.jobs, len(batch))} jobs", flush=True)
+        print(f"== testing {len(batch)} versions with {min(args.jobs, len(batch))} jobs", flush=True)
         with ThreadPoolExecutor(max_workers=min(args.jobs, len(batch))) as pool:
             for v, res, err in pool.map(_run, batch):
                 if err:
@@ -642,7 +642,7 @@ def main():
                 save_state(state)
     else:
         for v in batch:
-            print(f"== {v}: subindo lab...", flush=True)
+            print(f"== {v}: starting lab...", flush=True)
             try:
                 res = test_version(v, vks_image)
                 state["tested"][v] = res
@@ -661,9 +661,9 @@ def main():
 
     batch_fails = [v for v in batch if not state["tested"].get(v, {}).get("ok")]
     rows, fails = write_report(state, [v for v in pending[args.max_new:]])
-    print(f"\n{len(rows)} versões no histórico · {len(fails)} falhando "
-          f"(nesta execução: {len(batch_fails)}/{len(batch)}) · report: {REPORT}")
-    # código de saída reflete esta execução, não falhas históricas já conhecidas
+    print(f"\n{len(rows)} versions in history · {len(fails)} failing "
+          f"(in this run: {len(batch_fails)}/{len(batch)}) · report: {REPORT}")
+    # exit code reflects this run, not known historical failures
     sys.exit(1 if batch_fails else 0)
 
 

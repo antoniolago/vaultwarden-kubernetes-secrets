@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Repro: item novo na Vaultwarden não é detectado entre syncs contínuos do VKS.
+"""Repro: a new Vaultwarden item is not picked up between continuous VKS syncs.
 
   1. sobe VW 1.37.5 (lab do compat) e cria conta+org+item "item-a" (namespaces=vks-repro) pela UI;
-  2. sobe o VKS em modo contínuo (15s), namespace vks-repro;
+  2. starts the VKS in continuous mode (15s), namespace vks-repro;
   3. confirma o Secret de item-a;
-  4. insere "item-b" no sqlite (cifrado com a org key) e devolve o DB ao container;
-  5. observa até 120s se item-b aparece sem restart do VKS;
-  6. se não aparecer, reinicia só o container do VKS e confirma.
+  4. inserts "item-b" straight into the sqlite (encrypted with the org key) and copies the DB back;
+  5. watches for up to 120s to see whether item-b shows up without a VKS restart;
+  6. if it does not, restarts only the VKS container and confirms.
 """
 import base64
 import hashlib
@@ -108,35 +108,35 @@ def insert_item(db, org_sym, name, values):
 
 
 def add_item_via_ui(inst, item, values):
-    """Loga no web vault e cria um segundo item na org (caminho real do usuário)."""
+    """Logs into the web vault and creates a second item in the org (the real user path)."""
     b = lab.Browser()
     try:
         t = b.tab()
         t.goto(f"{inst.base}/#/login", wait=4)
         lab.fill(t, "#email", inst.email)
         if not lab.click_text(t, "Continuar"):
-            raise RuntimeError("botão Continuar não encontrado no login")
+            raise RuntimeError("login: Continuar button not found")
         time.sleep(3)
         if not t.js("!!document.querySelector('#masterPassword')"):
-            raise RuntimeError("campo de senha não apareceu")
+            raise RuntimeError("login: password field did not appear")
         lab.fill(t, "#masterPassword", lab.MASTER_PW)
         if not lab.click_text(t, "Conectar-se"):
-            raise RuntimeError("botão Conectar-se não encontrado")
+            raise RuntimeError("login: Conectar-se button not found")
         time.sleep(6)
         lab.dismiss_overlays(t)
         t.goto(f"{inst.base}/#/vault", wait=4)
         lab.dismiss_overlays(t)
         if not lab.click_text(t, inst.org, "a,button,span,div"):
-            raise RuntimeError(f"org '{inst.org}' não encontrada na sidebar")
+            raise RuntimeError(f"org '{inst.org}' not found in the sidebar")
         time.sleep(4)
         if not (lab.click_text(t, "Adicionar", "button") or lab.click_text(t, "Criar", "button,a")):
-            raise RuntimeError("botão de adicionar item não encontrado")
+            raise RuntimeError("add-item button not found")
         time.sleep(2)
         if not lab.click_text(t, "Credencial", "button,[role=menuitem]"):
             raise RuntimeError("entrada Credencial não encontrada")
         time.sleep(4)
         if not t.js("!!document.querySelector('#bit-form-field-7')"):
-            raise RuntimeError("formulário do item não abriu")
+            raise RuntimeError("item form did not open")
         lab.fill(t, "#bit-form-field-7", item)
         for label, value in values:
             if not lab.click_text(t, "Adicionar campo", "button,a"):
@@ -147,7 +147,7 @@ def add_item_via_ui(inst, item, values):
             lab.click_text(t, "Adicionar")
             time.sleep(1.5)
             if lab.fill_last_empty_field(t, value) == "missing":
-                raise RuntimeError(f"input de valor não encontrado para {label}")
+                raise RuntimeError(f"value input not found for {label}")
             time.sleep(1)
         if not lab.click_text(t, "Salvar"):
             raise RuntimeError("Salvar não encontrado")
@@ -226,7 +226,7 @@ TEMPLATE = lab.WORK / "template-vw"
 
 
 def prepare_instance(version="1.37.5"):
-    """Instância pronta (conta+org+item-a). Usa template quando existe: ~10s em vez de ~3min."""
+    """Ready instance (user+org+item-a). Reuses a template when present: ~10s instead of ~3min."""
     inst = lab.Instance(version)
     if TEMPLATE.exists() and any(TEMPLATE.iterdir()):
         shutil.rmtree(inst.data, ignore_errors=True)
@@ -313,7 +313,7 @@ def main():
             time.sleep(3)
         print(f"item-a no cluster: {exists('item-a')}", flush=True)
 
-        # --- DB surgery: para o VW, tira o DB, insere item-b, devolve, sobe ---
+        # --- DB surgery: stop VW, pull the DB out, insert item-b, copy it back, start VW ---
         subprocess.run(["podman", "stop", inst.name], capture_output=True, check=True)
         db = Path.home() / ".hermes/cache/scratch/repro-new-item" / "live.db"
         db.parent.mkdir(parents=True, exist_ok=True)
@@ -331,9 +331,9 @@ def main():
         wait_config(inst)
 
         tok = api_session(inst)
-        print("API após insert:", count_org_items(inst, tok), flush=True)
+        print("API after insert:", count_org_items(inst, tok), flush=True)
 
-        # cria o namespace DEPOIS, como faz quem sobe um serviço novo
+        # create the namespace AFTERWARDS, like a new service rollout would
         time.sleep(15)
         subprocess.run(["kubectl", *KC, "create", "ns", NS2], capture_output=True)
         print(f"namespace {NS2} criado; observando...", flush=True)
@@ -343,15 +343,15 @@ def main():
             time.sleep(5)
             if exists("item-c", NS2):
                 appeared = True
-                print(f"✔ item-c apareceu ~{(i + 1) * 5}s depois da criação do ns", flush=True)
+                print(f"OK: item-c appeared ~{(i + 1) * 5}s after the namespace was created", flush=True)
                 break
         if not appeared:
-            print("✘ item-c NÃO apareceu em 120s com o namespace existindo", flush=True)
-            print("reiniciando o VKS...", flush=True)
+            print("FAIL: item-c did not appear within 120s even with the namespace in place", flush=True)
+            print("restarting the VKS container...", flush=True)
             subprocess.run(["podman", "restart", TAG], capture_output=True)
             for _ in range(24):
                 if exists("item-c", NS2):
-                    print("✔ item-c apareceu após restart do VKS", flush=True)
+                    print("OK: item-c appeared after the VKS restart", flush=True)
                     break
                 time.sleep(5)
             logs = subprocess.run(["podman", "logs", TAG], capture_output=True, text=True).stdout

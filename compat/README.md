@@ -1,67 +1,63 @@
-# vks-compat-lab
+# Vaultwarden × VKS compatibility harness
 
-Matriz de compatibilidade **Vaultwarden × vaultwarden-kubernetes-secrets (VKS)**.
+Answers one question for every new Vaultwarden release: *"does the VKS image we run in
+production still decrypt and sync the items this version creates?"*
 
-Responde, para cada release nova do Vaultwarden: *“a imagem do VKS que está em produção
-decifra e sincroniza os itens criados por esta versão?”*
+## Why it exists
 
-## Por que existe
+What breaks the VKS is not the server, it is **the client that wrote the item**. Starting with
+web vault **2026.10.x** (Vaultwarden **1.37.5**) every item carries its own key in
+`ciphers.key`, and the item payload is encrypted with that key. A test that creates items
+through the API with our own crypto cannot see that, so the harness drives the **web vault UI
+bundled with each image**.
 
-O que quebra o VKS não é o servidor, é o **cliente que escreveu o item**. A partir do web
-vault **2026.10.x** (Vaultwarden **1.37.5**) cada item ganha uma chave própria em
-`ciphers.key`, e o conteúdo passa a ser cifrado com ela. Um teste que cria o item por API
-com a nossa própria crypto não pega isso — por isso o harness usa a UI do web vault
-embutido em cada imagem.
+## What a run does
 
-## O que cada execução faz
+1. Lists Vaultwarden tags on Docker Hub and keeps the ones not tested yet (`state.json`).
+2. For each new version, in parallel (`--jobs`):
+   - starts `vaultwarden/server:<version>` in a throwaway container (self-signed TLS, sqlite in
+     a temp dir, free port);
+   - creates user + organization + item with custom fields **through the UI** in a headless
+     Chromium (CDP, no Playwright);
+   - reads the sqlite and checks whether the cipher got a `key`;
+   - runs the VKS image against the instance (`SYNC__DRYRUN=true`) and counts
+     `DecryptString failed`, decoded items and whether the secret name came out readable;
+   - records the verdict, removes the container and the temp dir.
+3. Regenerates `~/.television/artifacts/vks-compat/report.html`.
 
-1. Lista as tags do Vaultwarden no Docker Hub e filtra as ainda não testadas (`state.json`).
-2. Para cada versão nova, em paralelo (`--jobs`):
-   - sobe `vaultwarden/server:<versão>` em container descartável (TLS self-signed, sqlite em
-     diretório temporário, porta livre);
-   - cria conta + organização + item com custom fields **pela UI** num Chromium headless
-     (CDP, sem Playwright);
-   - lê o sqlite e verifica se o cipher ganhou `key`;
-   - roda a imagem do VKS contra a instância (`SYNC__DRYRUN=true`) e conta
-     `DecryptString failed`, itens decifrados e se o nome do Secret saiu legível;
-   - grava o veredito, apaga container e diretório.
-3. Regenera `~/.television/artifacts/vks-compat/report.html`.
+Pass criteria: `pad_errors == 0`, at least one secret detected and the name decoded.
 
-Critério de sucesso: `pad_errors == 0`, ≥1 Secret detectado e nome decifrado.
-
-## Uso
+## Usage
 
 ```bash
-# só ver se há versão nova (barato, ~1s)
+# only check whether a new release is pending (cheap, ~1s)
 python3 run_matrix.py --check
 
-# testar até 3 releases novas, 3 em paralelo
+# test up to 3 new releases, 3 in parallel
 KUBE_CONTEXT=admin@ton-cluster python3 run_matrix.py --jobs 3 --max-new 3
 
-# versões específicas
+# specific versions
 python3 run_matrix.py --versions 1.37.5 1.37.6 --recheck --jobs 2
 ```
 
-Variáveis:
-
-| Variável | Default | Uso |
+| Variable | Default | Purpose |
 |---|---|---|
-| `VKS_IMAGE` | tag pr-28 fixada no fleet-manifests | imagem sob teste |
-| `KUBE_CONTEXT` | vazio | reescreve o `current-context` do kubeconfig copiado, para o dry-run (`admin@ton-cluster` na máquina local; vazio no CI, onde o kind já é o contexto) |
-| `BROWSER_BIN` | helium → chrome → chromium | binário do browser headless |
-| `CONTAINER_RUNTIME` | podman se existir, senão docker | runtime dos containers |
-| `COMPAT_JOBS` | 1 | paralelismo padrão |
+| `VKS_IMAGE` | pr-28 tag pinned in fleet-manifests | image under test |
+| `KUBE_CONTEXT` | empty | rewrites the copied kubeconfig `current-context` for the dry-run (`admin@ton-cluster` locally; empty in CI where kind is the context) |
+| `BROWSER_BIN` | helium → chrome → chromium | headless browser binary |
+| `CONTAINER_RUNTIME` | podman if present, else docker | container runtime |
+| `COMPAT_JOBS` | 1 | default parallelism |
 
-Custo medido: ~2m20 para 2 versões em paralelo (a maior parte é o seed via UI).
-Sem release nova, a execução termina em segundos.
+Measured cost: ~2m20 for two versions in parallel (most of it is the UI seeding). With no new
+release the run finishes in seconds.
 
-## Agendamento
+## Scheduling
 
-CI (recomendado): `.github/workflows/compat.yml` — segunda 06:00 UTC, `workflow_dispatch`
-para rodar versões específicas, kind cluster para o dry-run, estado commitado de volta e
-job falhando quando alguma versão quebra o VKS.
+CI (recommended): `.github/workflows/vks-compat.yml` — Monday 06:00 UTC, `workflow_dispatch`
+for specific versions, kind cluster for the dry-run, state committed back, and the job fails
+when a version tested in that run breaks the VKS.
 
-Local (systemd user timer), se preferir sem CI:
+Local alternative (systemd user timer):
 
 ```ini
 # ~/.config/systemd/user/vks-compat.service
@@ -80,18 +76,29 @@ Persistent=true
 WantedBy=timers.target
 ```
 
-## Armadilhas já pagas
+## End-to-end scenario
 
-- **`runs-on` tem que ser `ubuntu-24.04`.** Em 26.04 o `playwright install` morre com
-  “Playwright does not support chromium on ubuntu26.04-x64”. Este harness não usa
-  Playwright: instala o Chrome (`google-chrome-stable` .deb) e fala CDP direto.
-- **O web vault recusa signup em HTTP** (“Insecure URL not allowed”): sempre TLS, mesmo
-  self-signed. `Security.setIgnoreCertificateErrors` no CDP resolve o aviso.
-- **Navegue por `127.0.0.1`, não `localhost`** — `localhost` cai em IPv6 e dá
+`scenario_missing_namespace.py` recreates the "new secret only appears after a pod restart"
+bug: it starts the VKS in continuous mode, inserts an item for a namespace that does not exist
+yet, creates the namespace afterwards and asserts the Secret shows up within seconds, without
+restarting anything. Run it with the same env vars as the matrix, plus `VKS_IMAGE` pointing at
+the image you want to verify.
+
+## Pitfalls already paid for
+
+- **`runs-on` must be `ubuntu-24.04`.** On 26.04 `playwright install` dies with
+  "Playwright does not support chromium on ubuntu26.04-x64". This harness does not use
+  Playwright: it installs Chrome (`google-chrome-stable` .deb) and speaks CDP.
+- **The web vault refuses to sign up over HTTP** ("Insecure URL not allowed"): always TLS, even
+  self-signed. `Security.setIgnoreCertificateErrors` through CDP handles the warning.
+- **Browse `127.0.0.1`, never `localhost`** — `localhost` may resolve to IPv6 and fails with
   `ERR_CONNECTION_RESET`.
-- **O runner .NET não confia no cert do lab**: `SSL_CERT_FILE=/cert.pem` com o cert montado.
-- **Sem cluster o sync não roda** (o VKS inicializa o client K8s antes de buscar itens):
-  no CI use kind; localmente aponte para um cluster real.
-- **A UI muda entre versões**: 1.37.5 usa “Adicionar → Credencial” com modal de campo;
-  1.37.2–1.37.4 usam “Criar → Credencial” com o mesmo modal. O script tenta os dois.
-  Se a UI mudar de novo, o erro é explícito — e isso já é sinal de que o cliente mudou.
+- **The .NET runtime does not trust the lab cert**: mount it and set `SSL_CERT_FILE=/cert.pem`.
+- **Without a cluster the sync does not run** (the VKS initialises the K8s client before
+  fetching items): use kind in CI, a real cluster locally.
+- **The UI changes between versions**: 1.37.5 uses "Adicionar → Credencial" with a field modal,
+  1.37.2–1.37.4 use "Criar → Credencial" with the same modal. The script tries both and fails
+  loudly, which is itself a signal that the client changed.
+- **You cannot create an organization item through the API with a user token**: both
+  `POST /api/ciphers` and `POST /api/ciphers/create` answer 422 on 1.37.5, so the scenario
+  inserts the cipher straight into the sqlite with the org key.
