@@ -63,12 +63,17 @@ jobs:
           VKS_IMAGE: ${{ vars.VKS_IMAGE || 'ghcr.io/antoniolago/vaultwarden-kubernetes-secrets:pr-28-bd7b7ac6' }}
           BROWSER_BIN: google-chrome
           CONTAINER_RUNTIME: docker
+          # Passed through the environment, never interpolated into the shell: workflow inputs
+          # are user-controlled and must not become part of the script.
+          INPUT_VERSIONS: ${{ github.event.inputs.versions }}
+          INPUT_MAX_NEW: ${{ github.event.inputs.max_new }}
         run: |
-          ARGS="--jobs 3 --max-new ${{ github.event.inputs.max_new || '3' }}"
-          if [ -n "${{ github.event.inputs.versions }}" ]; then
-            ARGS="--versions ${{ github.event.inputs.versions }} --recheck --jobs 3"
+          if [ -n "$INPUT_VERSIONS" ]; then
+            read -r -a VERSIONS <<< "$INPUT_VERSIONS"
+            python3 run_matrix.py --versions "${VERSIONS[@]}" --recheck --jobs 3
+          else
+            python3 run_matrix.py --jobs 3 --max-new "${INPUT_MAX_NEW:-3}"
           fi
-          python3 run_matrix.py $ARGS
 
       - name: Upload report
         if: always()
@@ -77,6 +82,7 @@ jobs:
           name: vks-vw-compat
           path: |
             compat/state.json
+            compat/work/report.html
             compat/work/log-*.txt
           if-no-files-found: ignore
 

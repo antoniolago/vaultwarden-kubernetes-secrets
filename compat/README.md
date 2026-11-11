@@ -57,14 +57,15 @@ CI (recommended): `.github/workflows/vks-compat.yml` — Monday 06:00 UTC, `work
 for specific versions, kind cluster for the dry-run, state committed back, and the job fails
 when a version tested in that run breaks the VKS.
 
-Local alternative (systemd user timer):
+Local alternative (systemd user timer). Replace `<checkout>` with the path where this
+repository lives on your machine (`%h` expands to your home directory):
 
 ```ini
 # ~/.config/systemd/user/vks-compat.service
 [Service]
 Type=oneshot
 Environment=KUBE_CONTEXT=admin@ton-cluster
-ExecStart=/usr/bin/python3 %h/Projetos/vks-compat-lab/run_matrix.py --jobs 2 --max-new 3
+ExecStart=/usr/bin/python3 %h/<checkout>/compat/run_matrix.py --jobs 2 --max-new 3
 ```
 
 ```ini

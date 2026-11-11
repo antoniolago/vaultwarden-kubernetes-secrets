@@ -24,6 +24,7 @@ Env:
 
 import argparse
 import base64
+import fcntl
 import hashlib
 import json
 import os
@@ -49,6 +50,8 @@ KUBE_CONTEXT = os.environ.get("KUBE_CONTEXT", "")
 DEFAULT_VKS_IMAGE = "ghcr.io/antoniolago/vaultwarden-kubernetes-secrets:pr-28-bd7b7ac6"
 MASTER_PW = "CompatLab2026!Key#42"
 LAB_EMAIL_DOMAIN = "lag0.local"
+LAB_LOCALE = "pt-BR"  # pinned so the web vault UI labels are stable
+TARGET_NAMESPACE_PREFIX = "compat-ns"  # per-version namespace: keeps parallel runs isolated
 
 
 # ----------------------------------------------------------------------------- helpers
@@ -94,13 +97,23 @@ def save_state(state):
 
 
 def ensure_cert():
+    """Create the lab TLS pair once, even when several workers start at the same time."""
     cert, key = WORK / "cert.pem", WORK / "key.pem"
     if cert.exists() and key.exists():
         return cert, key
+
     WORK.mkdir(parents=True, exist_ok=True)
-    sh(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-keyout", str(key), "-out", str(cert),
-        "-days", "30", "-nodes", "-subj", "/CN=127.0.0.1",
-        "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1"])
+    with open(WORK / "cert.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)  # only one worker generates the pair
+        if cert.exists() and key.exists():
+            return cert, key
+        tmp_cert, tmp_key = WORK / "cert.pem.tmp", WORK / "key.pem.tmp"
+        sh(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-keyout", str(tmp_key),
+            "-out", str(tmp_cert), "-days", "30", "-nodes", "-subj", "/CN=127.0.0.1",
+            "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1"])
+        # Atomic swap: a worker never mounts a half-written file.
+        os.replace(tmp_cert, cert)
+        os.replace(tmp_key, key)
     return cert, key
 
 
@@ -173,6 +186,15 @@ class Browser:
         page = [t for t in tabs if t["type"] == "page"][0]
         t = Tab(page["webSocketDebuggerUrl"])
         t.send("Security.setIgnoreCertificateErrors", ignore=True)
+        # The web vault follows the browser language; pin it so the PT-BR labels below always match.
+        try:
+            t.send("Emulation.setLocaleOverride", locale=LAB_LOCALE)
+            t.send("Network.enable")
+            t.send("Network.setExtraHTTPHeaders", headers={"Accept-Language": f"{LAB_LOCALE},pt;q=0.9"})
+        except Exception:
+            pass
+        t.send("Page.addScriptToEvaluateOnNewDocument",
+               source="try { localStorage.setItem('locale', '%s'); } catch (e) {}" % LAB_LOCALE)
         return t
 
     def close(self):
@@ -351,7 +373,8 @@ class Instance:
         self.email = f"compat-{version.replace('.', '-')}@{LAB_EMAIL_DOMAIN}"
         self.org = f"CompatOrg {version}"
         self.item = f"compat-item-{version}"
-        self.fields = [("namespaces", "compat-ns"), ("secret-name", self.item), ("token", "abc123")]
+        self.namespace = f"{TARGET_NAMESPACE_PREFIX}-{version.replace('.', '-')}"
+        self.fields = [("namespaces", self.namespace), ("secret-name", self.item), ("token", "abc123")]
 
     def start(self):
         cert, key = ensure_cert()
@@ -440,12 +463,26 @@ def _get(url, headers=None):
 def run_vks(inst, vks_image):
     uid, secret, org_id = inst.api_key()
     cert, _ = ensure_cert()
-    kubeconfig = WORK / "kubeconfig.yaml"
-    src = Path.home() / ".kube/config"
+
+    # One kubeconfig per worker: parallel runs must not truncate each other's file.
+    kubeconfig = WORK / f"kubeconfig-{inst.port}.yaml"
+    src = Path(os.environ.get("KUBECONFIG") or (Path.home() / ".kube" / "config"))
     text = src.read_text()
     if KUBE_CONTEXT:
         text = re.sub(r"(?m)^current-context:.*$", f"current-context: {KUBE_CONTEXT}", text, count=1)
     kubeconfig.write_text(text)
+
+    kubectl = ["kubectl", "--kubeconfig", str(kubeconfig)]
+    if KUBE_CONTEXT:
+        kubectl += ["--context", KUBE_CONTEXT]
+    # The item targets inst.namespace; without it the VKS skips the secret (no reconciliation).
+    subprocess.run([*kubectl, "create", "ns", inst.namespace], capture_output=True)
+    for _ in range(20):
+        phase = subprocess.run([*kubectl, "get", "ns", inst.namespace, "-o",
+                                "jsonpath={.status.phase}"], capture_output=True, text=True)
+        if phase.stdout.strip() == "Active":
+            break
+        time.sleep(1)
 
     tag = f"vkscompat-{inst.version.replace('.', '')}"
     log = WORK / f"log-{inst.port}.txt"
@@ -456,23 +493,39 @@ def run_vks(inst, vks_image):
            "-e", f"VAULTWARDEN__ORGANIZATIONID={org_id}",
            "-e", f"VAULTWARDEN__ORGANIZATIONNAME={inst.org}",
            "-e", f"VAULTWARDEN__EMAIL={inst.email}",
-           "-e", "KUBERNETES__INCLUSTER=false", "-e", "KUBERNETES__DEFAULTNAMESPACE=compat-lab",
+           "-e", "KUBERNETES__INCLUSTER=false", "-e", f"KUBERNETES__DEFAULTNAMESPACE={inst.namespace}",
            "-e", "SYNC__DRYRUN=true", "-e", "SYNC__DELETEORPHANS=false",
            "-e", "SYNC__CONTINUOUSSYNC=false", "-e", "SYNC__SYNCINTERVALSECONDS=3600",
            "-e", "LOGGING__LOGLEVEL__DEFAULT=Information", "-e", "DATABASE_PATH=/tmp/sync.db",
            "-e", "SSL_CERT_FILE=/cert.pem",
            "-v", f"{cert}:/cert.pem:ro", "-v", f"{kubeconfig}:/kube/config:ro",
            "-e", "KUBECONFIG=/kube/config", vks_image]
+
+    timed_out = False
+    returncode = 0
     with open(log, "w") as f:
         try:
-            subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, timeout=150)
+            proc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, timeout=180)
+            returncode = proc.returncode
         except subprocess.TimeoutExpired:
+            timed_out = True
+            returncode = -1
             f.write("\n[TIMEOUT]\n")
+
     text = log.read_text(errors="ignore")
+    # Item detection alone proves nothing: the secret is only reconciled after the namespace
+    # check. Require the dry-run reconciliation line for this item.
+    synced = bool(re.search(rf"\[DRY RUN\] Would (sync item {re.escape(inst.item)}|apply)", text))
+    already_ok = bool(re.search(r"Up-to-date: [1-9]", text)) and f"Namespace '{inst.namespace}' does not exist" not in text
+    reconciled = (synced or already_ok) and f"Namespace '{inst.namespace}' does not exist" not in text
     return {
         "pad_errors": text.count("DecryptString failed"),
         "secrets_detected": len(re.findall(r"Secret '[^']*' .*detected", text)),
         "item_name_decoded": bool(re.search(rf"Secret '{re.escape(inst.item)}'", text)),
+        "reconciled": reconciled,
+        "process_failed": timed_out or returncode != 0,
+        "returncode": returncode,
+        "timed_out": timed_out,
         "vks_log": str(log),
     }
 
@@ -510,7 +563,8 @@ def test_version(version, vks_image):
         Path(str(db) + "-wal").unlink(missing_ok=True)
 
         vks = run_vks(inst, vks_image)
-        ok = vks["pad_errors"] == 0 and vks["secrets_detected"] >= 1 and vks["item_name_decoded"]
+        ok = (vks["pad_errors"] == 0 and vks["item_name_decoded"] and vks["reconciled"]
+              and not vks["process_failed"])
         return {
             "version": version,
             "webvault": wv,
@@ -520,6 +574,8 @@ def test_version(version, vks_image):
             "pad_errors": vks["pad_errors"],
             "secrets_detected": vks["secrets_detected"],
             "item_name_decoded": vks["item_name_decoded"],
+            "reconciled": vks["reconciled"],
+            "vks_returncode": vks["returncode"],
             "duration_s": round(time.time() - started, 1),
             "tested_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         }
@@ -573,8 +629,11 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
                 '<code>SYNC__DRYRUN</code> against it. Failure = padding error or item name could not be decoded.</p>')
     html.append("</body></html>")
 
+    rendered = "\n".join(html)
     REPORT.parent.mkdir(parents=True, exist_ok=True)
-    REPORT.write_text("\n".join(html))
+    REPORT.write_text(rendered)
+    # Copy inside the workspace too so CI can upload it as an artifact.
+    (WORK / "report.html").write_text(rendered)
     return rows, fails
 
 
@@ -604,7 +663,18 @@ def main():
             print(f"warning: docker hub check failed ({e}); using state only", file=sys.stderr)
             candidates = []
 
-    pending = [v for v in candidates if args.recheck or v not in state["tested"]]
+    state.setdefault("errors", {})
+
+    def is_pending(v):
+        if args.recheck or v in state["errors"]:
+            return True
+        record = state["tested"].get(v)
+        if record is None:
+            return True
+        # A different image invalidates previous results: the question being asked changed.
+        return record.get("vks_image") != vks_image
+
+    pending = [v for v in candidates if is_pending(v)]
     if args.check:
         print(json.dumps({"pending": pending, "tested": len(state["tested"])}))
         return
@@ -614,7 +684,9 @@ def main():
         print(f"nothing new (min {args.min_version}); {len(rows)} versions in history; report: {REPORT}")
         return
 
-    batch = pending[:args.max_new]
+    # Explicit versions are a direct request: test all of them, ignore the incremental limit.
+    batch = pending if args.versions else pending[:args.max_new]
+    ensure_cert()  # before the pool, so parallel workers never race on the TLS pair
     if args.jobs > 1 and len(batch) > 1:
         from concurrent.futures import ThreadPoolExecutor
 
@@ -628,14 +700,15 @@ def main():
         with ThreadPoolExecutor(max_workers=min(args.jobs, len(batch))) as pool:
             for v, res, err in pool.map(_run, batch):
                 if err:
-                    print(f"   {v}: ERRO no harness: {err}", flush=True)
-                    state["tested"][v] = {
-                        "version": v, "ok": False, "webvault": None, "has_item_key": None,
-                        "vks_image": vks_image, "pad_errors": None, "secrets_detected": None,
-                        "item_name_decoded": False, "duration_s": None,
-                        "tested_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "error": err}
+                    # Harness failure, not a product verdict: keep it pending for the next run.
+                    print(f"   {v}: harness error: {err}", flush=True)
+                    state["errors"][v] = {
+                        "version": v, "error": err,
+                        "vks_image": vks_image,
+                        "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
                 else:
                     state["tested"][v] = res
+                    state["errors"].pop(v, None)
                     print(f"   {v}: {'OK' if res['ok'] else 'FALHA'} webvault={res['webvault']} "
                           f"item_key={res['has_item_key']} pad={res['pad_errors']} "
                           f"secrets={res['secrets_detected']} ({res['duration_s']}s)", flush=True)
@@ -651,15 +724,18 @@ def main():
                       f"item_key={res['has_item_key']} pad={res['pad_errors']} "
                       f"secrets={res['secrets_detected']} ({res['duration_s']}s)", flush=True)
             except Exception as e:
-                print(f"   ERRO no harness: {e}", flush=True)
-                state["tested"][v] = {
-                    "version": v, "ok": False, "webvault": None, "has_item_key": None,
-                    "vks_image": vks_image, "pad_errors": None, "secrets_detected": None,
-                    "item_name_decoded": False, "duration_s": None,
-                    "tested_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "error": str(e)[:300]}
+                # Harness failure, not a product verdict: keep it pending for the next run.
+                print(f"   {v}: harness error: {e}", flush=True)
+                state["errors"][v] = {
+                    "version": v, "error": str(e)[:300],
+                    "vks_image": vks_image,
+                    "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
                 save_state(state)
 
-    batch_fails = [v for v in batch if not state["tested"].get(v, {}).get("ok")]
+    batch_fails = [v for v in batch if v in state["tested"] and not state["tested"][v].get("ok")]
+    batch_errors = [v for v in batch if v in state["errors"]]
+    if batch_errors:
+        print(f"harness errors (kept pending): {', '.join(batch_errors)}")
     rows, fails = write_report(state, [v for v in pending[args.max_new:]])
     print(f"\n{len(rows)} versions in history · {len(fails)} failing "
           f"(in this run: {len(batch_fails)}/{len(batch)}) · report: {REPORT}")

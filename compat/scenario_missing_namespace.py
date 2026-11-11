@@ -102,6 +102,8 @@ def insert_item(db, org_sym, name, values):
               (uid, now, now, org_uuid, aes_enc(name.encode(), org_sym), json.dumps(fields), data))
     c.execute("insert into ciphers_collections (cipher_uuid, collection_uuid) values (?,?)", (uid, coll))
     c.commit()
+    # Fold the WAL into the main file before it is copied back: a stale -wal would be replayed
+    # against the replaced database and hide (or corrupt) the row we just inserted.
     c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     c.close()
 
@@ -238,12 +240,12 @@ def prepare_instance(version="1.37.5"):
     inst.start()
     lab.seed_via_webvault(inst.base, inst.email, inst.org, "item-a",
                           [("namespaces", NS), ("secret-name", "item-a"), ("token", "abc123")])
-    subprocess.run(["podman", "stop", inst.name], capture_output=True, check=True)
+    subprocess.run([lab.CONTAINER_RUNTIME, "stop", inst.name], capture_output=True, check=True)
     TEMPLATE.mkdir(parents=True, exist_ok=True)
     shutil.rmtree(TEMPLATE, ignore_errors=True)
     TEMPLATE.mkdir(parents=True, exist_ok=True)
     subprocess.run(["cp", "-a", f"{inst.data}/.", str(TEMPLATE)], check=True)
-    subprocess.run(["podman", "rm", "-f", inst.name], capture_output=True)
+    subprocess.run([lab.CONTAINER_RUNTIME, "rm", "-f", inst.name], capture_output=True)
     shutil.rmtree(inst.data, ignore_errors=True)
     inst.data.mkdir(parents=True, exist_ok=True)
     subprocess.run(["cp", "-a", f"{TEMPLATE}/.", str(inst.data)], check=True)
@@ -262,7 +264,7 @@ def vks_start(inst, uid, secret, org_id, tag):
     if lab.KUBE_CONTEXT:
         text = lab.re.sub(r"(?m)^current-context:.*$", f"current-context: {lab.KUBE_CONTEXT}", text, count=1)
     kc.write_text(text)
-    r = subprocess.run(["podman", "run", "-d", "--name", tag, "--network=host",
+    r = subprocess.run([lab.CONTAINER_RUNTIME, "run", "-d", "--name", tag, "--network=host",
                         "-e", f"BW_CLIENTID=user.{uid}", "-e", f"BW_CLIENTSECRET={secret}",
                         "-e", f"VAULTWARDEN__MASTERPASSWORD={lab.MASTER_PW}",
                         "-e", f"VAULTWARDEN__SERVERURL={inst.base}",
@@ -293,18 +295,25 @@ def wait_config(inst, tries=40):
 
 
 def main():
-    for _ in range(30):
-        out = subprocess.run(["kubectl", *KC, "get", "ns", NS], capture_output=True, text=True)
-        if "NotFound" in out.stderr:
-            break
-        time.sleep(2)
-    subprocess.run(["kubectl", *KC, "create", "ns", NS], capture_output=True)
+    created = set()
+
+    def ensure_namespace(name):
+        """Create the namespace; returns True only when this run created it."""
+        out = subprocess.run(["kubectl", *KC, "create", "ns", name], capture_output=True, text=True)
+        if out.returncode == 0:
+            created.add(name)
+            return True
+        if "AlreadyExists" not in out.stderr:
+            raise RuntimeError(f"cannot create namespace {name}: {out.stderr.strip()[:200]}")
+        return False
+
+    ensure_namespace(NS)
 
     inst, seeded = prepare_instance("1.37.5")
     print(f"VW {inst.base} ({'seed' if seeded else 'template'})", flush=True)
     try:
         uid, secret, org_id = inst.api_key()
-        subprocess.run(["podman", "rm", "-f", TAG], capture_output=True)
+        subprocess.run([lab.CONTAINER_RUNTIME, "rm", "-f", TAG], capture_output=True)
         vks_start(inst, uid, secret, org_id, TAG)
 
         for _ in range(20):
@@ -314,29 +323,43 @@ def main():
         print(f"item-a no cluster: {exists('item-a')}", flush=True)
 
         # --- DB surgery: stop VW, pull the DB out, insert item-b, copy it back, start VW ---
-        subprocess.run(["podman", "stop", inst.name], capture_output=True, check=True)
+        subprocess.run([lab.CONTAINER_RUNTIME, "stop", inst.name], capture_output=True, check=True)
         db = Path.home() / ".hermes/cache/scratch/repro-new-item" / "live.db"
         db.parent.mkdir(parents=True, exist_ok=True)
         for suffix, name in (("", "db.sqlite3"), ("-wal", "db.sqlite3-wal"), ("-shm", "db.sqlite3-shm")):
-            subprocess.run(["podman", "cp", f"{inst.name}:/data/{name}", str(db) + suffix],
+            subprocess.run([lab.CONTAINER_RUNTIME, "cp", f"{inst.name}:/data/{name}", str(db) + suffix],
                            capture_output=True)
 
         org_sym = org_key_from_db(db, inst.email, lab.MASTER_PW)
         insert_item(db, org_sym, "item-c", {"namespaces": NS2, "secret-name": "item-c", "token": "abc123"})
 
-        subprocess.run(["podman", "cp", str(db), f"{inst.name}:/data/db.sqlite3"], check=True, capture_output=True)
-        subprocess.run(["podman", "exec", inst.name, "rm", "-f", "/data/db.sqlite3-wal", "/data/db.sqlite3-shm"],
+        subprocess.run([lab.CONTAINER_RUNTIME, "cp", str(db), f"{inst.name}:/data/db.sqlite3"], check=True, capture_output=True)
+        subprocess.run([lab.CONTAINER_RUNTIME, "exec", inst.name, "rm", "-f", "/data/db.sqlite3-wal", "/data/db.sqlite3-shm"],
                        capture_output=True)
-        subprocess.run(["podman", "start", inst.name], capture_output=True, check=True)
+        subprocess.run([lab.CONTAINER_RUNTIME, "start", inst.name], capture_output=True, check=True)
         wait_config(inst)
 
         tok = api_session(inst)
         print("API after insert:", count_org_items(inst, tok), flush=True)
 
-        # create the namespace AFTERWARDS, like a new service rollout would
-        time.sleep(15)
-        subprocess.run(["kubectl", *KC, "create", "ns", NS2], capture_output=True)
-        print(f"namespace {NS2} criado; observando...", flush=True)
+        # Wait until VKS has actually tried and skipped the still-missing namespace, otherwise
+        # the scenario could pass without exercising the negative-cache recovery.
+        def missing_ns_seen(timeout=90):
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                logs = subprocess.run([lab.CONTAINER_RUNTIME, "logs", TAG],
+                                      capture_output=True, text=True).stdout
+                if f"Namespace '{NS2}' does not exist" in logs:
+                    return True
+                time.sleep(3)
+            return False
+
+        if not missing_ns_seen():
+            raise RuntimeError(f"VKS never reported {NS2} as missing; scenario cannot prove recovery")
+
+        # Create the namespace AFTERWARDS, like a new service rollout would.
+        ensure_namespace(NS2)
+        print(f"namespace {NS2} created; watching for the secret...", flush=True)
 
         appeared = False
         for i in range(24):
@@ -348,20 +371,22 @@ def main():
         if not appeared:
             print("FAIL: item-c did not appear within 120s even with the namespace in place", flush=True)
             print("restarting the VKS container...", flush=True)
-            subprocess.run(["podman", "restart", TAG], capture_output=True)
+            subprocess.run([lab.CONTAINER_RUNTIME, "restart", TAG], capture_output=True)
             for _ in range(24):
                 if exists("item-c", NS2):
                     print("OK: item-c appeared after the VKS restart", flush=True)
                     break
                 time.sleep(5)
-            logs = subprocess.run(["podman", "logs", TAG], capture_output=True, text=True).stdout
+            logs = subprocess.run([lab.CONTAINER_RUNTIME, "logs", TAG], capture_output=True, text=True).stdout
             for line in logs.splitlines():
                 if any(k in line for k in ("No changes", "Items from Vaultwarden", "Created", "detected")):
                     print("   log:", line[:150], flush=True)
     finally:
-        subprocess.run(["podman", "rm", "-f", TAG], capture_output=True)
+        subprocess.run([lab.CONTAINER_RUNTIME, "rm", "-f", TAG], capture_output=True)
         inst.stop()
-        subprocess.run(["kubectl", *KC, "delete", "ns", NS, NS2, "--wait=false"], capture_output=True)
+        if created:
+            subprocess.run(["kubectl", *KC, "delete", "ns", *sorted(created), "--wait=false"],
+                           capture_output=True)
 
 
 if __name__ == "__main__":
