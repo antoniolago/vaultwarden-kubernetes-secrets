@@ -41,23 +41,6 @@ public class SyncService : ISyncService
         }
     }
 
-    /// <summary>
-    /// Drops the whole "known missing" cache. Called when a full reconciliation starts, because
-    /// items may have changed and a namespace that was missing on the last run may exist now.
-    /// </summary>
-    private void ClearMissingNamespaceCache()
-    {
-        lock (_missingNamespacesLock)
-        {
-            if (_knownMissingNamespaces.Count > 0)
-            {
-                _logger.LogDebug("Full reconciliation - clearing {Count} known-missing namespace(s) for re-check",
-                    _knownMissingNamespaces.Count);
-                _knownMissingNamespaces.Clear();
-            }
-            _missingNamespaceCheckTimes.Clear();
-        }
-    }
     private int _syncCount;
 
     private void LogMemoryUsage(string phase, long? previousMemory = null)
@@ -235,7 +218,6 @@ public class SyncService : ISyncService
 
             // Full reconciliation: items changed (or a previous run failed), so a namespace that was
             // missing on the last run may exist now. Re-check them instead of trusting the cache.
-            ClearMissingNamespaceCache();
 
             var (itemsByNamespace, itemsWithNamespaces, itemsSkippedByContext) =
                 FilterAndGroupByNamespace(items, effectiveContextName, _logger);

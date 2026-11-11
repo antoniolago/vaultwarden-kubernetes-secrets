@@ -127,7 +127,13 @@ public class MissingNamespaceRecoveryTests
         // namespace is created out-of-band (new service rollout)
         namespaceExists = true;
 
-        // 2nd sync: must re-check the namespace and create the secret without a pod restart
+        // 2nd sync: the negative cache is still valid, so the namespace is not re-checked yet.
+        // The secret must NOT be created here (the 30 min recheck interval must be preserved).
+        await syncService.SyncAsync();
+        Assert.Equal(0, createCalls);
+
+        // 3rd sync: the drift check now sees the namespace on the cluster, drops the stale cache
+        // entry and forces a full reconciliation that creates the secret - no restart needed.
         await syncService.SyncAsync();
 
         Assert.Equal(1, createCalls);
