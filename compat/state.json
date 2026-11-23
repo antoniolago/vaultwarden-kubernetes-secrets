@@ -1,0 +1,52 @@
+{
+  "tested": {
+    "1.37.2": {
+      "duration_s": 147.2,
+      "has_item_key": false,
+      "item_name_decoded": true,
+      "ok": true,
+      "pad_errors": 0,
+      "secrets_detected": 1,
+      "tested_at": "2026-11-09T11:25:54-0300",
+      "version": "1.37.2",
+      "vks_image": "ghcr.io/antoniolago/vaultwarden-kubernetes-secrets:pr-28-bd7b7ac6",
+      "webvault": "2026.7.0"
+    },
+    "1.37.3": {
+      "duration_s": 147.1,
+      "has_item_key": false,
+      "item_name_decoded": true,
+      "ok": true,
+      "pad_errors": 0,
+      "secrets_detected": 1,
+      "tested_at": "2026-11-09T11:25:54-0300",
+      "version": "1.37.3",
+      "vks_image": "ghcr.io/antoniolago/vaultwarden-kubernetes-secrets:pr-28-bd7b7ac6",
+      "webvault": "2026.7.0"
+    },
+    "1.37.4": {
+      "duration_s": 111.7,
+      "has_item_key": false,
+      "item_name_decoded": true,
+      "ok": true,
+      "pad_errors": 0,
+      "secrets_detected": 1,
+      "tested_at": "2026-11-09T11:29:02-0300",
+      "version": "1.37.4",
+      "vks_image": "ghcr.io/antoniolago/vaultwarden-kubernetes-secrets:pr-28-bd7b7ac6",
+      "webvault": "2026.7.0"
+    },
+    "1.37.5": {
+      "duration_s": 125.4,
+      "has_item_key": true,
+      "item_name_decoded": false,
+      "ok": false,
+      "pad_errors": 7,
+      "secrets_detected": 0,
+      "tested_at": "2026-11-09T11:23:03-0300",
+      "version": "1.37.5",
+      "vks_image": "ghcr.io/antoniolago/vaultwarden-kubernetes-secrets:pr-28-bd7b7ac6",
+      "webvault": "2026.10.1"
+    }
+  }
+}

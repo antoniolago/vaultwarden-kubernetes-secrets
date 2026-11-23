@@ -131,28 +131,60 @@ def register(args):
         },
     }
 
-    # Step 9: Send registration request
-    url = f"{server}/identity/accounts/register"
-    data = json.dumps(payload).encode()
-
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST"
-    )
-
+    # Step 9: Send registration request.
+    # Vaultwarden 1.37.4 removed the single-step endpoint; the current flow starts the
+    # registration (token returned when mail is not configured) and then finishes it.
+    base = server.rstrip("/")
+    salt = email.lower()
+    token = None
     try:
-        with urllib.request.urlopen(req) as resp:
-            result = json.loads(resp.read().decode())
-            print(f"  ✓ Registration successful: {result}")
-            return 0
-    except urllib.error.HTTPError as e:
-        print(f"  ✗ HTTP {e.code}: {e.read().decode()[:500]}", file=sys.stderr)
-        return 1
-    except Exception as e:
-        print(f"  ✗ Error: {e}", file=sys.stderr)
-        return 1
+        start_req = urllib.request.Request(
+            f"{base}/identity/accounts/register/send-verification-email",
+            data=json.dumps({"email": email, "name": "E2E Test User"}).encode(),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(start_req) as resp:
+            body = resp.read().decode().strip()
+        token = json.loads(body) if body else None
+        if isinstance(token, dict):
+            token = token.get("emailVerificationToken")
+    except Exception:
+        token = None
+
+    legacy_payload = payload
+    attempts = []
+    if isinstance(token, str) and token:
+        kdf = {"kdf": 0, "kdfIterations": iterations}
+        attempts.append((f"{base}/identity/accounts/register/finish", {
+            "email": email,
+            "name": "E2E Test User",
+            "emailVerificationToken": token,
+            "masterPasswordAuthentication": {"kdf": kdf, "salt": salt, "hash": master_password_hash},
+            "masterPasswordUnlock": {"kdf": kdf, "salt": salt, "key": encrypted_user_key},
+            "keys": {"encryptedPrivateKey": encrypted_private_key, "publicKey": public_key_b64},
+        }))
+    attempts.append((f"{base}/identity/accounts/register", legacy_payload))
+
+    last_error = None
+    for url, body in attempts:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                print(f"  ✓ Registration successful: {json.loads(resp.read().decode())}")
+                return 0
+        except urllib.error.HTTPError as e:
+            last_error = f"HTTP {e.code}: {e.read().decode()[:300]}"
+        except Exception as e:  # network/decoding problem
+            last_error = str(e)
+
+    print(f"  ✗ {last_error}", file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":
